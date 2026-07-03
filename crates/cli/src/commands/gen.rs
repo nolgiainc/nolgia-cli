@@ -322,7 +322,7 @@ async fn wait_for_asset(
         .map(|response| response.into_inner())
 }
 
-async fn download(url: &str, out: &PathBuf) -> Result<()> {
+pub(crate) async fn download(url: &str, out: &PathBuf) -> Result<()> {
     let bytes = reqwest::get(url)
         .await
         .with_context(|| format!("downloading {url}"))?

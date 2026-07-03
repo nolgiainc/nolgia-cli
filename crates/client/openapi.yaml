@@ -153,6 +153,29 @@ paths:
         default:
           $ref: '#/components/responses/ProblemResponse'
 
+  /auth/device/approve:
+    post:
+      tags: [Auth]
+      operationId: approveDeviceAuth
+      summary: Approve a pending device-code authorization for the signed-in user.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceApproveRequest'
+      responses:
+        '204':
+          description: Device authorization approved.
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
   /generate/image:
     post:
       tags: [Generate]
@@ -453,6 +476,30 @@ paths:
           $ref: '#/components/responses/ProblemResponse'
 
   /assets/{id}:
+    get:
+      tags: [Assets]
+      operationId: getAsset
+      summary: Fetch one of the current user's assets with a fresh signed URL.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Asset found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Asset'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
     delete:
       tags: [Assets]
       operationId: deleteAsset
@@ -1537,6 +1584,17 @@ components:
           type: integer
           minimum: 1
           examples: [5]
+
+    DeviceApproveRequest:
+      type: object
+      additionalProperties: false
+      required: [user_code]
+      properties:
+        user_code:
+          type: string
+          minLength: 1
+          maxLength: 16
+          examples: ['BDWP-HQPK']
 
     DeviceTokenRequest:
       type: object

@@ -93,6 +93,7 @@ nolgia wait <job-id>       # block until the job finishes (default timeout 300s)
 
 ```bash
 nolgia assets list [--limit N] [--modality image|video|audio]
+nolgia assets get <asset-id> [--out file]   # metadata, or download with --out
 nolgia assets delete <asset-id>
 ```
 

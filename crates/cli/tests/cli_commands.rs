@@ -191,15 +191,41 @@ async fn assets_list_outputs_asset() {
     run_ok(&api, &["assets", "list"]).stdout(predicate::str::contains("a.png"));
 }
 
-#[test]
-fn assets_get_creates_target_file() {
+#[tokio::test]
+async fn assets_get_downloads_asset() {
+    let api = MockServer::start().await;
+    let files = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/asset.png"))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(vec![7, 7]))
+        .mount(&files)
+        .await;
+    Mock::given(method("GET"))
+        .and(path(format!("/v1/assets/{JOB_ID}")))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(asset_json(&format!("{}/asset.png", files.uri()))),
+        )
+        .mount(&api)
+        .await;
     let dir = tempfile::tempdir().unwrap();
     let out = dir.path().join("asset.bin");
-    cmd()
-        .args(["assets", "get", JOB_ID, "--out", out.to_str().unwrap()])
-        .assert()
-        .success();
-    assert!(out.exists());
+    run_ok(
+        &api,
+        &["assets", "get", JOB_ID, "--out", out.to_str().unwrap()],
+    );
+    assert_eq!(std::fs::read(&out).unwrap(), vec![7, 7]);
+}
+
+#[tokio::test]
+async fn assets_get_prints_metadata_without_out() {
+    let api = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path(format!("/v1/assets/{JOB_ID}")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(asset_json("https://files/a.png")))
+        .mount(&api)
+        .await;
+    run_ok(&api, &["assets", "get", JOB_ID]).stdout(predicate::str::contains("a.png"));
 }
 
 #[tokio::test]

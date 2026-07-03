@@ -1,7 +1,7 @@
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use clap::{Args, Subcommand};
 use nolgia_client::types::Modality;
-use std::{fs, num::NonZeroU64, path::PathBuf};
+use std::{num::NonZeroU64, path::PathBuf};
 use uuid::Uuid;
 
 use crate::output::{OutputFormat, print_json};
@@ -69,18 +69,36 @@ async fn list(args: ListAssetsArgs, ctx: &CommandContext) -> Result<()> {
     }
 }
 
-async fn get(args: GetAssetArgs, _ctx: &CommandContext) -> Result<()> {
+async fn get(args: GetAssetArgs, ctx: &CommandContext) -> Result<()> {
+    let asset = ctx
+        .client()
+        .get_asset()
+        .id(args.asset_id)
+        .send()
+        .await
+        .context("fetching asset")?
+        .into_inner();
+
     if let Some(out) = args.out {
-        if let Some(parent) = out.parent() {
-            fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
+        super::r#gen::download(&asset.signed_url, &out).await?;
+        match ctx.format() {
+            OutputFormat::Json => print_json(&serde_json::json!({"asset": asset, "wrote": out})),
+            OutputFormat::Text => {
+                println!("wrote {}", out.display());
+                Ok(())
+            }
         }
-        fs::write(&out, b"").with_context(|| format!("writing {}", out.display()))?;
-        println!("wrote {}", out.display());
-        Ok(())
     } else {
-        bail!(
-            "asset lookup by id is not exposed by the current API; pass --out to create a target file"
-        )
+        match ctx.format() {
+            OutputFormat::Json => print_json(&asset),
+            OutputFormat::Text => {
+                println!(
+                    "{} {} {} {}",
+                    asset.id, asset.modality, asset.model, asset.signed_url
+                );
+                Ok(())
+            }
+        }
     }
 }
 
