@@ -3,7 +3,7 @@ use clap::{Args, Subcommand};
 use nolgia_client::types::{
     AspectRatio, AudioFormat, AudioModel, GenerateAudioRequest, GenerateImageRequest,
     GenerateVideoRequest, GenerateVideoRequestNegativePrompt, ImageModel, UploadAssetRequest,
-    UploadAssetRequestContentType, UploadAssetRequestFilename, VideoModel,
+    UploadAssetRequestContentType, UploadAssetRequestFilename, VideoModel, VideoShot,
 };
 use serde::Serialize;
 use std::{fs, path::PathBuf};
@@ -59,6 +59,10 @@ pub struct VideoArgs {
     /// Generate a synchronized audio track (Seedance/Veo)
     #[arg(long, action = clap::ArgAction::Set)]
     pub generate_audio: Option<bool>,
+    /// Multi-shot segment "SECONDS:PROMPT" or "SECONDS:PROMPT|AUDIO DIRECTION".
+    /// Repeat up to 8 times; clip duration = sum, --prompt becomes style/context.
+    #[arg(long = "shot")]
+    pub shots: Vec<String>,
     #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
     pub wait: bool,
     #[arg(long, default_value_t = false)]
@@ -146,6 +150,7 @@ async fn video(args: VideoArgs, ctx: &CommandContext) -> Result<()> {
         .map(GenerateVideoRequestNegativePrompt::try_from)
         .transpose()
         .map_err(|e| anyhow::anyhow!("--negative-prompt: {e}"))?;
+    let shots = parse_shots(&args.shots)?;
     let mut builder = GenerateVideoRequest::builder()
         .model(args.model)
         .prompt(args.prompt)
@@ -153,7 +158,8 @@ async fn video(args: VideoArgs, ctx: &CommandContext) -> Result<()> {
         .image_url(image_url)
         .aspect_ratio(args.aspect_ratio)
         .seed(args.seed)
-        .generate_audio(args.generate_audio);
+        .generate_audio(args.generate_audio)
+        .shots(shots);
     if let Some(duration) = args.duration_seconds {
         builder = builder.duration_seconds(duration);
     }
@@ -219,6 +225,44 @@ async fn audio(args: AudioArgs, ctx: &CommandContext) -> Result<()> {
             Ok(())
         }
     }
+}
+
+fn parse_shots(raw: &[String]) -> Result<Option<Vec<VideoShot>>> {
+    if raw.is_empty() {
+        return Ok(None);
+    }
+    let mut shots = Vec::with_capacity(raw.len());
+    for (i, spec) in raw.iter().enumerate() {
+        let (secs, rest) = spec.split_once(':').with_context(|| {
+            format!(
+                "--shot #{}: expected \"SECONDS:PROMPT\", got {spec:?}",
+                i + 1
+            )
+        })?;
+        let duration_seconds: std::num::NonZeroU64 = secs.trim().parse().with_context(|| {
+            format!(
+                "--shot #{}: {secs:?} is not a positive number of seconds",
+                i + 1
+            )
+        })?;
+        let (prompt, audio) = match rest.split_once('|') {
+            Some((p, a)) => (p.trim(), Some(a.trim())),
+            None => (rest.trim(), None),
+        };
+        let mut shot = VideoShot::builder()
+            .prompt(prompt)
+            .duration_seconds(duration_seconds);
+        if let Some(a) = audio {
+            let audio_direction = nolgia_client::types::VideoShotAudio::try_from(a)
+                .map_err(|e| anyhow::anyhow!("--shot #{} audio: {e}", i + 1))?;
+            shot = shot.audio(Some(audio_direction));
+        }
+        shots.push(
+            shot.try_into()
+                .with_context(|| format!("--shot #{}", i + 1))?,
+        );
+    }
+    Ok(Some(shots))
 }
 
 async fn upload_input_image(path: &PathBuf, ctx: &CommandContext) -> Result<String> {

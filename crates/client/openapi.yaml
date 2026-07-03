@@ -1118,6 +1118,40 @@ components:
             Ask the model to generate a synchronized audio track
             (dialogue/ambient/SFX). Model-dependent — supported by Seedance
             and Veo; ignored by models without native audio.
+        shots:
+          type: array
+          nullable: true
+          minItems: 1
+          maxItems: 8
+          description: >-
+            Multi-shot sequence: divide the clip into sequential shots, each
+            with its own prompt, duration, and optional sound direction. The
+            server composes a structured multi-shot prompt (the top-level
+            prompt becomes overall style/context direction) and derives the
+            clip duration from the shot durations; if duration_seconds is
+            also set it must equal their sum. Best on Seedance, which cuts
+            between shots natively.
+          items:
+            $ref: '#/components/schemas/VideoShot'
+
+    VideoShot:
+      type: object
+      additionalProperties: false
+      required: [prompt, duration_seconds]
+      properties:
+        prompt:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        duration_seconds:
+          type: integer
+          minimum: 1
+          maximum: 15
+        audio:
+          type: string
+          nullable: true
+          maxLength: 500
+          description: Sound-design direction for this shot (written into the composed prompt).
 
     JobStatus:
       type: string
