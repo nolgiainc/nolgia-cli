@@ -205,7 +205,7 @@ impl<S: TokenStore> AuthManager<S> {
                     .json::<Problem>()
                     .await
                     .ok()
-                    .and_then(|p| p.error.or(p.kind))
+                    .and_then(|p| p.error.or(p.title).or(p.kind))
                 {
                     Some(error) if error == "authorization_pending" => continue,
                     Some(error) if error == "slow_down" => {
@@ -433,6 +433,9 @@ struct Problem {
     #[serde(rename = "type")]
     kind: Option<String>,
     error: Option<String>,
+    // The API answers the token poll with RFC 7807 problem+json and carries
+    // the OAuth error code in `title`.
+    title: Option<String>,
 }
 
 pub async fn run(
