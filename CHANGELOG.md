@@ -3,6 +3,32 @@
 Release notes for the Nolgia CLI. Each `## vX.Y.Z` section becomes the body of
 the matching GitHub release.
 
+## v0.2.0
+
+The multi-shot and agents release.
+
+- **Multi-shot video** — repeatable `--shot "SECONDS:PROMPT|AUDIO"` (up to 8)
+  turns one generation into a cut sequence; the platform composes it and
+  derives the clip duration. Best on Seedance v2 Pro with
+  `--generate-audio true` for a native soundtrack.
+- **Full video controls** — `--aspect-ratio`, `--duration-seconds`, `--seed`,
+  `--negative-prompt`, `--generate-audio`; `--input` now accepts a local
+  image (auto-uploaded) or the UUID of any previous asset for reusable
+  character/product references.
+- **Live model catalog** — `nolgia models list|get`: models, capabilities,
+  and credit pricing straight from the server; new models appear without a
+  CLI update.
+- **Know the cost first** — `nolgia gen video ... --cost-only` prints the
+  credit estimate without creating a job.
+- **Agent skills** — the binary bundles SKILL.md packs that teach AI agents
+  the platform: `nolgia skills list|show|install` (targets: Claude Code
+  user/project, hermes, custom dir).
+- **Agent-aware** — requests carry an `X-Nolgia-Surface` header
+  (claude-code / codex / hermes / cli, override with `NOLGIA_SURFACE`);
+  `nolgia auth token` prints the active bearer for scripts.
+- **Shell completions** — `nolgia completion bash|zsh|fish|powershell`.
+- CI now runs tests/clippy/fmt on every pull request.
+
 ## v0.1.1
 
 First public release — available via Homebrew (`brew tap nolgiacorp/nolgia`),
