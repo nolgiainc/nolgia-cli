@@ -226,7 +226,7 @@ async fn account_usage_combines_jobs_and_assets() {
     Mock::given(method("GET"))
         .and(path("/v1/jobs"))
         .respond_with(
-            ResponseTemplate::new(200).set_body_json(json!({"items": [job_json("queued", None)]})),
+            ResponseTemplate::new(200).set_body_json(json!({"items": [job_json("queued", None)], "total": 1})),
         )
         .mount(&api)
         .await;

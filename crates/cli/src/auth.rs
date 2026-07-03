@@ -70,6 +70,14 @@ impl<S: TokenStore> AuthManager<S> {
         Ok(LoginOutcome { prompt, tokens })
     }
 
+    pub async fn status_with_token(&self, access_token: &str) -> std::result::Result<AuthStatus, AuthError> {
+        let user = self.fetch_user(access_token).await?;
+        let tier = self.fetch_subscription_tier(access_token).await.unwrap_or_else(|_| "unknown".to_string());
+        let status = AuthStatus { email: user.email, tier };
+        println!("{} ({})", status.email, status.tier);
+        Ok(status)
+    }
+
     pub async fn status(&self) -> std::result::Result<AuthStatus, AuthError> {
         let mut tokens = self.valid_tokens().await?;
 
@@ -375,7 +383,7 @@ struct Problem {
     error: Option<String>,
 }
 
-pub async fn run(command: AuthCommand, format: OutputFormat, base_url: &str) -> Result<()> {
+pub async fn run(command: AuthCommand, format: OutputFormat, base_url: &str, token: Option<String>) -> Result<()> {
     let manager = AuthManager::new(base_url, KeyringTokenStore);
     match command {
         AuthCommand::Login => emit_login(format, &manager.login().await?),
@@ -383,7 +391,10 @@ pub async fn run(command: AuthCommand, format: OutputFormat, base_url: &str) -> 
             manager.logout()?;
             emit_message(format, "logged out")
         }
-        AuthCommand::Status | AuthCommand::Whoami => emit_status(format, &manager.status().await?),
+        AuthCommand::Status | AuthCommand::Whoami => match token.filter(|token| !token.is_empty()) {
+            Some(token) => emit_status(format, &manager.status_with_token(&token).await?),
+            None => emit_status(format, &manager.status().await?),
+        },
     }
 }
 

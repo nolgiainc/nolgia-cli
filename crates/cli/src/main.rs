@@ -50,7 +50,7 @@ async fn main() -> Result<()> {
 pub async fn run_cli(cli: Cli) -> Result<()> {
     let format = OutputFormat::from_json_flag(cli.json);
     if let Commands::Auth(command) = cli.command {
-        return auth::run(command, format, &cli.api_url).await;
+        return auth::run(command, format, &cli.api_url, cli.token).await;
     }
 
     let token = cli.token.or_else(auth::load_token).unwrap_or_default();
