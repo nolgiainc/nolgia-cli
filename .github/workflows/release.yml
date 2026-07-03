@@ -163,12 +163,25 @@ jobs:
             printf '%-12s %s\n' "$(file -b "${f}")" "${f}"
           done
 
+      - name: Extract release notes from CHANGELOG.md
+        run: |
+          set -euo pipefail
+          awk -v tag="${{ github.ref_name }}" '
+            $0 == "## " tag {found=1; next}
+            /^## / {found=0}
+            found {print}
+          ' CHANGELOG.md | sed -e '/./,$!d' > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "See CHANGELOG.md for details." > release-notes.md
+          fi
+          cat release-notes.md
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3.0.1
         with:
           tag_name: ${{ github.ref_name }}
-          name: ${{ github.ref_name }}
-          generate_release_notes: true
+          name: nolgia ${{ github.ref_name }}
+          body_path: release-notes.md
           fail_on_unmatched_files: true
           files: |
             artifacts/nolgia-x86_64-unknown-linux-gnu/nolgia-x86_64-unknown-linux-gnu
