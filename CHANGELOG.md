@@ -3,6 +3,16 @@
 Release notes for the Nolgia CLI. Each `## vX.Y.Z` section becomes the body of
 the matching GitHub release.
 
+## v0.2.1
+
+- **`nolgia assets upload <file>`** — upload a png/jpeg/webp once and get a
+  reusable asset id for `gen video --input <uuid>` (no more re-uploading
+  references per generation).
+- **`nolgia gen audio --voice <id>`** — pick a TTS voice (discover them via
+  `nolgia models get <model>`).
+- The nolgia-agent film pipeline now drives the platform exclusively
+  through this CLI.
+
 ## v0.2.0
 
 The multi-shot and agents release.
