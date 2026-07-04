@@ -93,6 +93,24 @@ Video jobs take minutes. Asset signed URLs **expire in 15 minutes** —
 download promptly (`--out` handles this). PAT requests spend the
 `shared_topup` (API) pool only; `402` means top up.
 
+## Characters, projects, tags
+
+```bash
+nolgia characters create --name "Captain Nova" \
+  --description "silver-haired astronaut, teal flight suit" \
+  --reference-asset-id <uuid>                      # ≤4 reference images
+nolgia characters list                             # id, name, ref count
+nolgia projects create --name "Q3 launch"
+nolgia projects add-assets <project_id> --asset-id <uuid> --asset-id <uuid>
+nolgia assets tag <asset_id> --tag hero --tag campaign   # REPLACES the set; --clear wipes
+nolgia assets list --tag hero --project-id <uuid>  # filter by tag / project
+```
+
+Characters keep a recurring subject consistent: seed image-to-video with a
+character's reference image (`gen video --input <reference asset uuid>`)
+and fold its description into the prompt. Projects group assets (an asset
+can be in many); tags label and filter them.
+
 ## Failure recovery
 
 - `content_policy_violation` / `partner_validation_failed`: the upstream

@@ -11,7 +11,7 @@ clap_complete = "4"
 chrono = { version = "0.4", features = ["serde"] }
 directories = "5"
 keyring = { version = "3.6", features = ["apple-native", "windows-native", "linux-native-sync-persistent"] }
-nolgia-client = { path = "crates/client", version = "0.2.3" }
+nolgia-client = { path = "crates/client", version = "0.2.4" }
 reqwest = { version = "0.13", default-features = false, features = ["json", "gzip", "rustls"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -20,7 +20,7 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "syn
 uuid = { version = "1", features = ["serde", "v4"] }
 
 [workspace.package]
-version = "0.2.3"
+version = "0.2.4"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/nolgiacorp/nolgia-cli"
