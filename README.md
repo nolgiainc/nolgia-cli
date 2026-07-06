@@ -1,8 +1,11 @@
 # Nolgia CLI
 
-[![Crates.io](https://img.shields.io/crates/v/nolgia-cli)](https://crates.io/crates/nolgia-cli)
+[![Crates.io](https://img.shields.io/crates/v/nolgia-cli?logo=rust)](https://crates.io/crates/nolgia-cli)
+[![npm](https://img.shields.io/npm/v/%40nolgia%2Fcli?logo=npm)](https://www.npmjs.com/package/@nolgia/cli)
+[![Homebrew](https://img.shields.io/badge/homebrew-nolgiainc%2Fnolgia-orange?logo=homebrew)](https://github.com/nolgiainc/homebrew-nolgia)
 [![Release](https://github.com/nolgiainc/nolgia-cli/actions/workflows/release.yml/badge.svg)](https://github.com/nolgiainc/nolgia-cli/actions/workflows/release.yml)
-[![Downloads](https://img.shields.io/crates/d/nolgia-cli)](https://crates.io/crates/nolgia-cli)
+[![Downloads](https://img.shields.io/crates/d/nolgia-cli?logo=rust&label=crates%20downloads)](https://crates.io/crates/nolgia-cli)
+[![npm downloads](https://img.shields.io/npm/dm/%40nolgia%2Fcli?logo=npm&label=npm%20downloads)](https://www.npmjs.com/package/@nolgia/cli)
 [![License](https://img.shields.io/crates/l/nolgia-cli)](#license)
 
 Command-line client for the [Nolgia](https://nolgia.ai) generative media platform — Seedance v2 Pro, Kling v3, Veo 3.1, FLUX Pro, ElevenLabs and more, from your terminal, scripts, and AI agents. Multi-shot video sequences, image-to-video with reusable references, native audio tracks, credit estimates before you spend, and bundled agent skills.
