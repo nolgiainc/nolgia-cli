@@ -20,7 +20,17 @@ $ nolgia gen video --prompt "A drone shot over a coastline" --no-wait
 
 ## Contents
 
-- [Installation](#installation) · [Quick start](#quick-start) · [Examples](#examples) · [Models](#models) · [AI agents & skills](#ai-agents--skills) · [Authentication](#authentication) · [Credits](#credits) · [Command reference](#command-reference) · [Global flags and environment](#global-flags-and-environment) · [Shell completions](#shell-completions) · [Development](#development)
+- [Installation](#installation)
+- [Quick start](#quick-start)
+- [Examples](#examples)
+- [Models](#models)
+- [AI agents & skills](#ai-agents--skills)
+- [Authentication](#authentication)
+- [Credits](#credits)
+- [Command reference](#command-reference)
+- [Global flags and environment](#global-flags-and-environment)
+- [Shell completions](#shell-completions)
+- [Development](#development)
 
 ## Installation
 
