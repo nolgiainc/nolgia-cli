@@ -95,7 +95,11 @@ jobs:
         if: steps.detect.outputs.changed == 'true'
         uses: peter-evans/create-pull-request@271a8d0340265f705b14b6d32b9829c1cb33d45e # v7.0.8
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          # Author the PR as the nolgiaai bot (PAT) rather than GITHUB_TOKEN.
+          # PRs opened by GITHUB_TOKEN can't trigger workflows — GitHub gates
+          # them behind a manual "approve and run", which defeats the automation.
+          # A PAT-authored PR runs its CI automatically.
+          token: ${{ secrets.NOLGIA_BOT_PAT }}
           branch: automated/revendor-openapi
           base: main
           commit-message: "chore: re-vendor OpenAPI spec from nolgia-api"
