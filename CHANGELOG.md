@@ -5,6 +5,20 @@ the matching GitHub release.
 
 ## Unreleased
 
+- **`projects create`/`update` gain `--auto-tag`** (repeatable, up to 10) so
+  new assets carrying a matching tag are auto-added to the project. `update`
+  also gains `--clear-auto-tags` to empty the set. This resyncs the vendored
+  OpenAPI spec with the current nolgia-api contract, which added `auto_tags`.
+- **`assets tag --clear` fix**: the regenerated client drops empty arrays on
+  serialization, so `--clear` now sends `{"tags": []}` via a raw request helper
+  (`ClientExt::clear_asset_tags`) to actually clear the tag set server-side.
+- **Spec drift is now gated in CI.** A `spec-check` job fails the build if
+  `crates/client/openapi.yaml` drifts from the canonical nolgia-api contract
+  (fetched from the public docs endpoint). A `revendor-spec` workflow
+  (repository_dispatch `openapi-updated` + manual + nightly) re-vendors the
+  spec and opens a PR when it changes. `build.rs` no longer silently prefers a
+  sibling `nolgia-api` checkout — that dev convenience is now opt-in via
+  `NOLGIA_USE_SIBLING_SPEC=1`, so CI always uses the vendored spec.
 - **`nolgia skill` renamed to `nolgia ability`** — the marketplace command for
   Hermes agents (`list`, `show`, `installed`, `install`, `uninstall`, `sync`,
   `init`, `pack`, `publish`) now lives under `nolgia ability`, mirroring the

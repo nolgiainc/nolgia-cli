@@ -1,8 +1,9 @@
 use anyhow::{Context, Result, ensure};
 use clap::{Args, Subcommand};
 use nolgia_client::types::{
-    AddProjectAssetsRequest, CreateProjectRequest, CreateProjectRequestDescription,
-    UpdateProjectRequest, UpdateProjectRequestDescription, UpdateProjectRequestName,
+    AddProjectAssetsRequest, CreateProjectRequest, CreateProjectRequestAutoTagsItem,
+    CreateProjectRequestDescription, UpdateProjectRequest, UpdateProjectRequestAutoTagsItem,
+    UpdateProjectRequestDescription, UpdateProjectRequestName,
 };
 use uuid::Uuid;
 
@@ -39,6 +40,10 @@ pub struct CreateProjectArgs {
     pub name: String,
     #[arg(long)]
     pub description: Option<String>,
+    /// Auto-tag: new assets carrying this tag are added to the project automatically
+    /// (repeat for multiple, up to 10).
+    #[arg(long = "auto-tag", value_name = "TAG")]
+    pub auto_tag: Vec<String>,
 }
 
 #[derive(Args, Debug)]
@@ -48,6 +53,13 @@ pub struct UpdateProjectArgs {
     pub name: Option<String>,
     #[arg(long)]
     pub description: Option<String>,
+    /// Replace the project's full auto-tag set (repeat for multiple, up to 10).
+    /// New assets carrying an overlapping tag are added to the project automatically.
+    #[arg(long = "auto-tag", value_name = "TAG")]
+    pub auto_tag: Vec<String>,
+    /// Remove all auto-tags from the project (cannot be combined with --auto-tag).
+    #[arg(long, conflicts_with = "auto_tag")]
+    pub clear_auto_tags: bool,
 }
 
 #[derive(Args, Debug)]
@@ -124,9 +136,16 @@ async fn create(args: CreateProjectArgs, ctx: &CommandContext) -> Result<()> {
         .map(|d| d.parse())
         .transpose()
         .context("invalid --description")?;
+    let auto_tags: Vec<CreateProjectRequestAutoTagsItem> = args
+        .auto_tag
+        .iter()
+        .map(|t| t.parse())
+        .collect::<Result<_, _>>()
+        .context("invalid --auto-tag")?;
     let body: CreateProjectRequest = CreateProjectRequest::builder()
         .name(args.name)
         .description(description)
+        .auto_tags(auto_tags)
         .try_into()
         .context("building create-project request")?;
     let project = ctx
@@ -157,11 +176,30 @@ async fn update(args: UpdateProjectArgs, ctx: &CommandContext) -> Result<()> {
         .map(|d| d.parse())
         .transpose()
         .context("invalid --description")?;
+    // Distinguish "leave auto-tags unchanged" (None) from "clear them"
+    // (Some(empty vec)) from "replace with this set" (Some(non-empty)).
+    let auto_tags: Option<Vec<UpdateProjectRequestAutoTagsItem>> = if args.clear_auto_tags {
+        Some(Vec::new())
+    } else if args.auto_tag.is_empty() {
+        None
+    } else {
+        Some(
+            args.auto_tag
+                .iter()
+                .map(|t| t.parse())
+                .collect::<Result<_, _>>()
+                .context("invalid --auto-tag")?,
+        )
+    };
     ensure!(
-        name.is_some() || description.is_some(),
-        "provide at least one of --name or --description"
+        name.is_some() || description.is_some() || auto_tags.is_some(),
+        "provide at least one of --name, --description, --auto-tag, or --clear-auto-tags"
     );
-    let body = UpdateProjectRequest { name, description };
+    let body = UpdateProjectRequest {
+        name,
+        description,
+        auto_tags,
+    };
     let project = ctx
         .client()
         .update_project()

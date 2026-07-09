@@ -37,3 +37,38 @@ jobs:
 
       - name: Check formatting
         run: cargo fmt --all -- --check
+
+  spec-check:
+    name: OpenAPI spec drift
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      # The Rust client is generated at build time from the vendored spec at
+      # crates/client/openapi.yaml. That copy must never drift from the
+      # canonical nolgia-api contract. The canonical spec is published
+      # unauthenticated to the public docs bucket on every push to
+      # nolgia-api main that touches api/openapi.yaml (see
+      # nolgia-api/.github/workflows/docs.yml), so we can diff against it
+      # with no cross-repo token. Override the URL via NOLGIA_CANONICAL_SPEC_URL
+      # if the docs host ever moves.
+      - name: Fetch canonical spec
+        env:
+          SPEC_URL: ${{ vars.NOLGIA_CANONICAL_SPEC_URL || 'https://docs.nolgia.ai/api/openapi.yaml' }}
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3 --retry-delay 2 "$SPEC_URL" -o /tmp/canonical-openapi.yaml
+          echo "Fetched $(wc -c < /tmp/canonical-openapi.yaml) bytes from $SPEC_URL"
+
+      - name: Diff vendored spec against canonical
+        run: |
+          set -euo pipefail
+          if ! diff -u crates/client/openapi.yaml /tmp/canonical-openapi.yaml; then
+            echo "::error::crates/client/openapi.yaml has drifted from the canonical nolgia-api spec."
+            echo "::error::Run the 're-vendor OpenAPI spec' workflow (workflow_dispatch), or locally: curl -fsSL https://docs.nolgia.ai/api/openapi.yaml -o crates/client/openapi.yaml && cargo build && cargo fmt --all, then fix any command code and commit."
+            exit 1
+          fi
+          echo "Vendored spec matches canonical nolgia-api contract."

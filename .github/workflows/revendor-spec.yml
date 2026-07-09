@@ -1,0 +1,116 @@
+name: Re-vendor OpenAPI spec
+
+# Keeps the vendored OpenAPI spec (crates/client/openapi.yaml) — the source
+# the Rust client is generated from at build time — in sync with the canonical
+# nolgia-api contract.
+#
+# Triggers:
+#   - repository_dispatch (event_type: openapi-updated): fired by nolgia-api's
+#     propagate-openapi workflow on every push to its main that changes
+#     api/openapi.yaml. Requires the cross-repo dispatch token on the SENDING
+#     side (nolgia-api secret CROSS_REPO_DISPATCH_TOKEN); nothing is needed here.
+#   - workflow_dispatch: manual re-vendor.
+#   - schedule (nightly): token-free backstop so drift is caught within a day
+#     even if the dispatch never fires.
+#
+# The canonical spec is fetched unauthenticated from the public docs bucket
+# (published by nolgia-api/.github/workflows/docs.yml). No token is needed to
+# READ the spec. Opening the PR uses the built-in GITHUB_TOKEN.
+#
+# NOTE: re-vendoring only refreshes the spec + regenerated client. Hand-written
+# command code (e.g. new required request fields) may still need manual fixes,
+# so the opened PR can legitimately fail to compile until a human updates the
+# command handlers. That is by design — the PR surfaces the drift loudly.
+
+on:
+  repository_dispatch:
+    types: [openapi-updated]
+  workflow_dispatch:
+  schedule:
+    # 07:17 UTC nightly — offset from the top of the hour to avoid contention.
+    - cron: "17 7 * * *"
+
+concurrency:
+  group: revendor-spec
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  revendor:
+    name: Re-vendor spec and open PR
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Install Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+        with:
+          toolchain: stable
+          components: rustfmt
+          cache: true
+
+      - name: Install libdbus (keyring crate dependency)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libdbus-1-dev pkg-config
+
+      - name: Fetch canonical spec
+        env:
+          SPEC_URL: ${{ vars.NOLGIA_CANONICAL_SPEC_URL || 'https://docs.nolgia.ai/api/openapi.yaml' }}
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3 --retry-delay 2 "$SPEC_URL" -o crates/client/openapi.yaml
+          echo "Fetched $(wc -c < crates/client/openapi.yaml) bytes from $SPEC_URL"
+
+      - name: Detect change
+        id: detect
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- crates/client/openapi.yaml; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Vendored spec already matches canonical — nothing to do."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Regenerate the client so the PR carries a buildable-or-visibly-broken
+      # state. CI never uses the sibling checkout here (see build.rs guard):
+      # NOLGIA_USE_SIBLING_SPEC is unset, so build.rs reads the vendored spec.
+      - name: Regenerate client (best effort)
+        if: steps.detect.outputs.changed == 'true'
+        continue-on-error: true
+        run: |
+          cargo build --workspace --locked || true
+          cargo fmt --all || true
+
+      - name: Create pull request
+        if: steps.detect.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@271a8d0340265f705b14b6d32b9829c1cb33d45e # v7.0.8
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: automated/revendor-openapi
+          base: main
+          commit-message: "chore: re-vendor OpenAPI spec from nolgia-api"
+          title: "chore: re-vendor OpenAPI spec from nolgia-api"
+          labels: openapi, automated
+          body: |
+            Automated re-vendor of `crates/client/openapi.yaml` from the canonical
+            nolgia-api contract (`https://docs.nolgia.ai/api/openapi.yaml`).
+
+            **Triggered by:** `${{ github.event_name }}`
+
+            The generated Rust client is rebuilt from this spec at build time. If
+            the spec added required request fields or changed shapes, the
+            hand-written command handlers (`crates/cli/src/commands/*`) and the
+            test fixtures (`crates/cli/tests/cli_commands.rs`) may need manual
+            updates — **this PR may fail CI until those are made**. That failure
+            is the point: it surfaces the contract change loudly instead of
+            letting the client silently fall behind.
+
+            Review checklist:
+            - [ ] `cargo build --workspace` is green
+            - [ ] `cargo clippy --workspace --all-targets --all-features -- -D warnings`
+            - [ ] `cargo test --workspace`
+            - [ ] Command handlers updated for any new/changed request fields

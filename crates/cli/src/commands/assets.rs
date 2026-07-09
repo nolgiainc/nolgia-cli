@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use clap::{Args, Subcommand};
+use nolgia_client::ClientExt;
 use nolgia_client::types::{Modality, UpdateAssetRequest, UpdateAssetRequestTagsItem};
 use std::{num::NonZeroU64, path::PathBuf};
 use uuid::Uuid;
@@ -158,25 +159,34 @@ async fn tag(args: TagAssetArgs, ctx: &CommandContext) -> Result<()> {
         !args.tag.is_empty() || args.clear,
         "provide at least one --tag, or --clear to remove all tags"
     );
-    let tags: Vec<UpdateAssetRequestTagsItem> = args
-        .tag
-        .iter()
-        .map(|t| t.parse())
-        .collect::<Result<_, _>>()
-        .context("invalid --tag")?;
-    let body: UpdateAssetRequest = UpdateAssetRequest::builder()
-        .tags(tags)
-        .try_into()
-        .context("building tag request")?;
-    let asset = ctx
-        .client()
-        .update_asset()
-        .id(args.asset_id)
-        .body(body)
-        .send()
-        .await
-        .context("tagging asset")?
-        .into_inner();
+    let asset = if args.clear {
+        // The generated UpdateAssetRequest.tags field drops an empty vec on
+        // serialization, so the typed builder can't express "clear all tags"
+        // (`{"tags": []}`). Use the raw-request helper to send it literally.
+        ctx.client()
+            .clear_asset_tags(args.asset_id)
+            .await
+            .context("clearing asset tags")?
+    } else {
+        let tags: Vec<UpdateAssetRequestTagsItem> = args
+            .tag
+            .iter()
+            .map(|t| t.parse())
+            .collect::<Result<_, _>>()
+            .context("invalid --tag")?;
+        let body: UpdateAssetRequest = UpdateAssetRequest::builder()
+            .tags(tags)
+            .try_into()
+            .context("building tag request")?;
+        ctx.client()
+            .update_asset()
+            .id(args.asset_id)
+            .body(body)
+            .send()
+            .await
+            .context("tagging asset")?
+            .into_inner()
+    };
     match ctx.format() {
         OutputFormat::Json => print_json(&asset),
         OutputFormat::Text => {

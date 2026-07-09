@@ -21,6 +21,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("cargo:rerun-if-changed={}", local_spec.display());
     println!("cargo:rerun-if-changed={}", vendored_spec.display());
     println!("cargo:rerun-if-env-changed=NOLGIA_OPENAPI_RELEASE_URL");
+    println!("cargo:rerun-if-env-changed=NOLGIA_USE_SIBLING_SPEC");
 
     let spec = load_spec(&local_spec, &vendored_spec, &version_file)?;
 
@@ -41,9 +42,17 @@ fn load_spec(
     vendored_spec: &Path,
     version_file: &Path,
 ) -> Result<OpenAPI, Box<dyn Error>> {
-    // Prefer the sibling nolgia-api checkout (dev flow), then the vendored
-    // snapshot (CI), then the release asset download.
-    let raw_text = if local_spec.exists() {
+    // Spec source precedence:
+    //   1. The sibling nolgia-api checkout — LOCAL DEV CONVENIENCE ONLY, and
+    //      only when opted in via NOLGIA_USE_SIBLING_SPEC. CI must never prefer
+    //      the sibling: a stale sibling checkout could silently mask spec drift
+    //      that the vendored copy (which the spec-check job gates) would catch.
+    //   2. The vendored snapshot (crates/client/openapi.yaml) — the default,
+    //      and the only source used in CI/release builds.
+    //   3. The release asset download (release profile, no vendored copy).
+    let use_sibling =
+        matches!(env::var("NOLGIA_USE_SIBLING_SPEC").as_deref(), Ok("1")) && local_spec.exists();
+    let raw_text = if use_sibling {
         fs::read_to_string(local_spec)?
     } else if vendored_spec.exists() {
         fs::read_to_string(vendored_spec)?

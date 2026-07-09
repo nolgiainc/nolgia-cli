@@ -8,9 +8,44 @@ mod generated {
 
 use std::{fmt, result::Result as StdResult};
 
+use generated::ClientInfo;
 use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
+use uuid::Uuid;
 
 pub use generated::{Client, Error as ApiError, ResponseValue, types};
+
+/// Extension helpers on the generated [`Client`] that need behavior the
+/// generated builders cannot express.
+///
+/// The generated `UpdateAssetRequest.tags` field derives
+/// `skip_serializing_if = "Vec::is_empty"` (the spec models it as a plain,
+/// non-nullable array), so the typed builder can never emit `{"tags": []}` —
+/// an empty vec is dropped entirely. The API distinguishes an omitted `tags`
+/// (leave unchanged) from an explicit empty array (clear all tags), so
+/// `assets tag --clear` must send the empty array literally. This helper does
+/// exactly that via a raw request that reuses the client's auth/base-url.
+pub trait ClientExt {
+    /// PATCH `/assets/{id}` with `{"tags": []}` to clear an asset's tag set,
+    /// returning the updated [`types::Asset`].
+    fn clear_asset_tags(
+        &self,
+        id: Uuid,
+    ) -> impl std::future::Future<Output = StdResult<types::Asset, ApiError<()>>> + Send;
+}
+
+impl ClientExt for Client {
+    async fn clear_asset_tags(&self, id: Uuid) -> StdResult<types::Asset, ApiError<()>> {
+        let url = format!("{}/assets/{}", self.baseurl(), id);
+        let response = self
+            .client()
+            .patch(url)
+            .json(&serde_json::json!({ "tags": [] }))
+            .send()
+            .await?;
+        let response = response.error_for_status()?;
+        Ok(response.json::<types::Asset>().await?)
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct ClientBuilder {

@@ -40,6 +40,26 @@ tags:
     description: User-owned reusable subjects (name, description, reference images) for generation.
   - name: Projects
     description: User-owned groupings of assets; an asset can belong to multiple projects.
+  - name: Compositions
+    description: |
+      HyperFrames-style HTML video compositions: a bundle of files
+      (index.html + compositions/*.html + assets/* + meta.json) authored by a
+      user's Hermes agent and rendered by the web UI as a scrubbable timeline.
+      The API stores the files in GCS and serves them back via short-lived
+      signed URLs; it never renders or executes composition content.
+
+      Version series convention: compositions that are versions of the same
+      work share a `meta.series` string and carry an integer `meta.version`.
+      These are ordinary meta keys — the API stores them verbatim and never
+      assigns or increments them; clients own the numbering. Create a new
+      version with `POST /compositions/{id}/clone` (typically bumping
+      `meta.version` via `meta_patch`) and list a series with
+      `GET /compositions?series=...`.
+  - name: Activity
+    description: |
+      Read-only chronological feed of platform events (generations, assets,
+      compositions, renders), assembled at read time from the underlying
+      resources — nothing extra is stored to serve it.
   - name: Billing
     description: Subscription state and Stripe Customer Portal.
   - name: PAT
@@ -458,6 +478,14 @@ paths:
           schema:
             type: string
             format: uuid
+        - name: status
+          in: query
+          required: false
+          description: >
+            Filter by asset lifecycle status. Defaults to `ready`, hiding
+            assets whose signed upload has not been completed yet.
+          schema:
+            $ref: '#/components/schemas/AssetStatus'
       responses:
         '200':
           description: Paginated list of assets.
@@ -475,7 +503,13 @@ paths:
       tags: [Assets]
       operationId: uploadAsset
       summary: Upload a source image for image-to-image or image-to-video.
-      description: Stores the supplied bytes and returns an asset whose signed_url can be passed as image_url to generation endpoints.
+      description: >
+        Stores the supplied bytes and returns an asset whose signed_url can be
+        passed as image_url to generation endpoints. Accepts base64 JSON up to
+        ~10MB decoded, which only suits small images: for large media files
+        (video/audio artifacts, hundreds of MB) use the signed-upload flow
+        instead — `POST /assets/uploads` followed by a direct PUT and
+        `POST /assets/uploads/{id}/complete`.
       requestBody:
         required: true
         content:
@@ -503,6 +537,10 @@ paths:
       tags: [Assets]
       operationId: getAsset
       summary: Fetch one of the current user's assets with a fresh signed URL.
+      description: >
+        Unlike the list endpoint, the response includes `projects`: the
+        asset's project memberships (newest membership first, `[]` when the
+        asset belongs to no project).
       parameters:
         - name: id
           in: path
@@ -510,6 +548,20 @@ paths:
           schema:
             type: string
             format: uuid
+        - name: disposition
+          in: query
+          required: false
+          description: >
+            When set to `attachment`, the returned `signed_url` serves the
+            asset with a `Content-Disposition: attachment` header (bound into
+            the signature) so browsers download the file instead of rendering
+            it inline. The download filename is derived from the asset's
+            display name (with an extension inferred from its MIME type),
+            falling back to the original upload filename, then to
+            `<id>.<ext>`. Omit for the default inline-viewing URL.
+          schema:
+            type: string
+            enum: [attachment]
       responses:
         '200':
           description: Asset found.
@@ -526,8 +578,15 @@ paths:
     patch:
       tags: [Assets]
       operationId: updateAsset
-      summary: Update one of the current user's assets (currently only tags).
-      description: Replaces the asset's full tag set. Tags are trimmed, lowercased, and de-duplicated server-side.
+      summary: Update one of the current user's assets (tags, display name, prompt, metadata).
+      description: >
+        Partial update: `tags` replaces the asset's full tag set (trimmed,
+        lowercased, and de-duplicated server-side), `display_name` renames
+        the asset, `prompt` overwrites the stored prompt (intended for
+        backfilling provenance on uploaded assets), and `metadata` is merged
+        into the existing metadata object (patch keys overwrite, other keys
+        are kept). At least one field is required; omitted fields are left
+        unchanged.
       parameters:
         - name: id
           in: path
@@ -575,6 +634,79 @@ paths:
         '401':
           $ref: '#/components/responses/ProblemResponse'
         '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /assets/uploads:
+    post:
+      tags: [Assets]
+      operationId: createAssetUpload
+      summary: Start a signed upload for a large media asset.
+      description: >
+        Pre-creates an asset in status `uploading` and returns a short-lived
+        signed PUT URL for uploading the bytes directly to storage, bypassing
+        the base64 JSON limit of `POST /assets`. PUT the file to `upload_url`
+        with a `Content-Type` header exactly matching the declared
+        `content_type` (the signature covers it), then call
+        `POST /assets/uploads/{upload_id}/complete` to verify the object and
+        flip the asset to `ready`. The URL expires after 30 minutes.
+        Uploading assets are hidden from `GET /assets` until completed.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAssetUploadRequest'
+      responses:
+        '201':
+          description: Upload slot created; PUT the bytes to `upload_url`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssetUpload'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '413':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /assets/uploads/{id}/complete:
+    post:
+      tags: [Assets]
+      operationId: completeAssetUpload
+      summary: Finish a signed upload and make the asset available.
+      description: >
+        Verifies that the object was uploaded to storage and that its size
+        matches the declared `size_bytes`, then flips the asset to `ready`
+        and applies tag-based project auto-association. Completing an upload
+        whose object is missing (or whose size does not match the
+        declaration) returns 409 with details. Completing an
+        already-completed upload is idempotent and returns the asset with
+        200.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The `upload_id` returned by `POST /assets/uploads`.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Asset is ready; returned with a fresh signed URL.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Asset'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
           $ref: '#/components/responses/ProblemResponse'
         default:
           $ref: '#/components/responses/ProblemResponse'
@@ -800,6 +932,10 @@ paths:
       tags: [Projects]
       operationId: deleteProject
       summary: Delete one of the current user's projects. Member assets are never deleted.
+      description: >
+        The default "Library" project can be deleted like any other project;
+        a fresh one is recreated on demand the next time an asset needs a
+        default home.
       parameters:
         - name: id
           in: path
@@ -822,7 +958,12 @@ paths:
       tags: [Projects]
       operationId: addProjectAssets
       summary: Add existing assets to a project (idempotent).
-      description: Every asset must exist and belong to the caller. Assets already in the project are skipped.
+      description: >
+        Every asset must exist and belong to the caller. Assets already in
+        the project are skipped. Adding an asset to a non-default project
+        also removes the asset's membership in the default "Library" project
+        (Library is a catch-all, not a permanent home); adding to the
+        default project itself leaves memberships untouched.
       parameters:
         - name: id
           in: path
@@ -873,6 +1014,518 @@ paths:
         '401':
           $ref: '#/components/responses/ProblemResponse'
         '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /compositions:
+    get:
+      tags: [Compositions]
+      operationId: listCompositions
+      summary: List the current user's compositions, newest first.
+      description: Listing omits per-composition files; fetch a single composition for its file inventory.
+      parameters:
+        - name: project_id
+          in: query
+          required: false
+          description: Return only compositions linked to the given project.
+          schema:
+            type: string
+            format: uuid
+        - name: series
+          in: query
+          required: false
+          description: >
+            Return only compositions whose `meta.series` equals this value
+            (the version-series convention). Series and version are part of
+            each composition's `meta`, which list responses already include.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 200
+      responses:
+        '200':
+          description: Compositions owned by the current user.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompositionList'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+    post:
+      tags: [Compositions]
+      operationId: createComposition
+      summary: Create an empty composition.
+      description: Composition names are unique per user; a duplicate name returns 409. An optional `project_id` links the composition to a caller-owned project; an unknown or foreign project returns 404.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCompositionRequest'
+      responses:
+        '201':
+          description: Composition created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Composition'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /compositions/{id}:
+    get:
+      tags: [Compositions]
+      operationId: getComposition
+      summary: Fetch one of the current user's compositions, including its file inventory.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Composition found; `files` lists every stored file (path, content type, size).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Composition'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+    patch:
+      tags: [Compositions]
+      operationId: updateComposition
+      summary: Update a composition's name, description, project link, or meta.
+      description: Partial update; only provided fields change. Renaming to another composition's name returns 409; linking to an unknown or foreign project returns 404.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateCompositionRequest'
+      responses:
+        '200':
+          description: Composition updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Composition'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+    delete:
+      tags: [Compositions]
+      operationId: deleteComposition
+      summary: Delete a composition and all of its files.
+      description: File rows are removed transactionally; the underlying GCS objects are deleted best-effort.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Composition deleted.
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /compositions/{id}/file:
+    put:
+      tags: [Compositions]
+      operationId: putCompositionFile
+      summary: Upload or overwrite one file in a composition.
+      description: |
+        Upserts the file at the relative bundle path given by the `path` query
+        parameter (uploading the same path again overwrites it). The path is a
+        query parameter rather than a path parameter because bundle paths
+        contain slashes (e.g. `compositions/scene1.html`) and the generated
+        chi router does not support greedy path parameters.
+
+        Constraints: the path must be relative (no leading `/`), must not
+        contain `.` or `..` segments, and is at most 200 characters; the
+        decoded content is at most 25 MiB; a composition holds at most 200
+        files; the content type must be one of text/html, text/css,
+        application/javascript, application/json, or any image/*, video/*,
+        audio/*, or font/* type.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: path
+          in: query
+          required: true
+          description: Relative path of the file inside the bundle, e.g. `index.html` or `assets/vo.ogg`.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 200
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PutCompositionFileRequest'
+      responses:
+        '200':
+          description: File stored.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompositionFile'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '413':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+    delete:
+      tags: [Compositions]
+      operationId: deleteCompositionFile
+      summary: Delete one file from a composition.
+      description: The GCS object is deleted best-effort. The `path` query parameter names the file (see putCompositionFile for why it is not a path parameter).
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: path
+          in: query
+          required: true
+          description: Relative path of the file inside the bundle.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 200
+      responses:
+        '204':
+          description: File deleted.
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /compositions/{id}/files:signed-urls:
+    post:
+      tags: [Compositions]
+      operationId: signCompositionFiles
+      summary: Mint fresh signed GET URLs for composition files and referenced platform assets.
+      description: |
+        Returns a short-lived (15-minute) signed URL for each requested entry
+        so the web UI can build the preview iframe. Every requested entry
+        must resolve, otherwise 404 naming the entry.
+
+        Each `paths` entry is either a relative bundle path naming an
+        existing composition file, or a platform-asset reference of the form
+        `asset:<uuid>` — the same scheme composition HTML may use in media
+        `src` attributes (e.g. `<video src="asset:550e8400-...">`). Asset
+        references resolve to the caller's own assets in status `ready` and
+        return a signed GET URL for the asset's stored object; an unknown,
+        foreign, or not-yet-ready asset returns 404 naming the entry. The
+        `asset:` prefix is reserved: bundle file paths must not use it.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompositionSignedUrlsRequest'
+      responses:
+        '200':
+          description: One signed URL per requested path, in request order.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompositionSignedUrlsResponse'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /compositions/{id}/clone:
+    post:
+      tags: [Compositions]
+      operationId: cloneComposition
+      summary: Clone a composition, copying its full file bundle.
+      description: |
+        Creates a new composition owned by the caller from an existing one:
+        the description, project link, and meta are copied, and every stored
+        file is duplicated (rows and underlying GCS objects, via server-side
+        copy) into the new composition — except `nolgia-edits.json`, which is
+        intentionally skipped so a new version starts with a clean edit
+        overlay.
+
+        This is the version-series primitive: give the source composition a
+        `meta.series` and `meta.version`, then clone with a `meta_patch`
+        bumping `meta.version` to mint the next version. `meta_patch` is
+        shallow-merged over the source meta (`source.meta || meta_patch`):
+        top-level keys in the patch replace the source's keys wholesale.
+
+        The clone's name defaults to the source name plus " copy" (truncated
+        to fit 80 characters) unless `name` is provided; either way a name
+        already used by another of the caller's compositions returns 409.
+        An unknown or foreign composition returns 404.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CloneCompositionRequest'
+      responses:
+        '201':
+          description: Clone created; `files` lists the copied file inventory.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Composition'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /compositions/{id}/render:
+    post:
+      tags: [Compositions]
+      operationId: createCompositionRender
+      summary: Queue a server-side MP4 export of the composition's effective timeline.
+      description: |
+        Enqueues a render of the composition's *effective* timeline — the
+        authored HTML timing plus the `nolgia-edits.json` overlay (v1/v2) — to
+        an MP4 that is written back as a platform asset (tags `render` and
+        `composition:<slug>`). Returns 202 immediately; poll
+        `GET /renders/{id}` for completion. A Cloud Run job is triggered
+        best-effort; if triggering fails the render stays `queued` and is
+        picked up by the next scheduled job tick.
+
+        **Supported timeline subset.** The renderer interprets *placement and
+        visibility timing only* — it does not execute scripts or interpret
+        GSAP tweens. From `index.html` and any `data-composition-src`
+        sub-compositions it renders elements carrying
+        `data-start`/`data-duration` (`data-track-index` = z-order,
+        default 0):
+
+        - `<video>`, `<audio>`, `<img>` whose `src` resolves to a composition
+          file or is an `asset:<uuid>` reference to one of the owner's ready
+          platform assets — video/img as visual clips (img = still with
+          duration; the `muted` attribute is respected), audio mixed into the
+          master track. Asset references are placed by the asset's actual
+          modality; unresolvable references are skipped with a warning.
+        - Edits overlay v2: element overrides (`start`/`duration`/`track`/
+          `hidden`/`srcOffset`) and additions (kind `media` with `assetId` or
+          `path`; kind `text`).
+        - Pure text elements (an element whose content is plain text with no
+          child elements) and text additions — rendered as animated titles
+          with basic styling (white text on a dark pill, safe-zone margin).
+          Text fidelity is approximate: authored CSS is NOT applied.
+
+        The canvas size comes from `data-width`/`data-height` on the root
+        container (default 1080x1920). Everything else — styled `<div>`s,
+        GSAP-only animation, unknown tags, unresolvable media — is skipped
+        and recorded in the render's `warnings` array.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRenderRequest'
+      responses:
+        '202':
+          description: Render queued.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Render'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /compositions/{id}/renders:
+    get:
+      tags: [Compositions]
+      operationId: listCompositionRenders
+      summary: List the composition's renders, newest first (at most 20).
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Renders for the composition, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RenderList'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /renders/{id}:
+    get:
+      tags: [Compositions]
+      operationId: getRender
+      summary: Fetch one render, including its status, warnings, and produced asset id.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Render found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Render'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /activity:
+    get:
+      tags: [Activity]
+      operationId: getActivity
+      summary: Chronological activity feed for the current user, newest first.
+      description: |
+        A read-time event stream assembled from the user's existing jobs,
+        assets, compositions, and renders — the feed stores nothing of its
+        own. Events carry a server-built, human-readable summary (at most
+        160 characters) plus the ids of the resources they refer to.
+
+        With `project_id`, the feed narrows to events whose asset or
+        composition belongs to that project: asset events check project
+        membership, composition and render events use the composition's
+        project link, and generation job events join through the asset the
+        job produced. Jobs that have not produced an asset yet (still
+        queued/running, or failed before output) therefore appear only in
+        the unfiltered feed.
+      parameters:
+        - name: project_id
+          in: query
+          required: false
+          description: Restrict the feed to events belonging to this project.
+          schema:
+            type: string
+            format: uuid
+        - name: since
+          in: query
+          required: false
+          description: >
+            Return only events strictly newer than this timestamp. Pass the
+            newest `at` already seen to poll for increments.
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          required: false
+          description: Maximum events to return.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        '200':
+          description: Activity events, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActivityFeed'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
           $ref: '#/components/responses/ProblemResponse'
         default:
           $ref: '#/components/responses/ProblemResponse'
@@ -1140,6 +1793,235 @@ paths:
         default:
           $ref: '#/components/responses/ProblemResponse'
 
+  /agent/messages:
+    post:
+      tags: [Agent]
+      operationId: submitAgentMessage
+      summary: Submit a chat message to the user's Hermes agent asynchronously.
+      description: |
+        The async counterpart to `POST /agent/chat`: the message is persisted
+        to the transcript immediately (role `user`, status `complete`)
+        together with a pending agent reply row, and `202` returns both ids.
+        A background worker relays the message to the agent pod with a
+        generous timeout (long agent turns no longer time out at the HTTP
+        boundary) and completes or fails the pending row; poll
+        `GET /agent/messages` to observe it.
+
+        One turn is in flight per user at a time — the agent pod holds a
+        single conversation. Submitting while a reply is still pending
+        returns `409` carrying the pending agent message id.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitAgentMessageRequest'
+      responses:
+        '202':
+          description: Message accepted; the agent reply is being produced asynchronously.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubmitAgentMessageAccepted'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          description: A previous turn is still pending; wait for it to complete or fail.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentMessageConflict'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+    get:
+      tags: [Agent]
+      operationId: listAgentMessages
+      summary: Chronological agent chat transcript for the current user.
+      description: |
+        Returns transcript rows (both roles) in chronological order, oldest
+        first. A pending agent row means the reply is still being produced —
+        render it as "thinking…" and poll with `since` set to the newest
+        `created_at` already seen, re-fetching pending rows until their
+        status turns `complete` or `failed`.
+      parameters:
+        - name: since
+          in: query
+          required: false
+          description: Return only messages created strictly after this timestamp.
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          required: false
+          description: Maximum messages to return.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+      responses:
+        '200':
+          description: Transcript messages, oldest first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentMessageList'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /agent/steps:
+    get:
+      tags: [Agent]
+      operationId: listAgentSteps
+      summary: Live terminal/tool/message steps of the agent's current session.
+      description: |
+        Streams the fine-grained steps of the agent's current Hermes session —
+        terminal commands (with their input command and captured output), other
+        tool calls, file operations, and message events — as a sanitized,
+        chronologically-ordered feed for the chat's expandable step chips.
+
+        The API proxies to the agent pod's dashboard server (cookie-authed,
+        server-side) and maps its raw session events to a stable schema. Input
+        and output payloads are truncated to 4KB each and secret-looking values
+        (tokens, keys, passwords, bearer credentials) are masked.
+
+        Poll with `since` set to the newest `at` already seen while a turn is
+        pending, then stop shortly after it settles. When the agent has no
+        dashboard (older deployments or not yet provisioned) the endpoint
+        returns `404` — clients should treat this as "no steps" and render
+        nothing rather than an error.
+      parameters:
+        - name: since
+          in: query
+          required: false
+          description: Return only steps whose `at` timestamp is strictly after this value.
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          required: false
+          description: Maximum steps to return (newest session's steps, oldest first).
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 100
+      responses:
+        '200':
+          description: Sanitized steps, oldest first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentStepList'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /agent/config:
+    get:
+      tags: [Agent]
+      operationId: getAgentConfig
+      summary: List the agent's custom configuration entries. Secret values are redacted (empty string) in the response.
+      responses:
+        '200':
+          description: The agent's configuration entries, sorted by key.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentConfig'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+    put:
+      tags: [Agent]
+      operationId: updateAgentConfig
+      summary: Upsert custom configuration entries (e.g. TELEGRAM_BOT_TOKEN) injected into the agent pod's environment. A running agent is flipped back to `pending_deploy` so the deploy pipeline applies the change (typically within ~5 minutes).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateAgentConfigRequest'
+      responses:
+        '200':
+          description: The agent's configuration after the update (secret values redacted).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentConfig'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /agent/config/{key}:
+    delete:
+      tags: [Agent]
+      operationId: deleteAgentConfigEntry
+      summary: Remove a custom configuration entry. A running agent is flipped back to `pending_deploy` so the deploy pipeline applies the change.
+      parameters:
+        - $ref: '#/components/parameters/AgentConfigKey'
+      responses:
+        '204':
+          description: Entry removed.
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /agent/dashboard/ticket:
+    post:
+      tags: [Agent]
+      operationId: createAgentDashboardTicket
+      summary: Mint a short-lived ticket URL for embedding the agent's live dashboard.
+      description: >
+        Returns a URL on the public dashboard host (e.g. `dash.nolgia.ai`) that
+        the web app loads in an iframe. The embedded ticket expires after 120
+        seconds and is exchanged by the dashboard relay for a 12h cookie
+        session bound to the requesting user and their agent. Browser (JWT)
+        sessions only — PATs are rejected.
+      security:
+        - bearerAuth: []
+      responses:
+        '201':
+          description: Dashboard ticket minted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentDashboardTicket'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
   /agent/abilities:
     get:
       tags: [Abilities]
@@ -1267,6 +2149,61 @@ paths:
           $ref: '#/components/responses/ProblemResponse'
         default:
           $ref: '#/components/responses/ProblemResponse'
+    patch:
+      tags: [Abilities]
+      operationId: updateAbility
+      summary: Update an ability's marketplace lifecycle (admin only). Currently the only mutable field is `visibility` — flipping it to `private` "holds" the ability (removed from the public catalog and no longer newly installable), flipping back to `public` unholds it. Existing installs keep working regardless. Ability content is immutable; editing publishes a new version via `POST /abilities/{slug}/versions`.
+      parameters:
+        - $ref: '#/components/parameters/AbilitySlug'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateAbilityRequest'
+      responses:
+        '200':
+          description: The updated ability.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ability'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+    delete:
+      tags: [Abilities]
+      operationId: deleteAbility
+      summary: Yank an entire ability and all its versions (admin only). Refused with 409 when any agent has it installed, unless `force=true` is passed (which cascade-uninstalls it from every agent). Prefer holding (PATCH visibility=private) over deleting when agents depend on it.
+      parameters:
+        - $ref: '#/components/parameters/AbilitySlug'
+        - name: force
+          in: query
+          required: false
+          description: When true, delete even if agents have the ability installed, cascade-removing it from every agent. Without it, a delete of an installed ability is refused with 409.
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '204':
+          description: Ability deleted.
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
 
   /abilities/{slug}/content:
     get:
@@ -1291,6 +2228,90 @@ paths:
         default:
           $ref: '#/components/responses/ProblemResponse'
 
+  /abilities/{slug}/files:
+    get:
+      tags: [Abilities]
+      operationId: getAbilityFiles
+      summary: Inspect the unpacked contents of the latest published version (admin only). Server-side unpacks the package tar.gz and returns each file's path, size, and (for text files) its decoded body. Not a customer feature — this is the admin abilities inspector.
+      parameters:
+        - $ref: '#/components/parameters/AbilitySlug'
+      responses:
+        '200':
+          description: Unpacked ability files.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AbilityFiles'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /abilities/{slug}/versions:
+    post:
+      tags: [Abilities]
+      operationId: publishAbilityVersionFromFiles
+      summary: Publish a new immutable version from an edited file set (admin only). Repacks the given files into a tar.gz, recomputes `has_code`, inserts a new immutable version and moves `latest`. This is the save path for the admin code editor — versions are immutable, so an edit is a new version. Ability metadata (name, visibility, access, min_tier) is preserved from the current ability; only the package payload and version change.
+      parameters:
+        - $ref: '#/components/parameters/AbilitySlug'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PublishAbilityVersionRequest'
+      responses:
+        '201':
+          description: New version published.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ability'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /abilities/{slug}/versions/{version}:
+    delete:
+      tags: [Abilities]
+      operationId: deleteAbilityVersion
+      summary: Delete a single non-latest version of an ability (admin only). Deleting the latest version is refused with 409 — it would silently change what installed agents receive; publish a new version or delete the whole ability instead. Deleting the only version is likewise refused.
+      parameters:
+        - $ref: '#/components/parameters/AbilitySlug'
+        - name: version
+          in: path
+          required: true
+          description: Semver version to delete.
+          schema:
+            type: string
+            pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+            examples: ['1.0.0']
+      responses:
+        '204':
+          description: Version deleted.
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
 
   /internal/agents:
     get:
@@ -1373,6 +2394,29 @@ paths:
         default:
           $ref: '#/components/responses/ProblemResponse'
 
+  /internal/agents/{id}/config:
+    get:
+      tags: [Agent]
+      operationId: getAgentConfigInternal
+      summary: Full (plaintext) custom configuration for an agent, for injection into the pod's Secret. Deploy-pipeline only.
+      security:
+        - provisionerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AgentId'
+      responses:
+        '200':
+          description: The agent's configuration entries with plaintext values.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentConfig'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
 components:
 
   securitySchemes:
@@ -1436,6 +2480,15 @@ components:
       schema:
         type: string
         format: uuid
+    AgentConfigKey:
+      name: key
+      in: path
+      required: true
+      description: Configuration entry key (environment-variable style).
+      schema:
+        type: string
+        pattern: '^[A-Z][A-Z0-9_]{0,63}$'
+        examples: ['TELEGRAM_BOT_TOKEN']
 
     AbilitySlug:
       name: slug
@@ -1687,6 +2740,91 @@ components:
           nullable: true
           maxLength: 255
 
+    CreateAssetUploadRequest:
+      type: object
+      additionalProperties: false
+      required: [filename, content_type, size_bytes]
+      properties:
+        filename:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Original filename, kept as asset metadata.
+          examples: ['final-cut.mp4']
+        content_type:
+          type: string
+          enum:
+            - video/mp4
+            - video/quicktime
+            - video/webm
+            - audio/mpeg
+            - audio/wav
+            - audio/ogg
+            - image/png
+            - image/jpeg
+            - image/webp
+          description: >
+            MIME type of the file. The signed PUT URL is bound to it, so the
+            upload request must send exactly this Content-Type header.
+        size_bytes:
+          type: integer
+          format: int64
+          minimum: 1
+          description: >
+            Exact size of the file in bytes. Verified against the uploaded
+            object on completion. Limits: 50 GiB for video, 5 GiB for
+            audio, 100 MiB for images.
+        tags:
+          type: array
+          maxItems: 10
+          description: Tags to apply to the asset; trimmed, lowercased, and de-duplicated.
+          items:
+            type: string
+            minLength: 1
+            maxLength: 40
+          examples: [['final-cut', 'campaign-x']]
+        display_name:
+          type: string
+          nullable: true
+          maxLength: 200
+          description: >
+            Optional human-readable display name stored on the pre-created
+            asset (trimmed). Defaults to empty.
+          examples: ['Hero shot v2']
+
+    AssetUpload:
+      type: object
+      additionalProperties: false
+      required: [upload_id, asset_id, upload_url, expires_at]
+      properties:
+        upload_id:
+          type: string
+          format: uuid
+          description: Identifier for `POST /assets/uploads/{id}/complete`.
+        asset_id:
+          type: string
+          format: uuid
+          description: The pre-created asset (status `uploading`) the bytes will belong to.
+        upload_url:
+          type: string
+          format: uri
+          description: >
+            Signed PUT URL. Upload with `PUT <upload_url>` and a
+            `Content-Type` header exactly matching the declared
+            `content_type`; no Authorization header is needed.
+        expires_at:
+          type: string
+          format: date-time
+          description: Expiry of `upload_url` (30 minutes after creation).
+
+    AssetStatus:
+      type: string
+      enum: [uploading, ready]
+      description: >
+        Lifecycle status of an asset. `uploading` marks a signed-upload
+        asset whose bytes have not been verified yet; `ready` assets are
+        fully stored and downloadable.
+
     ImageModel:
       type: string
       description: Image model identifier exposed by the public API.
@@ -1786,6 +2924,15 @@ components:
           nullable: true
           maxLength: 2048
           description: Source image (https URL) for image-to-image restyle. When set, the model transforms this image instead of generating from scratch.
+        tags:
+          type: array
+          maxItems: 10
+          description: Applied to the resulting asset(s); normalized to lowercase.
+          items:
+            type: string
+            minLength: 1
+            maxLength: 40
+          examples: [['hero', 'draft']]
 
     GenerateImageResponse:
       type: object
@@ -1834,6 +2981,15 @@ components:
           maximum: 600
         format:
           $ref: '#/components/schemas/AudioFormat'
+        tags:
+          type: array
+          maxItems: 10
+          description: Applied to the resulting asset(s); normalized to lowercase.
+          items:
+            type: string
+            minLength: 1
+            maxLength: 40
+          examples: [['hero', 'draft']]
 
     GenerateAudioResponse:
       type: object
@@ -1902,6 +3058,15 @@ components:
             between shots natively.
           items:
             $ref: '#/components/schemas/VideoShot'
+        tags:
+          type: array
+          maxItems: 10
+          description: Applied to the resulting asset(s); normalized to lowercase.
+          items:
+            type: string
+            minLength: 1
+            maxLength: 40
+          examples: [['hero', 'draft']]
 
     VideoShot:
       type: object
@@ -2001,6 +3166,14 @@ components:
           $ref: '#/components/schemas/Modality'
         model:
           type: string
+        display_name:
+          type: string
+          maxLength: 200
+          description: >
+            Human-readable display name. Always present in responses; empty
+            string when unset. Set it at upload time (`POST /assets/uploads`)
+            or later via `PATCH /assets/{id}`.
+          examples: ['Hero shot v2']
         prompt:
           type: string
           nullable: true
@@ -2032,6 +3205,10 @@ components:
           type: number
           nullable: true
           minimum: 0
+          description: >
+            Media duration in seconds for video/audio assets. Recorded at
+            creation time for generated videos and backfilled asynchronously
+            (ffprobe) for uploaded/legacy assets; null until known.
         thumbnail_url:
           type: string
           format: uri
@@ -2046,9 +3223,35 @@ components:
             minLength: 1
             maxLength: 40
           examples: [['hero', 'draft']]
+        status:
+          $ref: '#/components/schemas/AssetStatus'
+        projects:
+          type: array
+          description: >
+            The asset's project memberships, newest membership first. Only
+            returned by `GET /assets/{id}` (always present there, `[]` when
+            the asset belongs to no project); omitted from list responses.
+          items:
+            $ref: '#/components/schemas/AssetProjectRef'
         created_at:
           type: string
           format: date-time
+
+    AssetProjectRef:
+      type: object
+      additionalProperties: false
+      required: [id, name, is_default]
+      description: A project an asset belongs to.
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          examples: ['Launch teaser']
+        is_default:
+          type: boolean
+          description: True when this is the user's default "Library" project.
 
     AssetPage:
       type: object
@@ -2062,11 +3265,17 @@ components:
         next_cursor:
           type: string
           nullable: true
+        total:
+          type: integer
+          format: int64
+          description: Total number of assets matching the request's filters across all pages.
 
     UpdateAssetRequest:
       type: object
       additionalProperties: false
-      required: [tags]
+      description: >
+        Partial asset update. All fields are optional but at least one must
+        be provided; omitted fields are left unchanged.
       properties:
         tags:
           type: array
@@ -2077,6 +3286,26 @@ components:
             minLength: 1
             maxLength: 40
           examples: [['hero', 'draft']]
+        display_name:
+          type: string
+          maxLength: 200
+          description: >
+            Replaces the asset's display name (trimmed). An empty string
+            clears it.
+          examples: ['Hero shot v2']
+        prompt:
+          type: string
+          maxLength: 4000
+          description: >
+            Overwrites the asset's prompt. Intended for backfilling
+            provenance on uploaded assets (e.g. recording the prompt a file
+            was generated from elsewhere).
+        metadata:
+          type: object
+          description: >
+            Merged into the asset's existing metadata object (existing keys
+            not present in the patch are kept; patch keys overwrite). At most
+            16 KiB serialized.
     Character:
       type: object
       additionalProperties: false
@@ -2192,6 +3421,27 @@ components:
           type: integer
           minimum: 0
           description: Number of assets currently in the project.
+        composition_count:
+          type: integer
+          minimum: 0
+          description: Number of compositions currently linked to the project. Always present in responses.
+        is_default:
+          type: boolean
+          description: >
+            True for the user's default "Library" project: created on demand,
+            it receives every new asset that does not match another project's
+            auto-tags. Always present in responses. Read-only: it cannot be
+            set via create or update requests (unknown request fields are
+            rejected with 400).
+        auto_tags:
+          type: array
+          maxItems: 10
+          description: New assets created with an overlapping tag are automatically added to this project.
+          items:
+            type: string
+            minLength: 1
+            maxLength: 40
+          examples: [['hero', 'draft']]
         created_at:
           type: string
           format: date-time
@@ -2223,6 +3473,15 @@ components:
           type: string
           nullable: true
           maxLength: 2000
+        auto_tags:
+          type: array
+          maxItems: 10
+          description: New assets created with an overlapping tag are automatically added to this project.
+          items:
+            type: string
+            minLength: 1
+            maxLength: 40
+          examples: [['hero', 'draft']]
 
     UpdateProjectRequest:
       type: object
@@ -2237,6 +3496,16 @@ components:
           type: string
           nullable: true
           maxLength: 2000
+        auto_tags:
+          type: array
+          nullable: true
+          maxItems: 10
+          description: Replaces the project's full auto-tag set when provided. New assets created with an overlapping tag are automatically added to this project.
+          items:
+            type: string
+            minLength: 1
+            maxLength: 40
+          examples: [['hero', 'draft']]
 
     AddProjectAssetsRequest:
       type: object
@@ -2252,11 +3521,380 @@ components:
             type: string
             format: uuid
 
+    Composition:
+      type: object
+      additionalProperties: false
+      required: [id, user_id, name, description, meta, created_at, updated_at]
+      description: |
+        HyperFrames-style HTML video composition: a user-owned bundle of files
+        rendered by the web UI as a scrubbable timeline. Names are unique per
+        user.
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+          examples: ['spring-launch-teaser']
+        description:
+          type: string
+          maxLength: 2000
+        project_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Project the composition belongs to; omitted/null when unlinked. Deleting the project detaches the composition without deleting it.
+        meta:
+          type: object
+          description: >
+            Free-form composition metadata (mirrors the bundle's meta.json),
+            e.g. duration, fps, scene list. By convention, compositions in a
+            version series share a `series` string key and carry an integer
+            `version` key; both are returned here verbatim in list and single
+            responses.
+        files:
+          type: array
+          nullable: true
+          description: File inventory; present on the single-composition GET and clone responses, omitted from list responses.
+          items:
+            $ref: '#/components/schemas/CompositionFile'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CompositionFile:
+      type: object
+      additionalProperties: false
+      required: [path, content_type, size_bytes, updated_at]
+      properties:
+        path:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Relative path inside the bundle.
+          examples: ['compositions/scene1.html']
+        content_type:
+          type: string
+          examples: ['text/html']
+        size_bytes:
+          type: integer
+          format: int64
+          minimum: 0
+        updated_at:
+          type: string
+          format: date-time
+
+    CompositionList:
+      type: object
+      additionalProperties: false
+      required: [compositions]
+      properties:
+        compositions:
+          type: array
+          items:
+            $ref: '#/components/schemas/Composition'
+
+    CreateCompositionRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+          examples: ['spring-launch-teaser']
+        description:
+          type: string
+          nullable: true
+          maxLength: 2000
+        project_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Existing project owned by the caller to link the composition to; an unknown or foreign project returns 404.
+        meta:
+          type: object
+          nullable: true
+          description: Free-form composition metadata (at most 64 KiB serialized).
+
+    UpdateCompositionRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          nullable: true
+          minLength: 1
+          maxLength: 80
+        description:
+          type: string
+          nullable: true
+          maxLength: 2000
+        project_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Links the composition to an existing project owned by the caller when provided; an unknown or foreign project returns 404. Omit to leave the link unchanged.
+        meta:
+          type: object
+          nullable: true
+          description: Replaces the full meta object when provided (at most 64 KiB serialized).
+
+    CloneCompositionRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          nullable: true
+          minLength: 1
+          maxLength: 80
+          description: Name for the clone; defaults to the source name plus " copy". A duplicate name returns 409.
+          examples: ['spring-launch-teaser v2']
+        meta_patch:
+          type: object
+          nullable: true
+          description: >
+            Shallow-merged over the source meta (`source.meta || meta_patch`):
+            top-level keys replace the source's keys wholesale. The merged
+            result must serialize to at most 64 KiB. Typically used to bump
+            `version` (and set `series`) under the version-series convention.
+          examples: [{'series': 'spring-launch-teaser', 'version': 2}]
+
+    PutCompositionFileRequest:
+      type: object
+      additionalProperties: false
+      required: [content_base64, content_type]
+      properties:
+        content_base64:
+          type: string
+          minLength: 1
+          maxLength: 35000000
+          description: Base64-encoded file contents (max 25 MiB decoded).
+        content_type:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: 'MIME type of the file. Allowed: text/html, text/css, application/javascript, application/json, image/*, video/*, audio/*, font/*.'
+          examples: ['text/html']
+
+    CompositionSignedUrlsRequest:
+      type: object
+      additionalProperties: false
+      required: [paths]
+      properties:
+        paths:
+          type: array
+          minItems: 1
+          maxItems: 200
+          description: >
+            Entries to sign: relative bundle paths of existing composition
+            files, or `asset:<uuid>` references to the caller's own ready
+            platform assets.
+          items:
+            type: string
+            minLength: 1
+            maxLength: 200
+
+    CompositionSignedUrl:
+      type: object
+      additionalProperties: false
+      required: [path, signed_url, expires_at]
+      properties:
+        path:
+          type: string
+          description: The requested entry, echoed back — a bundle path or an `asset:<uuid>` reference.
+        signed_url:
+          type: string
+          format: uri
+          description: Short-lived signed GET URL for the stored file or asset object.
+        expires_at:
+          type: string
+          format: date-time
+
+    CompositionSignedUrlsResponse:
+      type: object
+      additionalProperties: false
+      required: [urls]
+      properties:
+        urls:
+          type: array
+          items:
+            $ref: '#/components/schemas/CompositionSignedUrl'
+
+    CreateRenderRequest:
+      type: object
+      additionalProperties: false
+      description: Render request body. Empty today; `params` is reserved for future render options (fps, format, quality).
+      properties:
+        params:
+          type: object
+          nullable: true
+          description: Reserved for future render options; must be empty or omitted today.
+
+    RenderStatus:
+      type: string
+      enum: [queued, running, succeeded, failed]
+      description: queued = waiting for the render job; running = job in progress; succeeded = asset_id set; failed = error set.
+
+    Render:
+      type: object
+      additionalProperties: false
+      required: [id, composition_id, user_id, status, params, warnings, created_at, updated_at]
+      description: |
+        One server-side MP4 export of a composition's effective timeline.
+        `asset_id` references the produced platform asset once the render
+        succeeds (null if the asset was later deleted). `warnings` lists
+        timeline nodes the renderer skipped — the export completed, but those
+        elements are not in the output.
+      properties:
+        id:
+          type: string
+          format: uuid
+        composition_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/RenderStatus'
+        params:
+          type: object
+          description: Render options the row was enqueued with (reserved; empty today).
+        asset_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: The produced video asset, set when status is succeeded.
+        warnings:
+          type: array
+          description: Human-readable notes about skipped/unsupported timeline nodes.
+          items:
+            type: string
+        error:
+          type: string
+          nullable: true
+          description: Failure reason, set when status is failed (truncated to 2000 characters).
+        created_at:
+          type: string
+          format: date-time
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+        finished_at:
+          type: string
+          format: date-time
+          nullable: true
+        updated_at:
+          type: string
+          format: date-time
+
+    RenderList:
+      type: object
+      additionalProperties: false
+      required: [renders]
+      properties:
+        renders:
+          type: array
+          items:
+            $ref: '#/components/schemas/Render'
+
+    ActivityEventKind:
+      type: string
+      description: |
+        What happened. `generation.*` events come from jobs
+        (created_at/completed_at), `asset.created` from assets,
+        `composition.updated` from compositions (updated_at), and
+        `render.requested`/`render.finished` from renders
+        (created_at/finished_at).
+      enum:
+        - generation.submitted
+        - generation.succeeded
+        - generation.failed
+        - asset.created
+        - composition.updated
+        - render.requested
+        - render.finished
+      # Pin generated Go constant names (see SubscriptionStatus note).
+      x-enum-varnames:
+        - ActivityGenerationSubmitted
+        - ActivityGenerationSucceeded
+        - ActivityGenerationFailed
+        - ActivityAssetCreated
+        - ActivityCompositionUpdated
+        - ActivityRenderRequested
+        - ActivityRenderFinished
+
+    ActivityEventRefs:
+      type: object
+      additionalProperties: false
+      description: >
+        Ids of the resources the event refers to. Only the ids that apply to
+        the event kind are present; `project_id` is set when the event's
+        composition is project-linked or when the feed was project-filtered.
+      properties:
+        job_id:
+          type: string
+          format: uuid
+        asset_id:
+          type: string
+          format: uuid
+        composition_id:
+          type: string
+          format: uuid
+        render_id:
+          type: string
+          format: uuid
+        project_id:
+          type: string
+          format: uuid
+
+    ActivityEvent:
+      type: object
+      additionalProperties: false
+      required: [at, kind, summary, refs]
+      properties:
+        at:
+          type: string
+          format: date-time
+          description: When the event happened (source-row timestamp).
+        kind:
+          $ref: '#/components/schemas/ActivityEventKind'
+        summary:
+          type: string
+          maxLength: 160
+          description: Server-built human-readable one-liner.
+          examples: ['Video generation succeeded (fal-ai/kling-video/v3)']
+        refs:
+          $ref: '#/components/schemas/ActivityEventRefs'
+
+    ActivityFeed:
+      type: object
+      additionalProperties: false
+      required: [events]
+      properties:
+        events:
+          type: array
+          description: Events newest first.
+          items:
+            $ref: '#/components/schemas/ActivityEvent'
+
     SubscriptionTier:
       type: string
       enum: [starter, pro, studio, studio_min, studio_mid, studio_max]
       # Pin generated Go constant names; without this, adding sibling enums
-      # (e.g. the skill min_tier enum) shifts oapi-codegen's collision-based
+      # (e.g. the ability min_tier enum) shifts oapi-codegen's collision-based
       # prefixing and renames these.
       x-enum-varnames: [Starter, Pro, Studio, StudioMin, StudioMid, StudioMax]
 
@@ -2579,6 +4217,126 @@ components:
           type: string
           description: The agent's reply text.
 
+    SubmitAgentMessageRequest:
+      type: object
+      additionalProperties: false
+      required: [content]
+      properties:
+        content:
+          type: string
+          minLength: 1
+          maxLength: 8000
+          description: The user's message to relay to the agent.
+
+    SubmitAgentMessageAccepted:
+      type: object
+      additionalProperties: false
+      required: [user_message_id, agent_message_id]
+      properties:
+        user_message_id:
+          type: string
+          format: uuid
+          description: Transcript id of the persisted user message.
+        agent_message_id:
+          type: string
+          format: uuid
+          description: Transcript id of the pending agent reply; poll `GET /agent/messages` until its status leaves `pending`.
+
+    AgentMessageConflict:
+      type: object
+      additionalProperties: false
+      required: [pending_agent_message_id]
+      properties:
+        pending_agent_message_id:
+          type: string
+          format: uuid
+          description: Id of the agent reply that is still pending for this user.
+
+    AgentMessage:
+      type: object
+      additionalProperties: false
+      required: [id, role, content, status, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        role:
+          type: string
+          enum: [user, agent]
+        content:
+          type: string
+          description: Message text. Empty while an agent reply is `pending` or when it `failed`.
+        status:
+          type: string
+          enum: [pending, complete, failed]
+          description: User messages are always `complete`; agent replies start `pending`.
+        error:
+          type: string
+          description: Failure reason, set only when status is `failed`.
+        user_message_id:
+          type: string
+          format: uuid
+          description: For agent replies, the id of the user message that prompted them.
+        created_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+          description: When the agent reply completed or failed. Absent while pending and on user messages.
+
+    AgentMessageList:
+      type: object
+      additionalProperties: false
+      required: [messages]
+      properties:
+        messages:
+          type: array
+          description: Transcript rows in chronological order (oldest first).
+          items:
+            $ref: '#/components/schemas/AgentMessage'
+
+    AgentStep:
+      type: object
+      additionalProperties: false
+      required: [at, kind, title]
+      properties:
+        at:
+          type: string
+          format: date-time
+          description: When the step occurred, used as the poll cursor.
+        kind:
+          type: string
+          enum: [terminal, tool, file, message]
+          description: |
+            `terminal` — a shell command execution; `file` — a file read/write/search;
+            `tool` — any other agent tool call; `message` — an assistant or user message.
+        title:
+          type: string
+          description: Short human label, e.g. the tool name or a truncated command.
+        detail_input:
+          type: string
+          description: Input payload (e.g. the terminal command or tool arguments), truncated to 4KB and secret-masked.
+        detail_output:
+          type: string
+          description: Output payload (e.g. captured terminal output or tool result), truncated to 4KB and secret-masked.
+        refs:
+          type: array
+          description: Related identifiers surfaced by the step (e.g. file paths touched).
+          items:
+            type: string
+
+    AgentStepList:
+      type: object
+      additionalProperties: false
+      required: [steps]
+      properties:
+        steps:
+          type: array
+          description: Sanitized steps in chronological order (oldest first).
+          items:
+            $ref: '#/components/schemas/AgentStep'
+
     AgentCredentials:
       type: object
       additionalProperties: false
@@ -2592,6 +4350,66 @@ components:
           type: string
           description: Display prefix of the agent token.
           examples: ['nol_a1b2c3d4']
+
+    AgentConfigEntry:
+      type: object
+      additionalProperties: false
+      required: [key, value, secret, updated_at]
+      properties:
+        key:
+          type: string
+          pattern: '^[A-Z][A-Z0-9_]{0,63}$'
+          description: Environment variable name injected into the agent pod.
+          examples: ['TELEGRAM_BOT_TOKEN']
+        value:
+          type: string
+          description: Entry value. Redacted (empty string) for secret entries on customer endpoints; plaintext on the internal deploy-pipeline endpoint.
+        secret:
+          type: boolean
+          description: Secret entries are write-only for customers — reads return an empty value.
+        updated_at:
+          type: string
+          format: date-time
+
+    AgentConfig:
+      type: object
+      additionalProperties: false
+      required: [entries]
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/AgentConfigEntry'
+
+    AgentConfigEntryInput:
+      type: object
+      additionalProperties: false
+      required: [key, value]
+      properties:
+        key:
+          type: string
+          pattern: '^[A-Z][A-Z0-9_]{0,63}$'
+          description: Environment variable name. Platform-managed names (NOLGIA_TOKEN, OPENAI_API_KEY, API_SERVER_KEY, GNOSIS_*, HERMES_*, ...) are rejected.
+        value:
+          type: string
+          maxLength: 4096
+        secret:
+          type: boolean
+          default: true
+          description: Store as a secret (redacted on reads). Defaults to true.
+
+    UpdateAgentConfigRequest:
+      type: object
+      additionalProperties: false
+      required: [entries]
+      properties:
+        entries:
+          type: array
+          minItems: 1
+          maxItems: 32
+          items:
+            $ref: '#/components/schemas/AgentConfigEntryInput'
+          description: Entries to upsert. Existing keys not listed are left untouched; delete keys with `DELETE /agent/config/{key}`.
 
     AbilityVisibility:
       type: string
@@ -2665,9 +4483,9 @@ components:
           type: boolean
           description: |
             True when the package carries a code payload — any file beyond the
-            manifest files (`SKILL.md`, and `ability.json` or its `skill.json`
-            fallback). Computed at publish time. Drives the marketplace "Package"
-            vs "Ability" (instructions-only) kind badge.
+            manifest files (`SKILL.md` and `ability.json`). Computed at publish
+            time. Drives the marketplace "Package" vs "Ability"
+            (instructions-only) kind badge.
         latest_version:
           type: string
           description: Latest published semver version.
@@ -2691,10 +4509,47 @@ components:
           description: The version this content belongs to (the latest published version).
         manifest:
           type: object
-          description: The `ability.json` (or legacy `skill.json`) manifest captured at publish time.
+          description: The `ability.json` manifest captured at publish time.
         content_base64:
           type: string
           description: Base64-encoded tar.gz of the ability package directory.
+
+    AbilityFiles:
+      type: object
+      additionalProperties: false
+      required: [version, files]
+      description: The unpacked contents of an ability package version, for the admin inspector.
+      properties:
+        version:
+          type: string
+          description: The version these files belong to (the latest published version).
+        files:
+          type: array
+          items:
+            $ref: '#/components/schemas/AbilityFile'
+          description: One entry per file in the package, SKILL.md and the manifest (`ability.json`) first, then the rest alphabetically by path.
+
+    AbilityFile:
+      type: object
+      additionalProperties: false
+      required: [path, size_bytes, is_binary]
+      properties:
+        path:
+          type: string
+          description: Slash-separated path of the file within the package.
+          examples: ['SKILL.md', 'pipeline/render.py']
+        size_bytes:
+          type: integer
+          description: Uncompressed size of the file in bytes.
+        is_binary:
+          type: boolean
+          description: True when the file is detected as binary (null bytes or invalid UTF-8); `content` is omitted for binary files.
+        content:
+          type: string
+          description: The UTF-8 file body, present only for text files. Truncated to 256 KiB when the file is larger (see `truncated`).
+        truncated:
+          type: boolean
+          description: True when `content` was truncated because the text file exceeded the 256 KiB inline cap.
 
     AgentInstalledAbility:
       type: object
@@ -2765,10 +4620,54 @@ components:
           $ref: '#/components/schemas/AbilityVisibility'
         manifest:
           type: object
-          description: The full `ability.json` (or legacy `skill.json`) manifest, stored verbatim with the version.
+          description: The full `ability.json` manifest, stored verbatim with the version.
         content_base64:
           type: string
           description: Base64-encoded tar.gz of the ability package directory (max 5 MiB decoded).
+
+    UpdateAbilityRequest:
+      type: object
+      additionalProperties: false
+      description: Lifecycle update for an existing ability. Only `visibility` is mutable today; flipping to `private` holds the ability, `public` unholds it.
+      properties:
+        visibility:
+          $ref: '#/components/schemas/AbilityVisibility'
+
+    AbilityFileInput:
+      type: object
+      additionalProperties: false
+      required: [path, content]
+      description: 'A single file in an edited ability package. Binary files are carried base64-encoded (set `base64: true`); text files are sent verbatim.'
+      properties:
+        path:
+          type: string
+          description: Slash-separated path within the package (e.g. `SKILL.md`, `pipeline/render.py`). No leading slash, `.`, or `..` segments.
+          examples: ['SKILL.md', 'pipeline/render.py']
+        content:
+          type: string
+          description: File body. UTF-8 text by default, or base64-encoded bytes when `base64` is true.
+        base64:
+          type: boolean
+          default: false
+          description: When true, `content` is base64-decoded to the file's raw bytes (used for binary files the editor round-trips unchanged).
+
+    PublishAbilityVersionRequest:
+      type: object
+      additionalProperties: false
+      required: [version, files]
+      description: An edited file set for a new immutable version of an existing ability. The server repacks the files into a tar.gz, recomputes `has_code`, and moves `latest`. Ability metadata is preserved from the current ability.
+      properties:
+        version:
+          type: string
+          description: New semver version; must not already exist for this slug (versions are immutable).
+          pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+          examples: ['1.1.0']
+        files:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/AbilityFileInput'
+          description: The complete file set for the new version (not a diff). Repacked into the package tar.gz in the order given. Max 4096 entries, 5 MiB decoded total.
 
     UpdateAgentDeploymentRequest:
       type: object
@@ -2786,6 +4685,31 @@ components:
           type: string
           nullable: true
           description: API key (API_SERVER_KEY) the relay uses to call the hermes gateway.
+        dashboard_endpoint:
+          type: string
+          nullable: true
+          format: uri
+          description: In-VPC base URL of the agent's dashboard web UI, behind the shared internal ALB. Omitted by older provisioners.
+          examples: ['http://dash.cust-a1b2c3d4.agents.internal']
+        dashboard_password:
+          type: string
+          nullable: true
+          description: Dashboard password (user "nolgia") the relay uses for its server-side hermes login when proxying. Omitted by older provisioners.
+
+    AgentDashboardTicket:
+      type: object
+      additionalProperties: false
+      required: [iframe_url, expires_at]
+      properties:
+        iframe_url:
+          type: string
+          format: uri
+          description: URL on the public dashboard host to load in an iframe; carries a single short-lived ticket.
+          examples: ['https://dash.nolgia.ai/?ticket=eyJhbGciOi...']
+        expires_at:
+          type: string
+          format: date-time
+          description: When the embedded ticket stops being redeemable (~120s). The cookie session it mints lasts 12h.
 
     DeviceAuthRequest:
       type: object
