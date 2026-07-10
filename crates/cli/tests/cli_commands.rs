@@ -995,6 +995,46 @@ fn auth_help_lists_device_flow_commands() {
         .stdout(predicate::str::contains("whoami"));
 }
 
+fn write_token_file(config_home: &std::path::Path, access_token: &str) {
+    let dir = config_home.join("nolgia");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("tokens.json"),
+        json!({
+            "access_token": access_token,
+            "refresh_token": null,
+            "expires_at": "2030-01-01T00:00:00Z"
+        })
+        .to_string(),
+    )
+    .unwrap();
+}
+
+#[test]
+fn auth_token_reads_the_file_store() {
+    let home = tempfile::tempdir().unwrap();
+    write_token_file(home.path(), "file-access-token");
+    cmd()
+        .env("XDG_CONFIG_HOME", home.path())
+        .args(["auth", "token"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("file-access-token"));
+}
+
+#[test]
+fn auth_logout_deletes_the_token_file() {
+    let home = tempfile::tempdir().unwrap();
+    write_token_file(home.path(), "soon-gone");
+    cmd()
+        .env("XDG_CONFIG_HOME", home.path())
+        .args(["auth", "logout"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("logged out"));
+    assert!(!home.path().join("nolgia/tokens.json").exists());
+}
+
 #[test]
 fn invalid_timeout_is_rejected() {
     cmd()
@@ -1351,8 +1391,19 @@ fn ability_json(visibility: &str, entitled: bool) -> serde_json::Value {
 }
 
 fn cmd() -> Command {
+    // Keep every spawned binary away from the operator's real credentials
+    // and keychain: freshly built test binaries are new signing identities,
+    // so a keyring probe from here can trigger macOS keychain password
+    // prompts. Force the file token store (no keyring migration probe) and
+    // point all config/state at a per-test-process temp dir.
+    static ISOLATED_HOME: std::sync::OnceLock<tempfile::TempDir> = std::sync::OnceLock::new();
+    let home = ISOLATED_HOME.get_or_init(|| tempfile::tempdir().expect("isolated config dir"));
     let mut command = Command::cargo_bin("nolgia").unwrap();
     command.env_remove("NOLGIA_TOKEN");
+    command.env("NOLGIA_TOKEN_STORE", "file");
+    command.env("XDG_CONFIG_HOME", home.path());
+    command.env("XDG_STATE_HOME", home.path());
+    command.env("NOLGIA_NO_UPDATE_CHECK", "1");
     command
 }
 

@@ -23,6 +23,22 @@ the matching GitHub release.
 - **`models list`/`get` show quality tiers and reference capabilities**
   (per-tier credits with default/premium markers, start/end frame support,
   video/element/audio reference caps, bitrate modes).
+- **No more keychain password prompts**: login tokens now default to a
+  `0600` file at `~/.config/nolgia/tokens.json` (like `gh`/`gcloud`)
+  instead of the OS keyring. On macOS, keychain items are ACL'd to the
+  exact binary that created them, so every upgrade/reinstall re-triggered
+  a "nolgia wants to use your login keychain" password prompt on every
+  command. Existing keyring tokens are migrated with a single one-time
+  read (the keyring item is left in place). `NOLGIA_TOKEN_STORE=keyring`
+  restores the old behavior; `NOLGIA_TOKEN_STORE=file` skips even the
+  one-time migration read.
+- **Installer never needs a password**: `install.sh` now defaults to
+  `~/.local/bin` (falling back to `~/bin`) instead of preferring
+  `/usr/local/bin`, appends the `export PATH=...` line to your shell
+  profile when the install dir is not on `PATH` (off-PATH installs looked
+  "not installed" to tooling, causing endless re-install prompts), and is
+  idempotent — re-running with the requested version already installed is
+  a no-op with no download. `--system` opts in to `/usr/local/bin`.
 - **`projects create`/`update` gain `--auto-tag`** (repeatable, up to 10) so
   new assets carrying a matching tag are auto-added to the project. `update`
   also gains `--clear-auto-tags` to empty the set. This resyncs the vendored
