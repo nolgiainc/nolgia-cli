@@ -41,7 +41,7 @@ $ nolgia gen video --prompt "A drone shot over a coastline" --no-wait
 curl -fsSL https://raw.githubusercontent.com/nolgiainc/nolgia-cli/main/install.sh | bash
 ```
 
-The installer picks /usr/local/bin when writable and ~/.local/bin otherwise; pass `--prefix <dir>` to choose and `--tag vX.Y.Z` to pin a release. On macOS it clears the quarantine attribute for you
+The installer never needs a password: it installs to `~/.local/bin` (falling back to `~/bin`), creates the directory if missing, and appends the matching `export PATH=...` line to your shell profile if the directory is not on `PATH`. Re-running it with the requested version already installed is a no-op. Pass `--prefix <dir>` to choose the directory, `--system` to opt in to `/usr/local/bin` (run via `sudo` yourself in that case), and `--tag vX.Y.Z` to pin a release. On macOS it clears the quarantine attribute for you
 
 ### npm
 
@@ -185,13 +185,15 @@ Authoring (admins publishing to the marketplace): `nolgia ability init <slug>` s
 
 Two ways to authenticate; every command accepts either.
 
-**Device-code login** (interactive use). Tokens live in your system keyring and refresh automatically:
+**Device-code login** (interactive use). Tokens refresh automatically and are stored in `~/.config/nolgia/tokens.json` (`0600`, like `gh` and `gcloud`):
 
 ```bash
 nolgia auth login          # approve at the printed https://nolgia.ai/device URL
 nolgia auth status         # -> you@example.com (pro)
 nolgia auth logout
 ```
+
+Set `NOLGIA_TOKEN_STORE=keyring` to keep tokens in the OS keyring instead. That was the old default, but on macOS keychain items are tied to the exact binary that created them, so every `nolgia` upgrade re-triggered a keychain password prompt on every command; the file store never prompts. Tokens already in the keyring are migrated to the file automatically (a single read, at most once — the keyring item is left in place; remove it with `NOLGIA_TOKEN_STORE=keyring nolgia auth logout` if you like). `NOLGIA_TOKEN_STORE=file` skips even that one-time keyring read.
 
 **Personal Access Tokens** (scripts, CI, agents). PATs start with `nol_` and are passed via `--token` or `NOLGIA_TOKEN`:
 
@@ -239,8 +241,9 @@ If the applicable pool can't cover a generation the API returns `402 Payment Req
 | Flag | Env | Default | Purpose |
 |---|---|---|---|
 | `--api-url` | `NOLGIA_API_URL` | `https://api.nolgia.ai` | API base URL (the client appends `/v1`) |
-| `--token` | `NOLGIA_TOKEN` | keyring | Bearer token (PAT or JWT); overrides the stored login |
+| `--token` | `NOLGIA_TOKEN` | stored login | Bearer token (PAT or JWT); overrides the stored login |
 | `--json` | — | off | Machine-readable output for scripting |
+| — | `NOLGIA_TOKEN_STORE` | token file | Login-token storage: unset = `~/.config/nolgia/tokens.json` (with one-time keyring migration), `file` = file only, `keyring` = OS keyring |
 | — | `NOLGIA_SURFACE` | auto-detected | Calling-surface tag sent as `X-Nolgia-Surface` |
 
 ## Shell completions

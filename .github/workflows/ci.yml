@@ -38,6 +38,9 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
+      - name: Test install.sh (hermetic sandbox, no network)
+        run: bash tests/install_sh_test.sh
+
   spec-check:
     name: OpenAPI spec drift
     runs-on: ubuntu-latest

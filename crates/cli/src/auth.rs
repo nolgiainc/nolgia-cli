@@ -1,4 +1,11 @@
-use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
+use std::{
+    fs,
+    future::Future,
+    path::{Path, PathBuf},
+    pin::Pin,
+    sync::Arc,
+    time::Duration,
+};
 
 use anyhow::Result;
 use chrono::{DateTime, Utc};
@@ -13,6 +20,8 @@ use crate::output::{OutputFormat, print_json};
 pub const SERVICE_NAME: &str = "com.nolgiacorp.nolgia";
 pub const ACCESS_TOKEN_ACCOUNT: &str = "access_token";
 pub const REFRESH_TOKEN_ACCOUNT: &str = "refresh_token";
+const TOKENS_FILE: &str = "tokens.json";
+const KEYRING_MIGRATION_MARKER: &str = ".keyring-migration-done";
 const CLIENT_ID: &str = "nolgia-cli";
 const DEFAULT_SCOPE: &str = "generate:* assets:read";
 const EXPIRY_SKEW_SECONDS: i64 = 30;
@@ -304,6 +313,188 @@ impl TokenStore for KeyringTokenStore {
     }
 }
 
+/// File-backed token store: `$XDG_CONFIG_HOME/nolgia/tokens.json` (default
+/// `~/.config/nolgia/tokens.json`), written `0600` in a `0700` directory.
+///
+/// This is the DEFAULT store. The OS keyring is opt-in
+/// (`NOLGIA_TOKEN_STORE=keyring`) because on macOS keychain items are
+/// ACL'd to the exact binary that created them — every upgrade or rebuild
+/// of `nolgia` is a new (ad-hoc) signing identity, so each new binary
+/// re-triggered a "nolgia wants to use your login keychain" password
+/// prompt on every command. A `0600` file matches how `gh` and `gcloud`
+/// store credentials and never prompts.
+#[derive(Debug, Clone)]
+pub struct FileTokenStore {
+    path: PathBuf,
+}
+
+impl FileTokenStore {
+    pub fn new(path: PathBuf) -> Self {
+        Self { path }
+    }
+
+    /// `${XDG_CONFIG_HOME:-$HOME/.config}/nolgia/tokens.json`.
+    pub fn from_env() -> Option<Self> {
+        Some(Self::new(config_dir()?.join(TOKENS_FILE)))
+    }
+
+    fn dir(&self) -> &Path {
+        self.path.parent().unwrap_or(Path::new("."))
+    }
+
+    fn write_secret(&self, contents: &str) -> std::io::Result<()> {
+        fs::create_dir_all(self.dir())?;
+        #[cfg(unix)]
+        {
+            use std::io::Write;
+            use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+            let _ = fs::set_permissions(self.dir(), fs::Permissions::from_mode(0o700));
+            let mut file = fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .mode(0o600)
+                .open(&self.path)?;
+            file.write_all(contents.as_bytes())?;
+            // In case the file pre-existed with looser permissions.
+            fs::set_permissions(&self.path, fs::Permissions::from_mode(0o600))?;
+            Ok(())
+        }
+        #[cfg(not(unix))]
+        {
+            fs::write(&self.path, contents)
+        }
+    }
+}
+
+impl TokenStore for FileTokenStore {
+    fn load(&self) -> std::result::Result<Option<StoredTokens>, AuthError> {
+        let raw = match fs::read_to_string(&self.path) {
+            Ok(raw) => raw,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(err) => return Err(AuthError::Store(err.to_string())),
+        };
+        Ok(Some(serde_json::from_str::<StoredTokens>(&raw)?))
+    }
+
+    fn save(&self, tokens: &StoredTokens) -> std::result::Result<(), AuthError> {
+        self.write_secret(&serde_json::to_string_pretty(tokens)?)
+            .map_err(|err| AuthError::Store(err.to_string()))
+    }
+
+    fn delete(&self) -> std::result::Result<(), AuthError> {
+        match fs::remove_file(&self.path) {
+            Ok(()) => Ok(()),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(err) => Err(AuthError::Store(err.to_string())),
+        }
+    }
+}
+
+/// The store the CLI actually uses, selected by `NOLGIA_TOKEN_STORE`:
+///
+/// - unset (default): the token file, plus a ONE-TIME migration read of the
+///   OS keyring for users who logged in before the file store existed
+/// - `file`: the token file only — the keyring is never touched
+/// - `keyring`: the OS keyring (pre-file behavior)
+pub enum CliTokenStore {
+    File {
+        store: FileTokenStore,
+        migrate_from_keyring: bool,
+    },
+    Keyring(KeyringTokenStore),
+}
+
+pub fn default_store() -> CliTokenStore {
+    let file = || {
+        FileTokenStore::from_env().unwrap_or_else(|| {
+            // No resolvable home directory; keep a deterministic (if odd)
+            // fallback rather than failing every command.
+            FileTokenStore::new(PathBuf::from(".nolgia-tokens.json"))
+        })
+    };
+    match std::env::var("NOLGIA_TOKEN_STORE").as_deref() {
+        Ok("keyring") => CliTokenStore::Keyring(KeyringTokenStore),
+        Ok("file") => CliTokenStore::File {
+            store: file(),
+            migrate_from_keyring: false,
+        },
+        _ => CliTokenStore::File {
+            store: file(),
+            migrate_from_keyring: true,
+        },
+    }
+}
+
+impl TokenStore for CliTokenStore {
+    fn load(&self) -> std::result::Result<Option<StoredTokens>, AuthError> {
+        match self {
+            Self::File {
+                store,
+                migrate_from_keyring,
+            } => {
+                if let Some(tokens) = store.load()? {
+                    return Ok(Some(tokens));
+                }
+                if *migrate_from_keyring {
+                    return Ok(migrate_keyring_once(store, &KeyringTokenStore));
+                }
+                Ok(None)
+            }
+            Self::Keyring(store) => store.load(),
+        }
+    }
+
+    fn save(&self, tokens: &StoredTokens) -> std::result::Result<(), AuthError> {
+        match self {
+            Self::File { store, .. } => store.save(tokens),
+            Self::Keyring(store) => store.save(tokens),
+        }
+    }
+
+    fn delete(&self) -> std::result::Result<(), AuthError> {
+        match self {
+            Self::File { store, .. } => store.delete(),
+            Self::Keyring(store) => store.delete(),
+        }
+    }
+}
+
+/// One-time migration from the OS keyring to the token file. The keyring is
+/// probed AT MOST ONCE per config dir (a marker file records the attempt,
+/// success or not) so a denied/canceled keychain prompt can never recur on
+/// every command — that repeated prompt is the exact bug this fixes. The
+/// keyring item itself is left untouched.
+fn migrate_keyring_once(file: &FileTokenStore, source: &dyn TokenStore) -> Option<StoredTokens> {
+    let marker = file.dir().join(KEYRING_MIGRATION_MARKER);
+    if marker.exists() {
+        return None;
+    }
+    let tokens = source.load().ok().flatten();
+    if let Some(tokens) = &tokens {
+        let _ = file.save(tokens);
+    }
+    let _ = fs::create_dir_all(file.dir());
+    let _ = fs::write(&marker, b"keyring migration attempted; delete to retry\n");
+    tokens
+}
+
+/// `${XDG_CONFIG_HOME:-$HOME/.config}/nolgia` (same convention as the
+/// update checker and installer metadata).
+fn config_dir() -> Option<PathBuf> {
+    let base = match std::env::var_os("XDG_CONFIG_HOME") {
+        Some(dir) if !dir.is_empty() => PathBuf::from(dir),
+        _ => home_dir()?.join(".config"),
+    };
+    Some(base.join("nolgia"))
+}
+
+fn home_dir() -> Option<PathBuf> {
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(PathBuf::from)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StoredTokens {
     pub access_token: String,
@@ -389,6 +580,8 @@ pub enum AuthError {
     Serde(#[from] serde_json::Error),
     #[error("keyring error: {0}")]
     Keyring(String),
+    #[error("token store error: {0}")]
+    Store(String),
 }
 
 #[derive(Deserialize, Serialize)]
@@ -446,7 +639,7 @@ pub async fn run(
     base_url: &str,
     token: Option<String>,
 ) -> Result<()> {
-    let manager = AuthManager::new(base_url, KeyringTokenStore);
+    let manager = AuthManager::new(base_url, default_store());
     match command {
         AuthCommand::Token => {
             let resolved = token.or_else(load_token).ok_or_else(|| {
@@ -470,7 +663,7 @@ pub async fn run(
 }
 
 pub fn load_token() -> Option<String> {
-    KeyringTokenStore
+    default_store()
         .load()
         .ok()
         .flatten()
@@ -863,6 +1056,90 @@ mod tests {
 
         assert_eq!(loaded.access_token, "access");
         assert_eq!(loaded.refresh_token.as_deref(), Some("refresh"));
+    }
+
+    #[test]
+    fn file_store_roundtrips_and_deletes() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let store = FileTokenStore::new(dir.path().join("nolgia").join("tokens.json"));
+        assert!(store.load().expect("empty load").is_none());
+
+        let tokens = token(
+            "access",
+            Some("refresh"),
+            Utc::now() + ChronoDuration::hours(1),
+        );
+        store.save(&tokens).expect("save succeeds");
+        assert_eq!(store.load().expect("load").expect("saved"), tokens);
+
+        store.delete().expect("delete succeeds");
+        assert!(store.load().expect("load after delete").is_none());
+        store.delete().expect("delete is idempotent");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn file_store_writes_0600_in_0700_dir() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().expect("tempdir");
+        let store = FileTokenStore::new(dir.path().join("nolgia").join("tokens.json"));
+        store
+            .save(&token("access", None, Utc::now()))
+            .expect("save succeeds");
+
+        let file_mode = std::fs::metadata(dir.path().join("nolgia/tokens.json"))
+            .expect("file metadata")
+            .permissions()
+            .mode();
+        let dir_mode = std::fs::metadata(dir.path().join("nolgia"))
+            .expect("dir metadata")
+            .permissions()
+            .mode();
+        assert_eq!(file_mode & 0o777, 0o600);
+        assert_eq!(dir_mode & 0o777, 0o700);
+    }
+
+    #[test]
+    fn keyring_migration_runs_at_most_once() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let file = FileTokenStore::new(dir.path().join("tokens.json"));
+        let legacy = MemoryStore::with(token(
+            "keyring-access",
+            Some("keyring-refresh"),
+            Utc::now() + ChronoDuration::hours(1),
+        ));
+
+        // First probe migrates the legacy tokens into the file...
+        let migrated = migrate_keyring_once(&file, &legacy).expect("tokens migrate");
+        assert_eq!(migrated.access_token, "keyring-access");
+        assert_eq!(
+            file.load()
+                .expect("file load")
+                .expect("migrated to file")
+                .access_token,
+            "keyring-access"
+        );
+
+        // ...and never probes the source again, even after logout.
+        file.delete().expect("logout");
+        assert!(migrate_keyring_once(&file, &legacy).is_none());
+    }
+
+    #[test]
+    fn keyring_migration_marks_attempt_even_when_source_is_empty() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let file = FileTokenStore::new(dir.path().join("tokens.json"));
+        let legacy = MemoryStore::default();
+
+        assert!(migrate_keyring_once(&file, &legacy).is_none());
+
+        // A later login to the legacy store must NOT resurface: the single
+        // permitted probe already happened (this is what stops repeated
+        // keychain password prompts when the user denies access).
+        legacy
+            .save(&token("late", None, Utc::now() + ChronoDuration::hours(1)))
+            .expect("save");
+        assert!(migrate_keyring_once(&file, &legacy).is_none());
     }
 
     #[tokio::test]
