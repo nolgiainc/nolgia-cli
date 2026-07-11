@@ -4,44 +4,38 @@
 [![npm](https://img.shields.io/npm/v/%40nolgia%2Fcli?logo=npm)](https://www.npmjs.com/package/@nolgia/cli)
 [![Homebrew](https://img.shields.io/badge/homebrew-nolgiainc%2Fnolgia-orange?logo=homebrew)](https://github.com/nolgiainc/homebrew-nolgia)
 [![Release](https://github.com/nolgiainc/nolgia-cli/actions/workflows/release.yml/badge.svg)](https://github.com/nolgiainc/nolgia-cli/actions/workflows/release.yml)
-[![Downloads](https://img.shields.io/crates/d/nolgia-cli?logo=rust&label=crates%20downloads)](https://crates.io/crates/nolgia-cli)
-[![npm downloads](https://img.shields.io/npm/dm/%40nolgia%2Fcli?logo=npm&label=npm%20downloads)](https://www.npmjs.com/package/@nolgia/cli)
-[![License](https://img.shields.io/crates/l/nolgia-cli)](#license)
+[![License](https://img.shields.io/crates/l/nolgia-cli)](LICENSE)
 
-Command-line client for the [Nolgia](https://nolgia.ai) generative media platform — Seedance v2 Pro, Kling v3, Veo 3.1, FLUX Pro, ElevenLabs and more, from your terminal, scripts, and AI agents. Multi-shot video sequences, image-to-video with reusable references, native audio tracks, credit estimates before you spend, and bundled agent skills.
+The `nolgia` command-line client for the [Nolgia](https://nolgia.ai) generative-media platform. Generate images, video, and audio; inspect the live model catalog; manage assets, projects, and characters; and install the bundled agent instructions or marketplace Abilities.
 
-```console
-$ nolgia gen image --prompt "A serene mountain lake at dawn" --out lake.png
-$ nolgia gen video --prompt "A drone shot over a coastline" --no-wait
-9b2f5c1e-...   # job id; check with `nolgia wait <id>`
-```
-
-> A [Nolgia account](https://nolgia.ai) with an active subscription or prepaid API credits is required.
+> **Source versus releases.** `main` is the development source and can contain unreleased commands and flags. The shell installer, Homebrew, prebuilt binaries, npm, and crates.io each install a tagged release. The npm postinstall downloads the binary matching its package version, and a package version without a matching GitHub release cannot install. Check `nolgia --version` and `nolgia --help` for the binary you actually installed. To exercise this checkout, use `cargo run -p nolgia-cli --bin nolgia -- --help`.
 
 ## Contents
 
 - [Installation](#installation)
 - [Quick start](#quick-start)
-- [Examples](#examples)
-- [Models](#models)
-- [AI agents & skills](#ai-agents--skills)
-- [Marketplace abilities](#marketplace-abilities)
+- [Generation](#generation)
+- [Models and cost estimates](#models-and-cost-estimates)
+- [Bundled skills and marketplace Abilities](#bundled-skills-and-marketplace-abilities)
 - [Authentication](#authentication)
 - [Credits](#credits)
-- [Command reference](#command-reference)
+- [Output and scripting](#output-and-scripting)
+- [Command index](#command-index)
 - [Global flags and environment](#global-flags-and-environment)
 - [Shell completions](#shell-completions)
-- [Development](#development)
+- [Development and spec sync](#development-and-spec-sync)
 
 ## Installation
 
-### Shell installer (macOS, Linux)
+### Shell installer (macOS and Linux)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/nolgiainc/nolgia-cli/main/install.sh | bash
 ```
 
-The installer never needs a password: it installs to `~/.local/bin` (falling back to `~/bin`), creates the directory if missing, and appends the matching `export PATH=...` line to your shell profile if the directory is not on `PATH`. Re-running it with the requested version already installed is a no-op. Pass `--prefix <dir>` to choose the directory, `--system` to opt in to `/usr/local/bin` (run via `sudo` yourself in that case), and `--tag vX.Y.Z` to pin a release. On macOS it clears the quarantine attribute for you
+The installer uses the latest GitHub release and installs without `sudo` to `~/.local/bin` (falling back to `~/bin`). It adds the selected directory to your shell profile when needed. Use `--prefix <DIR>` for another user-writable directory, `--tag vX.Y.Z` to pin a release, or `--system` when you intentionally want `/usr/local/bin` and will provide any required privilege yourself. Re-running the same version is idempotent.
+
+This command executes a script fetched from the repository's `main` branch and then downloads a release binary. If your environment requires review or provenance checks, save and inspect `install.sh` first and pin the binary with `--tag`; on macOS the script removes the downloaded binary's quarantine attribute so it can run.
 
 ### npm
 
@@ -49,244 +43,223 @@ The installer never needs a password: it installs to `~/.local/bin` (falling bac
 npm install -g @nolgia/cli
 ```
 
-The package downloads the prebuilt binary for your platform (macOS universal, Linux x86_64, Windows x86_64) during postinstall
+The package requires Node 18 or newer and downloads a matching prebuilt binary during postinstall: macOS universal, Linux x86_64, or Windows x86_64. See the [npm README](npm/README.md) for package-specific caveats.
 
-### Homebrew (macOS, Linux)
+### Homebrew
 
 ```bash
 brew tap nolgiainc/nolgia
 brew install nolgia
 ```
 
-Homebrew prompts once to trust third-party taps: `brew trust nolgiainc/nolgia`.
-
-### Cargo
+### Cargo or a prebuilt binary
 
 ```bash
 cargo install nolgia-cli
 ```
 
-Building from source requires the Rust 2024 toolchain; on Linux you also need `libdbus-1-dev` and `pkg-config` for keyring support.
-
-### Prebuilt binaries
-
-Download the binary for your platform from the [latest release](https://github.com/nolgiainc/nolgia-cli/releases/latest) (macOS universal, Linux x86_64, Windows x86_64), rename it to `nolgia` (`nolgia.exe` on Windows), and place it on your `PATH`.
-
-### Update check
-
-The CLI checks GitHub for a newer release at most once a day and prints a one-line upgrade hint on stderr, matched to how you installed it. It never delays commands, stays quiet for `--json`, piped output, CI, and agent traffic, and can be disabled entirely with `NOLGIA_NO_UPDATE_CHECK=1`
+The public binary is named `nolgia`. Building this Rust 2024 workspace from source on Linux requires `pkg-config` and `libdbus-1-dev` for the keyring dependency. Alternatively, download the platform binary from the [GitHub releases](https://github.com/nolgiainc/nolgia-cli/releases) and put `nolgia` (or `nolgia.exe`) on `PATH`.
 
 ## Quick start
 
 ```bash
-nolgia auth login                                  # device-code sign-in via your browser
+nolgia auth login                         # browser device-code flow
+nolgia models list                        # live models, capabilities, and pricing
 nolgia gen image --prompt "watercolor fox" --out fox.png
-nolgia models list                                 # live catalog: models, pricing, capabilities
-nolgia billing credits                             # see what you have left
+nolgia gen video --prompt "a slow dolly through a studio" --out clip.mp4
+nolgia billing credits                    # subscription and API top-up balances
 ```
 
-## Examples
+Generation is account-backed and consumes the applicable credit pool. Use `nolgia models get <MODEL_ID>` before selecting model-specific options.
 
-### Multi-shot cinematic sequence (Seedance v2 Pro, native audio)
+## Generation
 
-The clip is one generation; the model cuts between your shots. `--prompt` sets overall style, each `--shot` is `"SECONDS:PROMPT"` with an optional `|AUDIO DIRECTION`:
+All generation requests require `--prompt`. The server catalog is authoritative for model IDs, supported durations, aspect ratios, quality tiers, and pricing; do not assume that an option accepted by one model is accepted by another.
+
+### Images
 
 ```bash
-nolgia gen video --model fal-ai/bytedance/seedance/v2/pro/text-to-video \
-  --prompt "Gritty 35mm film look, overcast light." --generate-audio true \
-  --shot "8:WIDE SHOT. Rural highway, one car heading south.|engine, wind, distant birds" \
-  --shot "4:MCU. The driver glances at the dead radio.|AM static cuts out" \
-  --out highway.mp4
+nolgia gen image --prompt "a paper-cut mountain range" --out mountains.png
+nolgia gen image --model <IMAGE_MODEL_ID> --quality <TIER> --prompt "..."
 ```
 
-### Image-to-video with a reusable reference
+`--out` downloads the completed asset. `--quality` is optional and model-specific. Image references belong in a video request; the image command has no working reference-input path in this source tree.
 
-`--input` takes a local file (uploaded automatically) **or the UUID of any previous asset** — generate a character portrait once, reuse it across every clip:
+### Video
 
 ```bash
-nolgia gen image --prompt "portrait, wire-rim glasses, olive field jacket" --out maya.png
-nolgia gen video --model fal-ai/kling-video/v3/pro/image-to-video \
-  --input maya.png --prompt "she turns toward the camera and smiles" --out shot1.mp4
-nolgia assets list --modality image --limit 1      # grab the portrait's asset id
-nolgia gen video --model fal-ai/kling-video/v3/pro/image-to-video \
-  --input <asset-uuid> --prompt "she walks out of frame" --out shot2.mp4
+# A local image is uploaded, or an existing image asset can be addressed by UUID.
+nolgia gen video --model <VIDEO_MODEL_ID> --input portrait.png \
+  --prompt "the subject turns toward the camera" --out shot.mp4
+
+# Multi-shot segments use SECONDS:PROMPT, optionally followed by |AUDIO DIRECTION.
+nolgia gen video --prompt "gritty 35mm film look" \
+  --shot "4:wide shot of a rural road|engine and wind" \
+  --shot "3:the driver checks the radio|static cuts out" \
+  --generate-audio true --out sequence.mp4
 ```
 
-### Reference-to-video (Seedance 2.0 Pro)
+`--input` is a local image path or an existing image asset UUID; the selected model must support image input. `--video-ref <ASSET_UUID>` (repeat up to three) and `--element <ASSET_UUID>` (repeat up to nine) are for models that advertise reference-to-video support. Reference videos must be MP4/MOV, 480p–720p, 2–15 seconds, and 50 MB combined; reference prompts address them as `@Video1`…`@Video3` and elements as `@Image1`…`@Image9`. `--end-frame <ASSET_UUID|FILE>` pins a final image and requires `--input`. `--quality` and `--bitrate` are validated against the model's published capabilities. `--negative-prompt`, `--aspect-ratio`, `--duration-seconds`, and `--seed` are also model-dependent.
 
-Remix your own footage: `--video-ref` supplies reference videos (asset UUIDs, repeat up to 3) and `--element` supplies element/reference images (up to 9). Address them in the prompt as `@Video1`..`@Video3` and `@Image1`..`@Image9`, optionally with `[0-3s]`-style timeline markers. Reference-video inputs must be MP4/MOV, 480p–720p, 2–15 seconds and 50MB combined across all reference videos; the reference-to-video model needs at least one video reference:
+Use `--cost-only` to query the live catalog and print an estimate without creating a job. It is an estimate, not a reservation or a hard-coded price.
+
+### Audio
 
 ```bash
-nolgia gen video --model fal-ai/bytedance/seedance/v2/pro/reference-to-video \
-  --video-ref <video-asset-uuid> --element <image-asset-uuid> \
-  --prompt "@Video1 restaged in the style of @Image1, [0-3s] slow push-in" \
-  --quality 1080p --bitrate high --out remix.mp4
+nolgia gen audio --model <AUDIO_MODEL_ID> --prompt "rain on a window" --out rain.mp3
+nolgia gen audio --model <TTS_MODEL_ID> --voice <VOICE_ID> --prompt "Welcome" --format mp3
 ```
 
-`--quality` picks a model-specific resolution tier (e.g. `720p`/`1080p`/`4k` on Seedance 2.0 Pro) — per-tier credits in `nolgia models get <model>`, premium tiers cost more. It also exists on `gen image` for image models that declare tiers. `--bitrate standard|high` selects the output bitrate profile on models with a bitrate knob.
+Discover voices with `nolgia models get <AUDIO_MODEL_ID>`; `--format` selects the CLI's supported output format. The server validates model-specific audio options.
 
-### Pin the final frame, chain clips seamlessly
-
-On models with end-frame support, `--end-frame` (an image asset UUID or a local file) pins the last frame alongside the `--input` start frame. Combine it with `nolgia assets frame`, which extracts a still from a video asset as a new image asset (omit `--at` for the last frame), to make one clip flow into the next:
+## Models and cost estimates
 
 ```bash
-last=$(nolgia assets frame <clip1-asset-uuid> --json | jq -r .id)  # last frame of clip 1
-nolgia gen video --model fal-ai/bytedance/seedance/v2/pro/image-to-video \
-  --input "$last" --end-frame portrait.png \
-  --prompt "she walks toward the window as dusk falls" --out clip2.mp4
-```
-
-### Know the cost before you spend
-
-```bash
-$ nolgia gen video --model fal-ai/bytedance/seedance/v2/pro/text-to-video \
-    --duration-seconds 12 --prompt "..." --cost-only
-365 credits (fal-ai/bytedance/seedance/v2/pro/text-to-video, 12s)
-```
-
-`--cost-only` prices the selected `--quality` tier too.
-
-### Hero-quality shot (Veo 3.1)
-
-```bash
-nolgia gen video --model veo-3.1 --duration-seconds 8 --aspect-ratio 16:9 \
-  --prompt "slow cinematic dolly through a warmly lit design studio" --out hero.mp4
-```
-
-### Works with your tools
-
-```bash
-# newest finished video assets, URLs only
-nolgia assets list --modality video --json | jq -r '.items[].signed_url'
-
-# fire-and-poll from a script
-id=$(nolgia gen video --prompt "..." --no-wait --json | jq -r .job_id)
-nolgia wait "$id" --timeout 600 --json | jq .asset.signed_url
-```
-
-## Models
-
-The server is the source of truth — new models appear in the catalog with no CLI update:
-
-```bash
-nolgia models list                 # id, modality, credit pricing, durations, aspect ratios
+nolgia models list
 nolgia models list --modality video
-nolgia models get fal-ai/bytedance/seedance/v2/pro/text-to-video
+nolgia models get <MODEL_ID>
+nolgia gen video --model <MODEL_ID> --prompt "..." --cost-only
 ```
 
-Current video lineup: **Kling v3** (standard/master/pro, 3–15s, the workhorse), **Seedance v2 Pro** (4–15s, multi-shot + native audio, cinematic, 720p/1080p/4k quality tiers, plus a reference-to-video variant), **Veo 3.1 / 3.1-fast** (4/6/8s, hero quality / fast previz) — each with an image-to-video variant (except Veo). The catalog also publishes per-model quality tiers and reference capabilities (start/end frame, video/element/audio reference caps, bitrate modes) — see `nolgia models get <id>`. Defaults: `flux-pro` (image), `fal-ai/stable-audio-25/text-to-audio` (audio), `fal-ai/kling-video/v3/text-to-video` (video).
+The catalog includes modality, credit pricing, duration and aspect-ratio support, image-input support, quality tiers, reference limits, and (for audio) voices. New models and capability changes can appear without a CLI release.
 
-## AI agents & skills
+## Bundled skills and marketplace Abilities
 
-The CLI ships **agent skills** — SKILL.md packs that teach Claude Code, hermes, Cursor, or any agent how to generate on Nolgia well:
+These are separate surfaces:
 
-```bash
-nolgia skills list
-nolgia skills install                          # → ~/.claude/skills/  (Claude Code)
-nolgia skills install --target claude-project  # → ./.claude/skills/
-nolgia skills install --target hermes          # → $HERMES_HOME/skills/
-```
+- **Bundled skills** are embedded `SKILL.md` packs that teach an agent how to use Nolgia. They install locally and do not call the API:
 
-Bundled: `nolgia-platform` (the full tool surface), `nolgia-video-prompting` (shot grammar, multi-shot directing, consistency), `nolgia-ugc-ads` (vertical ad production recipe).
+  ```bash
+  nolgia skills list
+  nolgia skills show nolgia-platform
+  nolgia skills install --target claude-user
+  nolgia skills install --target claude-project
+  nolgia skills install --target hermes
+  nolgia skills install --target dir --dir ./agent-skills
+  ```
 
-Also for agents: an **MCP server** at `https://mcp.nolgia.ai` (tools `nolgia_text_to_video`, `nolgia_text_to_image`, …, same params as the CLI flags), **PATs** for headless auth, `nolgia auth token` to extract the current bearer, and `--json` everywhere. The CLI identifies its calling surface (`X-Nolgia-Surface`: `claude-code`, `codex`, `hermes`, `cli`; override with `NOLGIA_SURFACE`) so agent traffic is first-class, not an afterthought.
+  The three bundled packs are `nolgia-platform`, `nolgia-video-prompting`, and `nolgia-ugc-ads`. `--force` is required to overwrite an existing file. The Hermes target writes to `$HERMES_HOME/skills` and defaults `HERMES_HOME` to `/opt/data` when it is unset.
 
-## Marketplace abilities
+- **Marketplace Abilities** are registry-backed packages installed for a Hermes agent through the API. The package manifest is `ability.json`; its agent instructions remain `SKILL.md` for Hermes compatibility:
 
-Distinct from the bundled `skills` above: **Abilities** are marketplace items — registry-backed capabilities, published by Nolgia and served by the API (`/abilities`), that you add to *your* Hermes agent. Each is an `ability.json` manifest plus a `SKILL.md` (and an optional code payload). Where bundled `skills` are generic framework packs you install into any agent, an ability is a purchasable/entitled marketplace item installed against your account and materialized onto the agent's pod.
+  ```bash
+  nolgia ability list
+  nolgia ability show <ABILITY_SLUG>
+  nolgia ability installed
+  nolgia ability install <ABILITY_SLUG>
+  nolgia ability uninstall <ABILITY_SLUG>
+  nolgia ability sync --dir "${HERMES_HOME:-/opt/data}/skills"
+  ```
 
-```bash
-nolgia ability list                 # the marketplace catalog visible to your account
-nolgia ability show <slug>          # details for one ability
-nolgia ability installed            # what's installed for your account's agent
-nolgia ability install <slug>       # add it to your agent
-nolgia ability uninstall <slug>     # remove it
-nolgia ability sync [--dir <path>]  # materialize installed abilities into a skills dir
-                                    #   (default $HERMES_HOME/skills; what the pod runs on boot)
-```
-
-Authoring (admins publishing to the marketplace): `nolgia ability init <slug>` scaffolds an authoring dir (`ability.json`, `SKILL.md`, `payload/`), `nolgia ability pack <dir>` validates and assembles the package into `dist/<slug>`, and `nolgia ability publish dist/<slug>` ships it.
+  Administrators can author and publish an Ability with `nolgia ability init <SLUG>`, `nolgia ability pack <DIR>`, and `nolgia ability publish <DIR>`. `publish` is an admin-only API operation; `init` and `pack` work locally. `ability pack` passes the optional `python_requirements` manifest field through to the marketplace. Synced marketplace directories carry a `.nolgia-ability.json` version marker. Review an Ability's `ability.json`, `SKILL.md`, and payload before installing it: Hermes may execute the instructions and code it contains. Marketplace commands use the `ability` name; the separate bundled command remains `skills`.
 
 ## Authentication
 
-Two ways to authenticate; every command accepts either.
+Networked commands resolve a bearer token from `--token`, then `NOLGIA_TOKEN`, then the stored device-login token. Local commands such as `skills`, `completion`, and Ability `init`/`pack` do not need a token.
 
-**Device-code login** (interactive use). Tokens refresh automatically and are stored in `~/.config/nolgia/tokens.json` (`0600`, like `gh` and `gcloud`):
+### Device login
 
 ```bash
-nolgia auth login          # approve at the printed https://nolgia.ai/device URL
-nolgia auth status         # -> you@example.com (pro)
+nolgia auth login
+nolgia auth status       # `whoami` is an alias
+nolgia auth token        # print the resolved access token for a script
 nolgia auth logout
 ```
 
-Set `NOLGIA_TOKEN_STORE=keyring` to keep tokens in the OS keyring instead. That was the old default, but on macOS keychain items are tied to the exact binary that created them, so every `nolgia` upgrade re-triggered a keychain password prompt on every command; the file store never prompts. Tokens already in the keyring are migrated to the file automatically (a single read, at most once — the keyring item is left in place; remove it with `NOLGIA_TOKEN_STORE=keyring nolgia auth logout` if you like). `NOLGIA_TOKEN_STORE=file` skips even that one-time keyring read.
+The default store is `${XDG_CONFIG_HOME:-$HOME/.config}/nolgia/tokens.json`. On Unix, the CLI creates a `0600` file in a `0700` directory; Windows uses the platform's normal file ACLs. This avoids repeated macOS keychain prompts after upgrades. Set `NOLGIA_TOKEN_STORE=file` to use only that file and never probe the keyring; set `NOLGIA_TOKEN_STORE=keyring` to opt into the OS keyring. With the variable unset, a one-time migration read may import an older keyring token into the file store.
 
-**Personal Access Tokens** (scripts, CI, agents). PATs start with `nol_` and are passed via `--token` or `NOLGIA_TOKEN`:
+### Personal access tokens
 
 ```bash
-nolgia pat create --name build-server   # token is printed once — store it securely
+nolgia pat create --name build-server   # shown once; store it securely
 export NOLGIA_TOKEN=nol_...
 nolgia account me
+nolgia pat list
+nolgia pat revoke <PAT_UUID>
 ```
+
+Use PATs for CI, scripts, and agents. Prefer `NOLGIA_TOKEN` or a secret manager over `--token`: command-line arguments can appear in shell history and process listings. Do not put a token in a README or command log.
 
 ## Credits
 
-Generation costs credits, drawn from one of two pools depending on how you authenticate:
+`nolgia billing credits` reports subscription and API top-up balances separately, plus the overall total (use `--json` for additional fields). Device-login sessions and PAT-authenticated requests use the credential-appropriate pool; the API rejects a generation when that pool cannot cover it. `billing subscription` shows plan status, and `billing portal` prints a Stripe customer-portal link. `account usage` reports the number of job and asset items on its default visible pages, not credit spend or an all-account total.
 
-| Pool | Granted by | Spent by |
-|---|---|---|
-| Subscription credits | your monthly/yearly plan | device-login sessions (and the web app) |
-| API credits | prepaid top-ups (never expire) | PAT-authenticated requests |
+## Output and scripting
 
-If the applicable pool can't cover a generation the API returns `402 Payment Required`. Check balances with `nolgia billing credits`, estimate video jobs with `--cost-only`; buy top-ups and manage your plan from the [billing dashboard](https://nolgia.ai/billing) (`nolgia billing portal` deep-links there).
+`--json` is a global flag for machine-readable output on commands that implement a JSON response. It is not a promise that every invocation emits JSON. In particular:
 
-## Command reference
+- `gen ... --no-wait` prints `{"job_id":"..."}` so it can be passed to `wait`.
+- `gen video --cost-only` prints a human-readable estimate and creates no job.
+- `auth login` and `auth status`/`whoami` print human prompts/status text even when `--json` is also supplied; `auth token` prints the resolved access token, `skills show` prints the `SKILL.md`, and `completion <SHELL>` prints shell code.
 
-| Command | Description |
+For a fire-and-poll script:
+
+```bash
+job_uuid=$(nolgia gen video --prompt "..." --no-wait | jq -r .job_id)
+nolgia wait "$job_uuid" --timeout 600 --json | jq .asset.signed_url
+```
+
+Human output otherwise depends on the command: completed image/audio generations print a signed URL, completed video prints the job UUID and status, and `--out <FILE>` downloads the asset. Signed URLs are temporary bearer capabilities; avoid sending them to persistent CI logs or telemetry, and save the file or query the asset again when needed.
+
+## Command index
+
+Use `nolgia <COMMAND> --help` (and, where applicable, `nolgia <COMMAND> <SUBCOMMAND> --help`) for the complete flags and current server-facing details.
+
+Replace every `<PLACEHOLDER>` below with a real value; angle-bracket placeholders are documentation notation, not literal shell arguments. Flag highlights include `assets list --limit/--cursor/--modality/--tag/--project-id`, `assets get --out`, `assets tag --tag` (repeatable) or `--clear`, `assets frame --at/--last/--out`, `projects create/update --auto-tag` and `update --clear-auto-tags`, `projects add-assets --asset-id` (repeatable), and up to four `characters ... --reference-asset-id` values. `ability sync`/`init` accept `--dir`, while `ability pack` accepts `--out`, as shown by their help. Video waits by default; use `--no-wait` for the JSON job object and `--timeout` to bound waiting.
+
+| Command | Subcommands and purpose |
 |---|---|
-| `nolgia auth login` / `status` / `logout` / `token` | Device-code sign-in, current identity + tier, sign out, print bearer |
-| `nolgia gen image --prompt <p> [--model <m>] [--out <file>]` | Generate an image (waits; prints signed URL or saves) |
-| `nolgia gen audio --prompt <p>` | Generate audio (TTS, music, SFX) |
-| `nolgia gen video --prompt <p> [--shot "S:P\|A"]... [--input <file\|uuid>] [--duration-seconds N] [--aspect-ratio R] [--generate-audio true] [--seed N] [--negative-prompt <p>] [--cost-only] [--no-wait]` | Generate video: multi-shot, image-to-video, native audio, cost estimate |
-| `nolgia models list [--modality m]` / `get <id>` | Live model catalog with pricing and capabilities |
-| `nolgia status <job-id>` / `wait <job-id> [--timeout <s>]` | Job status; block until finished |
-| `nolgia assets list [--limit N] [--modality m] [--tag <t>] [--project-id <id>]` / `get <id> [--out <file>]` / `delete <id>` | List (with tag/project filters), inspect/download, delete assets |
-| `nolgia assets tag <id> --tag <t>...` (or `--clear`) | Replace an asset's full tag set (repeat `--tag`; `--clear` removes all) |
-| `nolgia characters list` / `get <id>` / `create --name <n> [--description <d>] [--reference-asset-id <id>]...` / `update <id> [--name] [--description] [--reference-asset-id ...]` / `delete <id>` | Reusable characters with up to 4 reference images |
-| `nolgia projects list` / `get <id>` / `create --name <n> [--description <d>]` / `update <id> [--name] [--description]` / `delete <id>` | Group assets into projects |
-| `nolgia projects add-assets <id> --asset-id <id>...` / `remove-asset <id> <asset-id>` | Add/remove project members (assets themselves are never deleted) |
-| `nolgia skills list` / `show <name>` / `install [--target t]` | Bundled AI-agent skills (framework packs installed into an agent) |
-| `nolgia ability list` / `show <slug>` / `installed` / `install <slug>` / `uninstall <slug>` / `sync [--dir <path>]` / `init <slug>` / `pack <dir>` / `publish <dir>` | Marketplace **Abilities** for your Hermes agent (`ability.json` manifests, `/abilities` API); `init`/`pack`/`publish` are the admin authoring/publish loop |
-| `nolgia account me` / `usage` | Identity; job and asset counts |
-| `nolgia billing subscription` / `credits` / `portal` | Plan status, credit pools, Stripe portal link |
-| `nolgia pat create --name <n>` / `list` / `revoke <id>` | Manage personal access tokens |
-| `nolgia completion <shell>` | Shell completions (bash, zsh, fish, powershell) |
+| `auth` | `login`, `logout`, `status`/`whoami`, `token` |
+| `gen` | `image`, `video`, `audio` generation |
+| `status`, `wait` | Inspect or wait for a job by UUID |
+| `assets` | `list`, `get`, `delete`, `upload`, `tag`, `frame` |
+| `characters` | `list`, `get`, `create`, `update`, `delete` reusable characters |
+| `projects` | `list`, `get`, `create`, `update`, `delete`, `add-assets`, `remove-asset` |
+| `account` | `me`, `usage` (identity and default-page job/asset item counts) |
+| `billing` | `subscription`, `credits`, `portal` |
+| `pat` | `create`, `list`, `revoke` personal access tokens |
+| `skills` | `list`, `show`, `install` embedded agent packs |
+| `ability` | `list`, `show`, `installed`, `install`, `uninstall`, `sync`, `init`, `pack`, `publish` marketplace Abilities |
+| `models` | `list`, `get` live catalog |
+| `completion` | `bash`, `zsh`, `fish`, `elvish`, or `powershell` completion script |
 
 ## Global flags and environment
 
-| Flag | Env | Default | Purpose |
-|---|---|---|---|
-| `--api-url` | `NOLGIA_API_URL` | `https://api.nolgia.ai` | API base URL (the client appends `/v1`) |
-| `--token` | `NOLGIA_TOKEN` | stored login | Bearer token (PAT or JWT); overrides the stored login |
-| `--json` | — | off | Machine-readable output for scripting |
-| — | `NOLGIA_TOKEN_STORE` | token file | Login-token storage: unset = `~/.config/nolgia/tokens.json` (with one-time keyring migration), `file` = file only, `keyring` = OS keyring |
-| — | `NOLGIA_SURFACE` | auto-detected | Calling-surface tag sent as `X-Nolgia-Surface` |
+| Flag or variable | Default | Purpose |
+|---|---|---|
+| `--api-url` / `NOLGIA_API_URL` | `https://api.nolgia.ai` | API base URL; the client appends `/v1` unless already present |
+| `--token` / `NOLGIA_TOKEN` | stored login | Bearer token; an explicit flag wins |
+| `--json` | off | Request structured output where the command supports it |
+| `NOLGIA_TOKEN_STORE` | file with one-time migration | `file` disables keyring access; `keyring` opts into the OS keyring |
+| `NOLGIA_SURFACE` | auto-detected | Override the `X-Nolgia-Surface` value sent with API requests; any non-empty value also suppresses update hints |
+| `NOLGIA_NO_UPDATE_CHECK` | unset | Disable the once-per-day release hint |
+| `XDG_CONFIG_HOME` | `$HOME/.config` | Parent for token and install-metadata files |
+| `XDG_STATE_HOME` | `$HOME/.local/state` | Parent for the update-check cache |
+| `HERMES_HOME` | `/opt/data` for Hermes targets | Parent of the Hermes `skills` directory |
+
+The update hint reads a local cache and refreshes it in the background at most once per day. It is suppressed for JSON output, CI, non-interactive stderr, and any non-empty `NOLGIA_SURFACE`; a short best-effort grace may run at process exit. Set `NOLGIA_NO_UPDATE_CHECK=1` when a completely quiet invocation is required.
 
 ## Shell completions
 
 ```bash
-# zsh (analogous for bash/fish/powershell)
-nolgia completion zsh > "${fpath[1]}/_nolgia" && exec zsh
+nolgia completion zsh > "${fpath[1]}/_nolgia"
+mkdir -p "${XDG_DATA_HOME:-$HOME/.local/share}/bash-completion/completions"
+nolgia completion bash > "${XDG_DATA_HOME:-$HOME/.local/share}/bash-completion/completions/nolgia"
 ```
 
-## Development
+Use the equivalent `fish`, `elvish`, or `powershell` subcommand for those shells.
+
+## Development and spec sync
 
 ```bash
-cargo build --release      # binary at target/release/nolgia
-cargo test --workspace
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+cargo test --workspace --locked
+bash tests/install_sh_test.sh
+cargo build --release --locked
 ```
 
-The API client crate (`crates/client`) is generated at build time from the [Nolgia OpenAPI spec](crates/client/openapi.yaml); don't hand-edit generated shapes. Built with `tokio`, `reqwest`, and `clap`.
+The Rust client is generated at build time from the vendored [OpenAPI snapshot](crates/client/openapi.yaml). CI compares it with the canonical API contract. Do not hand-edit generated client output. For local development, the sibling `nolgia-api` spec is used only when you explicitly set `NOLGIA_USE_SIBLING_SPEC=1`; otherwise builds use the vendored snapshot. The release workflow publishes tagged crates and release binaries, then attempts npm publishing only when `npm/package.json` matches the tag; a mismatch fails that npm job. A commit on `main` is not itself a release.
 
 ## License
 

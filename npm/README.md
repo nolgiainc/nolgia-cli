@@ -1,8 +1,6 @@
 # @nolgia/cli
 
-Command line interface for the [Nolgia](https://nolgia.ai) generative media platform: images, video (including native multi-shot sequences), and audio from your terminal or from AI agents
-
-This package downloads the prebuilt `nolgia` binary for your platform during postinstall (macOS universal, Linux x86_64, Windows x86_64) and exposes it as `nolgia` on your PATH. The binary is the same one attached to each [GitHub release](https://github.com/nolgiainc/nolgia-cli/releases)
+The npm wrapper for the [Nolgia](https://nolgia.ai) command-line client. It downloads a platform binary during postinstall and exposes it as `nolgia`; the small Node launcher forwards each invocation to that Rust binary.
 
 ## Install
 
@@ -10,62 +8,76 @@ This package downloads the prebuilt `nolgia` binary for your platform during pos
 npm install -g @nolgia/cli
 ```
 
-Other install paths (Homebrew, cargo, curl installer, raw binaries) are covered in the [repository README](https://github.com/nolgiainc/nolgia-cli#installation)
+The package requires Node 18 or newer and supports macOS universal, Linux x86_64, and Windows x86_64. Postinstall downloads the release asset matching the package version from [GitHub Releases](https://github.com/nolgiainc/nolgia-cli/releases), and the Node launcher forwards each command to that binary. If a package version has no matching release asset for your platform, install from [Cargo](https://github.com/nolgiainc/nolgia-cli#cargo-or-a-prebuilt-binary), the shell installer, Homebrew, or a compatible prebuilt release instead. Review registry and release provenance according to your environment's supply-chain policy before enabling postinstall downloads.
+
+> **Release boundary.** This README is published with the npm package. The repository `main` branch can contain unreleased source changes, while `npm install` runs the tagged binary selected by the package version. Check `nolgia --version` and `nolgia --help`; do not assume a source-only command or flag is present in an older npm install.
 
 ## Quick start
 
 ```bash
-nolgia auth login                 # device-code sign-in via your browser
-nolgia models list                # live model catalog with capabilities and credit pricing
-
-nolgia gen image --model flux-pro --prompt "A futuristic city at sunset" --out city.png
-
-nolgia gen video --model veo-3.1 --prompt "A slow dolly through a neon atelier" \
-  --duration-seconds 8 --out clip.mp4
-
-nolgia gen video --model fal-ai/bytedance/seedance/v2/pro/text-to-video \
-  --prompt "Gritty 35mm film look" \
-  --shot "8:WIDE SHOT. Rural highway, a single car heading south|engine, wind" \
-  --shot "4:MCU. The driver glances at the dead radio|AM static cuts out" \
-  --generate-audio true --out sequence.mp4
-
-nolgia gen audio --model fal-ai/elevenlabs/tts/eleven-v3 --prompt "Welcome to Nolgia" --out hello.mp3
+nolgia auth login
+nolgia models list
+nolgia gen image --prompt "a futuristic city at sunset" --out city.png
+nolgia gen video --model <VIDEO_MODEL_ID> --prompt "a slow dolly through a neon atelier" --out clip.mp4
+nolgia gen audio --model <AUDIO_MODEL_ID> --prompt "rain on a window" --out rain.mp3
 ```
 
-## Highlights
+The live catalog is the source of truth for model IDs, capabilities, durations, and credit pricing:
 
-`nolgia gen video` supports text-to-video and image-to-video; pass `--input` with a local file or an asset UUID. Models with native image input like Veo and Omni Flash take it directly, while Kling and Seedance switch to their image-to-video variants. Multi-shot sequences are first class through repeated `--shot SECONDS:PROMPT|AUDIO` flags; the platform composes the cut natively
+```bash
+nolgia models get <MODEL_ID>
+nolgia gen video --model <VIDEO_MODEL_ID> --prompt "..." --cost-only
+```
 
-Costs are transparent: `nolgia gen video --cost-only` prints the credit estimate from the live catalog before you spend anything, and `nolgia models list` shows per-model pricing and capabilities
+## What the binary can do
 
-Every command takes `--json` for machine-readable output, which is how agent pipelines drive the CLI. Authentication accepts a browser device-code flow (`nolgia auth login`) or a personal access token via `--token` / `NOLGIA_TOKEN`
+- `gen image`, `gen video`, and `gen audio` submit jobs and can download a completed asset with `--out`.
+- Video supports model-dependent image-to-video (`--input <IMAGE_FILE|IMAGE_ASSET_UUID>`), repeated `--shot "SECONDS:PROMPT|AUDIO DIRECTION"` segments, `--generate-audio`, and live `--cost-only` estimates. Do not treat `--input` as an arbitrary asset reference: the selected model must accept image input.
+- `assets`, `characters`, and `projects` organize generated media. `assets upload` accepts PNG, JPEG, or WebP files. Newer source/release versions may add more asset verbs; confirm with `nolgia assets --help`.
+- `models list|get` exposes the current catalog. `billing credits`, `billing subscription`, and `billing portal` expose account billing operations. `account me|usage` reports identity and visible job/asset counts.
+- `pat create|list|revoke` manages personal access tokens. `completion <SHELL>` emits shell completion code.
 
-## Command overview
+For the full version-specific command index, run `nolgia --help`; for flags, run `nolgia <COMMAND> --help`. Marketplace `ability` commands, asset-frame extraction, and newer quality/reference options are source/release-version dependent and should be confirmed with that help output. Replace `<PLACEHOLDER>` values before running examples.
 
-| Command | Purpose |
-|---|---|
-| `nolgia auth login` / `status` / `logout` | Device-code sign-in, token storage in the system keyring |
-| `nolgia gen image` / `video` / `audio` | Submit generations, wait, and download results |
-| `nolgia status` / `wait` | Inspect or block on a job |
-| `nolgia assets list` / `get` / `upload` / `delete` / `tag` | Manage generated and uploaded assets, including tags |
-| `nolgia characters list` / `get` / `create` / `update` / `delete` | Reusable characters with reference images |
-| `nolgia projects list` / `get` / `create` / `update` / `delete` / `add-assets` / `remove-asset` | Group assets into projects |
-| `nolgia models list` / `get` | Live model catalog, capabilities, credit pricing |
-| `nolgia account` / `billing` | Usage, credits, and billing portal links |
-| `nolgia pat create` / `list` / `revoke` | Personal access tokens for API use |
-| `nolgia skills list` / `show` / `install` | Bundled skills for Claude Code and other agents |
-| `nolgia completion <shell>` | Shell completions |
+## Authentication and output
+
+Interactive login uses a browser device-code flow:
+
+```bash
+nolgia auth login
+nolgia auth status
+nolgia auth token
+```
+
+For CI or agents, prefer a personal access token in `NOLGIA_TOKEN` or a secret manager. `--token` is also accepted, but command-line arguments can appear in shell history and process listings. The npm package is release-versioned: the `0.2.6` package metadata in this checkout uses its release's keyring-based login behavior; the file-backed `NOLGIA_TOKEN_STORE` and XDG token path described in the source/main README apply only to a release that contains that newer auth implementation. Confirm the installed binary's behavior with `nolgia --version` and its help/release notes.
+
+`--json` is a global flag for commands that implement structured output; it is not a universal output contract. Generation with `--no-wait` prints a JSON job object, while `gen video --cost-only`, `auth token`, `completion`, and `skills show` remain text. `auth login` and `auth status`/`whoami` also print human text around any JSON response. A script can capture a job UUID and then wait for it:
+
+```bash
+job_uuid=$(nolgia gen video --prompt "..." --no-wait | jq -r .job_id)
+nolgia wait "$job_uuid" --json | jq .asset.signed_url
+```
+
+Treat any signed URL returned by the CLI as a temporary bearer capability; avoid writing it to persistent CI logs or telemetry.
 
 ## Environment
 
 | Variable | Effect |
 |---|---|
-| `NOLGIA_TOKEN` | PAT (`nol_...`) or JWT used instead of the keyring |
-| `NOLGIA_API_URL` | Override the API base URL |
-| `NOLGIA_NO_UPDATE_CHECK` | Disable the once-daily update hint |
-| `NOLGIA_SURFACE` | Self-identify agent traffic |
+| `NOLGIA_TOKEN` | PAT or JWT used when `--token` is not supplied |
+| `NOLGIA_API_URL` | Override the API base URL (the client appends `/v1`) |
+| `NOLGIA_TOKEN_STORE` | Supported only by releases containing the file-token implementation; older npm binaries use their release's auth store |
+| `NOLGIA_NO_UPDATE_CHECK` | Disable the once-per-day release hint |
+| `NOLGIA_SURFACE` | Override the `X-Nolgia-Surface` request value |
+| `XDG_CONFIG_HOME` | Parent directory for install metadata; token location is release-version dependent |
+| `XDG_STATE_HOME` | Parent directory for the update-check cache |
+| `HERMES_HOME` | Parent of the Hermes `skills` directory when supported by the installed binary |
 
-Full documentation, the OpenAPI-generated client, and the development guide live in the [repository](https://github.com/nolgiainc/nolgia-cli). The platform itself is documented at [nolgia.ai](https://nolgia.ai)
+The update hint is cached locally, refreshed at most once per day, and suppressed for JSON, CI, non-interactive, and any non-empty `NOLGIA_SURFACE`. Use `NOLGIA_NO_UPDATE_CHECK=1` for a quiet script.
+
+## Other install paths and development
+
+The root [repository README](https://github.com/nolgiainc/nolgia-cli#installation) covers Homebrew, Cargo, the shell installer, prebuilt binaries, command semantics, and the development checks. The client API shapes are generated from the vendored [OpenAPI snapshot](https://github.com/nolgiainc/nolgia-cli/blob/main/crates/client/openapi.yaml); source builds use it by default.
 
 ## License
 
