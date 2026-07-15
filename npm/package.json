@@ -1,6 +1,6 @@
 {
   "name": "@nolgia/cli",
-  "version": "0.2.8",
+  "version": "0.2.9",
   "description": "Nolgia CLI: generate images, video, and audio on the Nolgia platform",
   "bin": {
     "nolgia": "bin/nolgia.js"
