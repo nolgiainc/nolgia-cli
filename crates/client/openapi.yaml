@@ -2517,6 +2517,50 @@ paths:
         default:
           $ref: '#/components/responses/ProblemResponse'
 
+  /admin/economics/consumption:
+    get:
+      tags: [Admin]
+      operationId: getAdminEconomicsConsumption
+      summary: Credit-consumption economics over a trailing day window (admin only).
+      description: >
+        ADMIN-ONLY: the credits customers actually consumed over a trailing
+        window of `days` days ending now, aggregated live at read time from
+        `credit_reservations` joined to `jobs`. `credit_reservations.amount` on
+        rows in the `consumed` state is the EXACT credits charged, net of any
+        refund/release — so these figures are the authoritative consumption
+        basis for unit economics (unlike raw job counts). The window is applied
+        on `consumed_at`. Three groupings are returned: `by_model`
+        (model+modality, all rows, credits descending), `by_surface` (the
+        launching client from `jobs.surface`; NULL/historical jobs bucket as
+        `unknown`), and `by_account` (top 25 users by credits, PLUS any account
+        whose email is in the admin allowlist so internal R&D spend is always
+        visible). Non-admin callers get `404` — the surface is invisible.
+      parameters:
+        - name: days
+          in: query
+          required: false
+          description: Size of the trailing window in days, ending now. Values outside 1..365 are rejected with `400`.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 365
+            default: 30
+      responses:
+        '200':
+          description: The aggregated credit-consumption economics for the requested window.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminEconomicsConsumption'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
   /admin/litellm/spend:
     get:
       tags: [Admin]
@@ -6008,6 +6052,104 @@ components:
           format: date-time
           description: When the mutation was recorded (post-commit).
 
+    AdminEconomicsConsumption:
+      type: object
+      additionalProperties: false
+      required:
+        [window_start, window_end, fetched_at, total_credits_consumed,
+         by_model, by_surface, by_account]
+      description: >
+        Credit-consumption economics for the admin panel, aggregated live from
+        `credit_reservations` (rows in the `consumed` state, whose `amount` is
+        the exact credits charged net of refunds) joined to `jobs`, windowed on
+        `consumed_at`. Every number is computed at read time (`fetched_at`
+        timestamps the read); nothing is precomputed.
+      properties:
+        window_start:
+          type: string
+          format: date-time
+          description: Start (UTC, inclusive) of the trailing consumption window.
+        window_end:
+          type: string
+          format: date-time
+          description: End (UTC, exclusive) of the window — the instant of the read.
+        fetched_at:
+          type: string
+          format: date-time
+          description: When this summary was aggregated from the database.
+        total_credits_consumed:
+          type: integer
+          description: Total credits consumed over the window (sum of consumed reservation amounts joined to a job).
+        by_model:
+          type: array
+          items:
+            $ref: '#/components/schemas/EconomicsModelStat'
+          description: Consumption split by model+modality, all rows, credits descending.
+        by_surface:
+          type: array
+          items:
+            $ref: '#/components/schemas/EconomicsSurfaceStat'
+          description: Consumption split by launching surface (jobs.surface), credits descending. NULL/historical surfaces bucket as `unknown`.
+        by_account:
+          type: array
+          items:
+            $ref: '#/components/schemas/EconomicsAccountStat'
+          description: >
+            Consumption split by account: the top 25 users by credits consumed,
+            PLUS any account whose email is in the admin allowlist (so internal
+            R&D spend is always visible even outside the top 25). Credits
+            descending.
+    EconomicsModelStat:
+      type: object
+      additionalProperties: false
+      required: [model, modality, credits_consumed, jobs]
+      properties:
+        model:
+          type: string
+          description: Model id as recorded on the job; `(none)` when the job carried no model.
+        modality:
+          type: string
+          description: Generation modality — the jobs.type string (image, video, audio).
+        credits_consumed:
+          type: integer
+          description: Credits consumed over the window for this model+modality.
+        jobs:
+          type: integer
+          description: Distinct jobs that consumed credits over the window for this model+modality.
+    EconomicsSurfaceStat:
+      type: object
+      additionalProperties: false
+      required: [surface, credits_consumed, jobs]
+      properties:
+        surface:
+          type: string
+          description: Launching surface from jobs.surface (cli, claude-code, hermes, pipeline, ...); `unknown` when the job carried no surface.
+        credits_consumed:
+          type: integer
+          description: Credits consumed over the window attributed to this surface.
+        jobs:
+          type: integer
+          description: Distinct jobs that consumed credits over the window for this surface.
+    EconomicsAccountStat:
+      type: object
+      additionalProperties: false
+      required: [user_id, email, is_admin, credits_consumed, jobs]
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          description: Account email; empty string when the user row has no email.
+        is_admin:
+          type: boolean
+          description: Whether this account's email is in the ADMIN_EMAILS allowlist (internal R&D spend).
+        credits_consumed:
+          type: integer
+          description: Credits consumed over the window by this account.
+        jobs:
+          type: integer
+          description: Distinct jobs that consumed credits over the window for this account.
     AdminUsageSummary:
       type: object
       additionalProperties: false
