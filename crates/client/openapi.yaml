@@ -2561,6 +2561,57 @@ paths:
         default:
           $ref: '#/components/responses/ProblemResponse'
 
+  /admin/customers/{user_id}:
+    get:
+      tags: [Admin]
+      operationId: getAdminCustomerDetail
+      summary: One customer's account, subscription, and scoped credit consumption (admin only).
+      description: >
+        ADMIN-ONLY: a single customer's 360 for the admin panel — their account
+        (email, created_at, is_admin), their current subscription (or `null`
+        when free / no active subscription), and their credit consumption over a
+        trailing window of `days` days ending now, scoped to THIS user. The
+        consumption block reuses the credit-consumption economics aggregation
+        (`credit_reservations` rows in the `consumed` state, whose `amount` is
+        the exact credits charged net of refunds, joined to `jobs`, windowed on
+        `consumed_at`) with an added `jobs.user_id` filter, so every grouping and
+        the total cover only this customer — there is no `by_account` (it is a
+        single account). Non-admin callers get `404` — the surface is invisible,
+        exactly like the other `/admin` reads. An unknown `user_id` is likewise
+        `404`; a `user_id` that is not a UUID is `400`. Every successful read is
+        audit-logged with the calling admin's email and the target user id.
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          description: The customer's user id (UUID). Non-UUID values are rejected with `400` (after the admin gate, so the surface never leaks).
+          schema:
+            type: string
+        - name: days
+          in: query
+          required: false
+          description: Size of the trailing consumption window in days, ending now. Values outside 1..365 are rejected with `400`.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 365
+            default: 30
+      responses:
+        '200':
+          description: The customer's account, subscription, and scoped consumption.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminCustomerDetail'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
   /admin/litellm/spend:
     get:
       tags: [Admin]
@@ -6150,6 +6201,114 @@ components:
         jobs:
           type: integer
           description: Distinct jobs that consumed credits over the window for this account.
+    AdminCustomerDetail:
+      type: object
+      additionalProperties: false
+      required: [account, subscription, consumption]
+      description: >
+        One customer's 360 for the admin panel: their account, their current
+        subscription (or `null`), and their credit consumption over the trailing
+        window scoped to this one user. Every number is aggregated live at read
+        time; nothing is precomputed.
+      properties:
+        account:
+          $ref: '#/components/schemas/CustomerAccount'
+        subscription:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/CustomerSubscription'
+          description: The customer's current subscription, or `null` when free / no active subscription.
+        consumption:
+          $ref: '#/components/schemas/CustomerConsumption'
+    CustomerAccount:
+      type: object
+      additionalProperties: false
+      required: [user_id, email, is_admin, created_at]
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          description: Account email; empty string when the user row has no email.
+        is_admin:
+          type: boolean
+          description: Whether this account's email is in the ADMIN_EMAILS allowlist.
+        created_at:
+          type: string
+          format: date-time
+          description: When the user account was created.
+    CustomerSubscription:
+      type: object
+      additionalProperties: false
+      required: [tier, status, interval, mrr_cents, current_period_end]
+      description: >
+        The customer's current subscription, mapped from the `subscriptions`
+        row. `tier`/`status`/`interval` are the raw stored identifying fields
+        (`plan`, `status`, `billing_interval`) — not fabricated.
+      properties:
+        tier:
+          type: string
+          description: Subscription tier — the raw `subscriptions.plan` value (e.g. starter, pro, studio).
+        status:
+          type: string
+          description: Subscription status — the raw `subscriptions.status` value (e.g. active, trialing, past_due).
+        interval:
+          type: string
+          description: Billing interval — the raw `subscriptions.billing_interval` value (`month` or `year`).
+        mrr_cents:
+          type: integer
+          nullable: true
+          description: >
+            Normalized monthly recurring revenue in cents. Always `null` for now:
+            the `subscriptions` table stores no price/amount and there is no
+            server-side tier↔price mapping in this service (pricing lives in the
+            web app / Stripe), so MRR cannot be derived here without fabricating
+            it. `tier` + `interval` identify the plan for a price lookup upstream.
+        current_period_end:
+          type: string
+          format: date-time
+          nullable: true
+          description: End of the current billing period (UTC), or `null` when the subscription row carries none.
+    CustomerConsumption:
+      type: object
+      additionalProperties: false
+      required:
+        [window_start, window_end, fetched_at, total_credits_consumed,
+         by_model, by_surface]
+      description: >
+        This customer's credit consumption over the trailing window, aggregated
+        live from `credit_reservations` (rows in the `consumed` state, whose
+        `amount` is the exact credits charged net of refunds) joined to `jobs`,
+        windowed on `consumed_at` and scoped to `jobs.user_id = this user`. The
+        same aggregation as `/admin/economics/consumption` minus `by_account`
+        (it is a single account).
+      properties:
+        window_start:
+          type: string
+          format: date-time
+          description: Start (UTC, inclusive) of the trailing consumption window.
+        window_end:
+          type: string
+          format: date-time
+          description: End (UTC, exclusive) of the window — the instant of the read.
+        fetched_at:
+          type: string
+          format: date-time
+          description: When this summary was aggregated from the database.
+        total_credits_consumed:
+          type: integer
+          description: Total credits this customer consumed over the window.
+        by_model:
+          type: array
+          items:
+            $ref: '#/components/schemas/EconomicsModelStat'
+          description: This customer's consumption split by model+modality, credits descending.
+        by_surface:
+          type: array
+          items:
+            $ref: '#/components/schemas/EconomicsSurfaceStat'
+          description: This customer's consumption split by launching surface, credits descending. NULL/historical surfaces bucket as `unknown`.
     AdminUsageSummary:
       type: object
       additionalProperties: false
