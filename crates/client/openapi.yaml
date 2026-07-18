@@ -3930,6 +3930,18 @@ components:
             project must exist and belong to the caller (400 otherwise).
             Honored on every auth channel (JWT and PAT), and takes precedence
             over server-side agent-session attribution.
+        preset_slug:
+          type: string
+          nullable: true
+          maxLength: 128
+          description: >-
+            Slug of the preset this generation was launched from, if any. Set by
+            the web app on preset-launched generations to enable server-side
+            preset→usage attribution (the admin usage panel's top-presets
+            leaderboard); omit on direct API/CLI/MCP/pipeline calls. Stored
+            verbatim and NOT validated against the preset catalog (a preset may
+            be deleted later).
+          examples: ['cinematic-portrait']
 
     GenerateImageResponse:
       type: object
@@ -3995,6 +4007,18 @@ components:
             project must exist and belong to the caller (400 otherwise).
             Honored on every auth channel (JWT and PAT), and takes precedence
             over server-side agent-session attribution.
+        preset_slug:
+          type: string
+          nullable: true
+          maxLength: 128
+          description: >-
+            Slug of the preset this generation was launched from, if any. Set by
+            the web app on preset-launched generations to enable server-side
+            preset→usage attribution (the admin usage panel's top-presets
+            leaderboard); omit on direct API/CLI/MCP/pipeline calls. Stored
+            verbatim and NOT validated against the preset catalog (a preset may
+            be deleted later).
+          examples: ['cinematic-portrait']
 
     GenerateAudioResponse:
       type: object
@@ -4194,6 +4218,18 @@ components:
             The project must exist and belong to the caller (400 otherwise).
             Honored on every auth channel (JWT and PAT), and takes precedence
             over server-side agent-session attribution.
+        preset_slug:
+          type: string
+          nullable: true
+          maxLength: 128
+          description: >-
+            Slug of the preset this generation was launched from, if any. Set by
+            the web app on preset-launched generations to enable server-side
+            preset→usage attribution (the admin usage panel's top-presets
+            leaderboard); omit on direct API/CLI/MCP/pipeline calls. Stored
+            verbatim and NOT validated against the preset catalog (a preset may
+            be deleted later).
+          examples: ['cinematic-portrait']
 
     VideoShot:
       type: object
@@ -5977,7 +6013,7 @@ components:
       additionalProperties: false
       required:
         [window_start, window_end, fetched_at, active_users, jobs_total,
-         jobs_by_status, jobs_by_modality, top_models, top_users,
+         jobs_by_status, jobs_by_modality, top_models, top_presets, top_users,
          ability_installs, not_instrumented]
       description: >
         Aggregated product-usage metrics for the admin panel, computed live
@@ -6019,6 +6055,11 @@ components:
           items:
             $ref: '#/components/schemas/UsageModelStat'
           description: Top 15 models by windowed job count, largest first. Jobs without a recorded model group under `(none)`.
+        top_presets:
+          type: array
+          items:
+            $ref: '#/components/schemas/UsagePresetStat'
+          description: Top 15 presets by windowed job count, largest first. Only jobs launched from a preset (carrying a `preset_slug`) are counted.
         top_users:
           type: array
           items:
@@ -6150,6 +6191,21 @@ components:
         failed:
           type: integer
           description: How many of those jobs failed.
+
+    UsagePresetStat:
+      type: object
+      additionalProperties: false
+      required: [slug, name, count]
+      properties:
+        slug:
+          type: string
+          description: Preset slug recorded on the job.
+        name:
+          type: string
+          description: Preset display name; falls back to the slug when the preset no longer exists.
+        count:
+          type: integer
+          description: Windowed job count launched from this preset.
 
     UsageUserStat:
       type: object
