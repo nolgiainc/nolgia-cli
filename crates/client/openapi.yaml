@@ -4241,6 +4241,10 @@ components:
             ids of your image assets — resolved to signed URLs and forwarded
             as the provider's `image_urls`. Address them in the prompt as
             `@Image1`..`@Image9`. At most 9 combined with `image_urls`.
+            Images-only requests (no reference video) are allowed but bill
+            at the model's full undiscounted rate — the published
+            reference-to-video credit price assumes a reference video is
+            attached (the provider's with-video discount).
           items:
             type: string
             format: uuid
