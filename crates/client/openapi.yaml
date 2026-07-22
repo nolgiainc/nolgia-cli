@@ -1162,6 +1162,38 @@ paths:
         default:
           $ref: '#/components/responses/ProblemResponse'
 
+  /projects/{id}/asset-usage:
+    get:
+      tags: [Projects]
+      operationId: listProjectAssetUsage
+      summary: Which of the project's timelines use each asset.
+      description: >
+        Scans the current documents (index.html and the nolgia-edits overlay)
+        of every composition linked to the project for asset references and
+        returns, per referenced asset, the compositions that use it. Advisory
+        UI data (drives "Used in N timelines" on project media cards) — files
+        that cannot be read are skipped rather than failing the request.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Per-asset usage across the project's compositions.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectAssetUsage'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
   /compositions:
     get:
       tags: [Compositions]
@@ -4158,6 +4190,34 @@ components:
           type: number
           nullable: true
           minimum: 0
+
+    ProjectAssetUsage:
+      type: object
+      required: [usage]
+      properties:
+        usage:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProjectAssetUsageEntry'
+    ProjectAssetUsageEntry:
+      type: object
+      required: [asset_id, compositions]
+      properties:
+        asset_id:
+          type: string
+          format: uuid
+        compositions:
+          type: array
+          description: The project's compositions whose current document references the asset.
+          items:
+            type: object
+            required: [id, name]
+            properties:
+              id:
+                type: string
+                format: uuid
+              name:
+                type: string
 
     GenerateVideoRequest:
       type: object
