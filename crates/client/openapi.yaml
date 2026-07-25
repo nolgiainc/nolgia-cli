@@ -3922,6 +3922,7 @@ components:
         - gpt-image-2
         - gpt-image-1
         - imagen-4
+        - nano-banana-2
         - flux/schnell
         - flux-ultra
         - flux-pro
