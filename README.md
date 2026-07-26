@@ -221,6 +221,7 @@ Replace every `<PLACEHOLDER>` below with a real value; angle-bracket placeholder
 | `skills` | `list`, `show`, `install` embedded agent packs |
 | `ability` | `list`, `show`, `installed`, `install`, `uninstall`, `sync`, `init`, `pack`, `publish` marketplace Abilities |
 | `models` | `list`, `get` live catalog |
+| `color-presets` | `list` the built-in color-grade preset looks for Studio compositions; `cube <slug> [-o FILE]` downloads the `.cube` LUT |
 | `completion` | `bash`, `zsh`, `fish`, `elvish`, or `powershell` completion script |
 
 ## Global flags and environment

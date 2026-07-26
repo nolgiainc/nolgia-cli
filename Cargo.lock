@@ -1203,6 +1203,7 @@ dependencies = [
  "clap_complete",
  "directories",
  "flate2",
+ "futures-util",
  "keyring",
  "nolgia-client",
  "predicates",

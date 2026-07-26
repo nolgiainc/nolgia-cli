@@ -10,6 +10,7 @@ clap = { version = "4", features = ["derive", "env"] }
 clap_complete = "4"
 chrono = { version = "0.4", features = ["serde"] }
 directories = "5"
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
 keyring = { version = "3.6", features = ["apple-native", "windows-native", "linux-native-sync-persistent"] }
 nolgia-client = { path = "crates/client", version = "0.2.9" }
 reqwest = { version = "0.13", default-features = false, features = ["json", "gzip", "rustls"] }

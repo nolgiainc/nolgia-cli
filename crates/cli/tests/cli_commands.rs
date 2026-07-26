@@ -32,7 +32,8 @@ fn help_lists_full_command_surface() {
         .stdout(predicate::str::contains("projects"))
         .stdout(predicate::str::contains("account"))
         .stdout(predicate::str::contains("billing"))
-        .stdout(predicate::str::contains("pat"));
+        .stdout(predicate::str::contains("pat"))
+        .stdout(predicate::str::contains("color-presets"));
 }
 
 #[test]
@@ -1444,6 +1445,114 @@ fn ability_json(visibility: &str, entitled: bool) -> serde_json::Value {
         "access": "included", "has_code": false, "latest_version": "1.0.0",
         "created_at": "2026-06-13T00:00:00Z", "updated_at": "2026-06-13T00:00:00Z"
     })
+}
+
+#[tokio::test]
+async fn color_presets_list_outputs_catalog_table() {
+    let api = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/color-presets"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "version": 1,
+            "presets": [
+                {"slug": "teal-orange", "name": "Teal & Orange",
+                 "description": "Blockbuster complementary grade."},
+                {"slug": "noir", "name": "Noir",
+                 "description": "High-contrast black and white."},
+            ]
+        })))
+        .mount(&api)
+        .await;
+    run_ok(&api, &["color-presets", "list"])
+        .stdout(predicate::str::contains("teal-orange"))
+        .stdout(predicate::str::contains("Teal & Orange"))
+        .stdout(predicate::str::contains("High-contrast black and white."));
+}
+
+#[tokio::test]
+async fn color_presets_list_json_outputs_versioned_catalog() {
+    let api = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/color-presets"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "version": 3,
+            "presets": [
+                {"slug": "noir", "name": "Noir", "description": "High-contrast black and white."},
+            ]
+        })))
+        .mount(&api)
+        .await;
+    run_ok(&api, &["--json", "color-presets", "list"])
+        .stdout(predicate::str::contains("\"version\": 3"))
+        .stdout(predicate::str::contains("\"slug\": \"noir\""));
+}
+
+const CUBE_TEXT: &str = "TITLE \"teal-orange\"\nLUT_3D_SIZE 33\n0.0 0.0 0.0\n";
+
+#[tokio::test]
+async fn color_presets_cube_prints_lut_to_stdout() {
+    let api = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/color-presets/teal-orange/cube"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "text/plain; charset=utf-8")
+                .set_body_string(CUBE_TEXT),
+        )
+        .mount(&api)
+        .await;
+    run_ok(&api, &["color-presets", "cube", "teal-orange"]).stdout(predicate::eq(CUBE_TEXT));
+}
+
+#[tokio::test]
+async fn color_presets_cube_writes_output_file() {
+    let api = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/color-presets/teal-orange/cube"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "text/plain; charset=utf-8")
+                .set_body_string(CUBE_TEXT),
+        )
+        .mount(&api)
+        .await;
+    let out = tempfile::tempdir().unwrap().path().join("teal-orange.cube");
+    run_ok(
+        &api,
+        &[
+            "color-presets",
+            "cube",
+            "teal-orange",
+            "-o",
+            out.to_str().unwrap(),
+        ],
+    )
+    .stdout(predicate::str::contains("wrote"));
+    assert_eq!(std::fs::read_to_string(out).unwrap(), CUBE_TEXT);
+}
+
+#[tokio::test]
+async fn color_presets_cube_404_surfaces_server_detail_verbatim() {
+    let api = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/color-presets/nope/cube"))
+        .respond_with(ResponseTemplate::new(404).set_body_json(json!({
+            "type": "https://nolgia.ai/errors/not-found",
+            "title": "Not found",
+            "status": 404,
+            "detail": "no color preset with slug \"nope\""
+        })))
+        .mount(&api)
+        .await;
+    cmd()
+        .arg("--api-url")
+        .arg(api.uri())
+        .args(["color-presets", "cube", "nope"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "no color preset with slug \"nope\"",
+        ));
 }
 
 fn cmd() -> Command {
