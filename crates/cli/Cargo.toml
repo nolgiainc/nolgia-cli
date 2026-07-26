@@ -19,6 +19,7 @@ clap.workspace = true
 clap_complete.workspace = true
 chrono.workspace = true
 directories.workspace = true
+futures-util.workspace = true
 keyring.workspace = true
 nolgia-client.workspace = true
 reqwest.workspace = true

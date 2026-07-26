@@ -3,6 +3,7 @@ pub mod account;
 pub mod assets;
 pub mod billing;
 pub mod characters;
+pub mod color_presets;
 pub mod r#gen;
 pub mod models;
 pub mod pat;

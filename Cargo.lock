@@ -1192,7 +1192,7 @@ dependencies = [
 
 [[package]]
 name = "nolgia-cli"
-version = "0.2.9"
+version = "0.2.10"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -1203,6 +1203,7 @@ dependencies = [
  "clap_complete",
  "directories",
  "flate2",
+ "futures-util",
  "keyring",
  "nolgia-client",
  "predicates",
@@ -1219,7 +1220,7 @@ dependencies = [
 
 [[package]]
 name = "nolgia-client"
-version = "0.2.9"
+version = "0.2.10"
 dependencies = [
  "chrono",
  "openapiv3",
