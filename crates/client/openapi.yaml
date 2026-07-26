@@ -78,6 +78,14 @@ tags:
       A preset may reference the marketplace ability powering it via
       `ability_slug`. Admin-managed and mutable by slug (no versions);
       visibility-gated like abilities.
+  - name: ColorPresets
+    description: |
+      Built-in color-grade presets ("LUT looks") for studio compositions.
+      The catalog is embedded in the service (no database) and identical for
+      every caller. Grades attach to compositions as `data-color-grade`
+      attributes — per timed element, and on the canvas element for the whole
+      frame — and as `colorGrade` fields in the `nolgia-edits.json` overlay;
+      the render job bakes them into the exported MP4.
   - name: Admin
     description: >
       Internal admin-only debugging surfaces. Invisible to non-admin callers
@@ -3240,6 +3248,48 @@ paths:
         default:
           $ref: '#/components/responses/ProblemResponse'
 
+  /color-presets:
+    get:
+      tags: [ColorPresets]
+      operationId: listColorPresets
+      summary: List the built-in color-grade presets ("LUT looks") for studio compositions. Public — the embedded catalog is identical for every caller.
+      security:
+        - {}
+        - bearerAuth: []
+        - patAuth: []
+      responses:
+        '200':
+          description: The color-preset catalog, in manifest order.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ColorPresetList'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /color-presets/{slug}/cube:
+    get:
+      tags: [ColorPresets]
+      operationId: getColorPresetCube
+      summary: Download a color preset's 33-point `.cube` LUT — the pure preset op chain (no manual adjustments), baked on demand from the embedded manifest. Public, aggressively cacheable.
+      security:
+        - {}
+        - bearerAuth: []
+        - patAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ColorPresetSlug'
+      responses:
+        '200':
+          description: The `.cube` LUT text.
+          content:
+            text/plain:
+              schema:
+                type: string
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
   /internal/agents:
     get:
       tags: [Agent]
@@ -3436,6 +3486,16 @@ components:
         type: string
         pattern: '^[a-z0-9][a-z0-9-]{0,63}$'
         examples: ['ugc-ad']
+
+    ColorPresetSlug:
+      name: slug
+      in: path
+      required: true
+      description: Color-preset slug (lowercase letters, digits, hyphens).
+      schema:
+        type: string
+        pattern: '^[a-z0-9][a-z0-9-]{0,63}$'
+        examples: ['teal-orange']
 
   responses:
     ProblemResponse:
@@ -7114,6 +7174,37 @@ components:
           items:
             $ref: '#/components/schemas/AbilityFileInput'
           description: The complete file set for the new version (not a diff). Repacked into the package tar.gz in the order given. Max 4096 entries, 5 MiB decoded total.
+
+    ColorPreset:
+      type: object
+      required: [slug, name, description]
+      description: One built-in color-grade preset ("LUT look") from the embedded manifest.
+      properties:
+        slug:
+          type: string
+          description: Stable identity of the preset — the value a `colorGrade`'s `preset` field references.
+          examples: ['teal-orange']
+        name:
+          type: string
+          description: Display name.
+          examples: ['Teal & Orange']
+        description:
+          type: string
+          description: One-line description of the look.
+
+    ColorPresetList:
+      type: object
+      required: [version, presets]
+      description: The color-grade preset catalog, embedded in the service.
+      properties:
+        version:
+          type: integer
+          description: Manifest version; bumps when the recipe set changes.
+        presets:
+          type: array
+          items:
+            $ref: '#/components/schemas/ColorPreset'
+          description: Presets in manifest order.
 
     PresetVisibility:
       type: string
