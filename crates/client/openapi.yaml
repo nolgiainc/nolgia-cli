@@ -3926,7 +3926,22 @@ components:
         - flux/schnell
         - flux-ultra
         - flux-pro
+        - flux-2-pro
+        - flux-2-max
+        - flux-2-flex
+        - flux-2-klein
+        - flux-kontext-pro
+        - flux-kontext-max
+        - grok-imagine-image
+        - grok-imagine-image-quality
         - recraft-v3
+        - recraft-v2
+        - recraft-v4.1
+        - recraft-v4.1-pro
+        - recraft-v4.1-utility
+        - recraft-v4.1-utility-pro
+        - recraft-v4
+        - recraft-v4-pro
         - ideogram-v3
         - stable-diffusion-3.5
         - kling-image-v3
@@ -3970,6 +3985,8 @@ components:
         - veo-3.1
         - veo-3.1-fast
         - omni-flash
+        - grok-imagine-video
+        - grok-imagine-video-1.5
 
     ImageSize:
       type: string
@@ -3979,14 +3996,14 @@ components:
       type: string
       description: >-
         Native output aspect ratio for image models that declare
-        `image.aspect_ratios` on `GET /models` (currently Kling Image 3.0).
-        Rejected (400) on models without native aspect-ratio support — use
-        `image_size` there.
-      enum: ['16:9', '9:16', '1:1', '4:3', '3:4', '3:2', '2:3', '21:9']
+        `image.aspect_ratios` on `GET /models` (Kling Image 3.0, FLUX
+        Kontext, Grok Imagine). Rejected (400) on models without native
+        aspect-ratio support — use `image_size` there.
+      enum: ['16:9', '9:16', '1:1', '4:3', '3:4', '3:2', '2:3', '21:9', '9:21', '2:1', '1:2']
 
     AspectRatio:
       type: string
-      enum: ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9']
+      enum: ['16:9', '9:16', '1:1', '4:3', '3:4', '3:2', '2:3', '21:9']
 
     BitrateMode:
       type: string
