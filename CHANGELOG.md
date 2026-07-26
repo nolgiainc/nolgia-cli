@@ -3,6 +3,23 @@
 Release notes for the Nolgia CLI. Each `## vX.Y.Z` section becomes the body of
 the matching GitHub release.
 
+## v0.2.10
+
+- **`nolgia color-presets`** — the built-in color-grade preset looks for
+  Studio compositions. `list` prints the catalog (slug, name, description;
+  `--json` includes the manifest version), and `cube <slug> [-o FILE]`
+  downloads a preset's 33-point `.cube` LUT (stdout by default, so it pipes
+  straight into grading tools). Both endpoints are public — no login needed —
+  and unknown slugs surface the server's 404 detail verbatim.
+- Re-vendored the OpenAPI spec with the nolgia-api color-grade contract
+  (`/color-presets`, `/color-presets/{slug}/cube`, `ColorPreset*` schemas).
+
+## v0.2.9
+
+- **`gen image|video|audio --project-id <uuid>`** files the generated asset
+  into a project directly at submit time (`nolgia projects list` for ids),
+  and `assets upload` gains the same flag.
+
 ## v0.2.8
 
 ### Fixed
@@ -12,7 +29,7 @@ the matching GitHub release.
   install was broken. Re-vendored the OpenAPI spec so the generated client
   uses `POST` for the install endpoint.
 
-## Unreleased
+### Added
 
 - **Quality tiers**: `gen video` and `gen image` gain `--quality` for
   model-specific resolution tiers (e.g. `720p`/`1080p`/`4k` on Seedance 2.0
@@ -62,6 +79,9 @@ the matching GitHub release.
   spec and opens a PR when it changes. `build.rs` no longer silently prefers a
   sibling `nolgia-api` checkout — that dev convenience is now opt-in via
   `NOLGIA_USE_SIBLING_SPEC=1`, so CI always uses the vendored spec.
+
+## v0.2.7
+
 - **`nolgia skill` renamed to `nolgia ability`** — the marketplace command for
   Hermes agents (`list`, `show`, `installed`, `install`, `uninstall`, `sync`,
   `init`, `pack`, `publish`) now lives under `nolgia ability`, mirroring the
