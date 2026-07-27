@@ -39,3 +39,62 @@ async fn adds_bearer_token_and_targets_v1_me() {
 
     server.verify().await;
 }
+
+/// Released CLIs must never break when the API adds fields their vendored
+/// spec predates (NOL-48: api#158's additive `image` capabilities field made
+/// v0.2.9/v0.2.10 fail `models list` with `unknown field 'image'`). The
+/// catalog payload here carries unknown fields at every level — top-level,
+/// model-level, and inside a capabilities object — and parsing must succeed.
+#[tokio::test]
+async fn models_catalog_tolerates_unknown_fields() {
+    let server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/v1/models"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "models": [
+                {
+                    "id": "veo-3.1",
+                    "modality": "video",
+                    "recommended": true,
+                    "cost": {"credits": 42, "unit": "per_clip"},
+                    "future_capability_block": {"nested": ["unknown"]},
+                    "references": {
+                        "start_frame": true,
+                        "end_frame": false,
+                        "video_refs_max": 0,
+                        "element_refs_max": 0,
+                        "audio_refs_max": 0,
+                        "hologram_refs_max": 9
+                    }
+                },
+                {
+                    "id": "gpt-image-2",
+                    "modality": "image",
+                    "recommended": true,
+                    "image": {"aspect_ratios": ["16:9"], "future_flag": true}
+                }
+            ],
+            "catalog_revision": "2099-01-01"
+        })))
+        .mount(&server)
+        .await;
+
+    let client = ClientBuilder::new(server.uri())
+        .bearer_token("nol_test_token")
+        .build()
+        .expect("client builds");
+
+    let catalog = client
+        .list_models()
+        .send()
+        .await
+        .expect("unknown fields in the catalog must not fail parsing")
+        .into_inner();
+
+    assert_eq!(catalog.models.len(), 2);
+    assert_eq!(catalog.models[0].id, "veo-3.1");
+    assert!(catalog.models[1].image.is_some());
+
+    server.verify().await;
+}

@@ -77,7 +77,38 @@ fn load_spec(
 
     let mut value: Value = serde_yaml::from_str(&sanitize_openapi_text(&raw_text))?;
     strip_non_success_responses(&mut value);
+    strip_additional_properties_false(&mut value);
     Ok(serde_yaml::from_str(&serde_yaml::to_string(&value)?)?)
+}
+
+/// Remove every `additionalProperties: false` from the spec before codegen.
+///
+/// Progenitor translates `additionalProperties: false` into
+/// `#[serde(deny_unknown_fields)]`, which makes released binaries reject any
+/// response containing a field their vendored spec predates. That is exactly
+/// how api#158's additive `image` capabilities field broke `models list` in
+/// every released CLI (NOL-48). The API only ever evolves additively within a
+/// version, so generated response types must tolerate unknown fields; the
+/// strictness stays server-side (the API still validates requests against the
+/// canonical spec). Explicit schema-valued or `true` `additionalProperties`
+/// are preserved — they change the generated type (maps), not strictness.
+fn strip_additional_properties_false(value: &mut Value) {
+    match value {
+        Value::Mapping(map) => {
+            map.retain(|key, val| {
+                !(key.as_str() == Some("additionalProperties") && val.as_bool() == Some(false))
+            });
+            for val in map.values_mut() {
+                strip_additional_properties_false(val);
+            }
+        }
+        Value::Sequence(seq) => {
+            for val in seq.iter_mut() {
+                strip_additional_properties_false(val);
+            }
+        }
+        _ => {}
+    }
 }
 
 fn is_release_profile() -> bool {
