@@ -550,6 +550,16 @@ paths:
             the model id. Cursor pagination follows the selected ordering.
           schema:
             $ref: '#/components/schemas/AssetSort'
+        - name: trashed
+          in: query
+          required: false
+          description: >
+            When `true`, list the trash instead: only soft-deleted assets
+            (`deleted_at` set) are returned. Omitted or `false`, trashed
+            assets are excluded — the default listing is unchanged. Composes
+            with the other filters and is reflected in the page `total`.
+          schema:
+            type: boolean
       responses:
         '200':
           description: Paginated list of assets.
@@ -682,7 +692,15 @@ paths:
     delete:
       tags: [Assets]
       operationId: deleteAsset
-      summary: Delete one of the current user's assets.
+      summary: Move one of the current user's assets to the trash (soft delete).
+      description: >
+        Stamps the asset's `deleted_at`, hiding it from every default
+        listing and lookup while keeping the stored bytes. List the trash
+        with `GET /assets?trashed=true`, bring an asset back with
+        `POST /assets/{id}/restore`, or remove it for good with
+        `DELETE /assets/{id}/permanent`. Trashed assets are purged
+        automatically 30 days after deletion. Deleting an already-trashed
+        asset returns 404.
       parameters:
         - name: id
           in: path
@@ -692,7 +710,67 @@ paths:
             format: uuid
       responses:
         '204':
-          description: Asset deleted.
+          description: Asset moved to the trash.
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /assets/{id}/restore:
+    post:
+      tags: [Assets]
+      operationId: restoreAsset
+      summary: Restore a trashed asset back into the library.
+      description: >
+        Clears the asset's `deleted_at` stamp so it reappears in the default
+        listings. Restoring an asset that is not in the trash is an
+        idempotent no-op; the asset is returned either way with a fresh
+        signed URL.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Asset restored; returned with a fresh signed URL.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Asset'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /assets/{id}/permanent:
+    delete:
+      tags: [Assets]
+      operationId: permanentlyDeleteAsset
+      summary: Permanently delete one of the current user's assets.
+      description: >
+        Irreversibly removes the asset row and deletes the stored bytes
+        (immediately when possible, otherwise via the deferred cleanup
+        queue). Works on both live and trashed assets — this is the
+        "delete forever" action of the trash view.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Asset permanently deleted.
         '400':
           $ref: '#/components/responses/ProblemResponse'
         '401':
@@ -4705,6 +4783,15 @@ components:
             the asset belongs to no project); omitted from list responses.
           items:
             $ref: '#/components/schemas/AssetProjectRef'
+        deleted_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: >
+            When the asset was moved to the trash (soft-deleted). Omitted
+            for live assets; only trash listings
+            (`GET /assets?trashed=true`) return trashed assets. Trashed
+            assets are purged permanently 30 days after this timestamp.
         created_at:
           type: string
           format: date-time
