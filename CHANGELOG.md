@@ -3,6 +3,20 @@
 Release notes for the Nolgia CLI. Each `## vX.Y.Z` section becomes the body of
 the matching GitHub release.
 
+## v0.2.11
+
+- **Fix: `models list` / `models get` against the live API.** nolgia-api#158
+  added an `image` capabilities field to `GET /models`; released CLIs rejected
+  the whole catalog with `unknown field 'image'` because their vendored spec
+  predated it. This release ships the current spec (including the new
+  `image.aspect_ratios` capability surface).
+- **Hardening: unknown response fields no longer break the CLI.** The
+  generated client used to compile `additionalProperties: false` into
+  `deny_unknown_fields`, so every additive API field broke released binaries.
+  Codegen now strips that strictness from response deserialization — future
+  additive fields are ignored instead of fatal. Covered by a regression test
+  that parses a catalog payload carrying unknown fields at every level.
+
 ## v0.2.10
 
 - **`nolgia color-presets`** — the built-in color-grade preset looks for
