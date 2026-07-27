@@ -625,6 +625,42 @@ paths:
         default:
           $ref: '#/components/responses/ProblemResponse'
 
+  /asset-usage:
+    get:
+      tags: [Assets]
+      operationId: listAssetUsage
+      summary: Which of the user's timelines use each asset.
+      description: >
+        Scans the current documents (index.html, other HTML files, and the
+        nolgia-edits overlay) of the caller's newest compositions for asset
+        references and returns, per referenced asset, the compositions that
+        use it. Advisory UI data is incomplete when more than 200
+        compositions exist or stored documents cannot be listed or read.
+      parameters:
+        - name: ids
+          in: query
+          required: false
+          description: Return usage only for these asset ids (repeat the param per id).
+          style: form
+          explode: true
+          x-go-type-skip-optional-pointer: true
+          schema:
+            type: array
+            items:
+              type: string
+              format: uuid
+      responses:
+        '200':
+          description: Per-asset usage across the user's compositions.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssetUsage'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
   /assets/{id}:
     get:
       tags: [Assets]
@@ -4624,6 +4660,43 @@ components:
           type: number
           nullable: true
           minimum: 0
+
+    AssetUsage:
+      type: object
+      required: [usage, complete]
+      properties:
+        usage:
+          type: array
+          items:
+            $ref: '#/components/schemas/AssetUsageEntry'
+        complete:
+          type: boolean
+    AssetUsageEntry:
+      type: object
+      required: [asset_id, compositions]
+      properties:
+        asset_id:
+          type: string
+          format: uuid
+        compositions:
+          type: array
+          description: The user's compositions whose current document references the asset.
+          items:
+            type: object
+            required: [id, name]
+            properties:
+              id:
+                type: string
+                format: uuid
+              name:
+                type: string
+              project_id:
+                type: string
+                format: uuid
+                nullable: true
+              project_name:
+                type: string
+                nullable: true
 
     ProjectAssetUsage:
       type: object
