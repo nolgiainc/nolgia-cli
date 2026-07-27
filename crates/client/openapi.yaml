@@ -40,6 +40,15 @@ tags:
     description: User-owned reusable subjects (name, description, reference images) for generation.
   - name: Projects
     description: User-owned groupings of assets; an asset can belong to multiple projects.
+  - name: Collections
+    description: |
+      User-named Library collections: lightweight, user-curated groupings of
+      assets for the Library navigator. Many-to-many — an asset can live in
+      any number of collections — and membership is the only thing a
+      collection owns: deleting a collection never deletes its assets.
+      Collection names are unique per user (conflicts answer 409). Unlike
+      projects, collections carry no compositions, agent context, or
+      default-filing semantics.
   - name: Compositions
     description: |
       HyperFrames-style HTML video compositions: a bundle of files
@@ -498,6 +507,16 @@ paths:
           in: query
           required: false
           description: Return only assets belonging to the given project.
+          schema:
+            type: string
+            format: uuid
+        - name: collection_id
+          in: query
+          required: false
+          description: >
+            Return only assets belonging to the given collection (owned by
+            the caller). Composes with the other filters and is reflected in
+            the page `total`.
           schema:
             type: string
             format: uuid
@@ -1273,6 +1292,226 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ProjectAssetUsage'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /collections:
+    get:
+      tags: [Collections]
+      operationId: listCollections
+      summary: List the current user's collections, newest first.
+      responses:
+        '200':
+          description: Collections owned by the current user.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CollectionList'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+    post:
+      tags: [Collections]
+      operationId: createCollection
+      summary: Create a named collection of assets.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCollectionRequest'
+      responses:
+        '201':
+          description: Collection created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Collection'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /collections/{id}:
+    get:
+      tags: [Collections]
+      operationId: getCollection
+      summary: Fetch one of the current user's collections.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Collection found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Collection'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+    patch:
+      tags: [Collections]
+      operationId: updateCollection
+      summary: Rename a collection.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateCollectionRequest'
+      responses:
+        '200':
+          description: Collection updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Collection'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+    delete:
+      tags: [Collections]
+      operationId: deleteCollection
+      summary: Delete a collection. Member assets are never deleted.
+      description: >
+        Removes the collection and its membership rows only — the assets
+        themselves stay in the Library (and in any other collections or
+        projects they belong to).
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Collection deleted.
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /collections/{id}/assets:
+    get:
+      tags: [Collections]
+      operationId: listCollectionAssets
+      summary: List the assets in a collection, newest first.
+      description: >
+        Same page shape and cursor pagination as `GET /assets`. Trashed
+        (soft-deleted) assets and pending signed uploads are excluded; the
+        page `total` counts the collection's listable assets across all
+        pages.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Paginated list of the collection's assets.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssetPage'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /collections/{id}/assets/{asset_id}:
+    put:
+      tags: [Collections]
+      operationId: addCollectionAsset
+      summary: Add an asset to a collection (idempotent).
+      description: >
+        The asset must exist, belong to the caller, and not be in the trash;
+        otherwise 404. Adding an asset that is already in the collection is
+        a no-op.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: asset_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Asset is in the collection.
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+    delete:
+      tags: [Collections]
+      operationId: removeCollectionAsset
+      summary: Remove an asset from a collection. The asset itself is not deleted.
+      description: Removing an asset that is not in the collection is a no-op.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: asset_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Asset removed from the collection (or was not a member).
         '401':
           $ref: '#/components/responses/ProblemResponse'
         '404':
@@ -4308,6 +4547,8 @@ components:
         duration_seconds:
           type: integer
           nullable: true
+          deprecated: true
+          description: Currently ignored; never forwarded to audio providers.
           minimum: 1
           maximum: 600
         format:
@@ -5112,6 +5353,74 @@ components:
           items:
             type: string
             format: uuid
+
+    Collection:
+      type: object
+      additionalProperties: false
+      required: [id, user_id, name, asset_count, created_at, updated_at]
+      description: >
+        User-named Library collection of assets. Many-to-many: an asset can
+        live in any number of collections. Deleting a collection never
+        deletes its assets.
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+          examples: ['Moodboard — spring campaign']
+        asset_count:
+          type: integer
+          minimum: 0
+          description: >
+            Number of listable assets currently in the collection (pending
+            signed uploads and trashed assets are excluded, matching
+            `GET /collections/{id}/assets`).
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CollectionList:
+      type: object
+      additionalProperties: false
+      required: [collections]
+      properties:
+        collections:
+          type: array
+          items:
+            $ref: '#/components/schemas/Collection'
+
+    CreateCollectionRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+          description: Collection name, unique per user (conflicts answer 409).
+          examples: ['Moodboard — spring campaign']
+
+    UpdateCollectionRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+          description: New collection name, unique per user (conflicts answer 409).
+          examples: ['Moodboard — summer campaign']
 
     Composition:
       type: object
