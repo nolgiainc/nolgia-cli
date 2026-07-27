@@ -4308,6 +4308,8 @@ components:
         duration_seconds:
           type: integer
           nullable: true
+          deprecated: true
+          description: Currently ignored; never forwarded to audio providers.
           minimum: 1
           maximum: 600
         format:
