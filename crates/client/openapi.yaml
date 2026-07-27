@@ -1697,6 +1697,18 @@ paths:
             type: string
             minLength: 1
             maxLength: 200
+        - name: If-Match
+          in: header
+          required: false
+          description: >
+            Optimistic-concurrency precondition: the `revision` the client
+            last loaded for this file (plain integer or an ETag-quoted form).
+            When it does not match the stored revision the write is rejected
+            with 409 and the current revision in both the `ETag` response
+            header and the problem detail. Omit for last-write-wins (existing
+            behavior).
+          schema:
+            type: string
       requestBody:
         required: true
         content:
@@ -1706,6 +1718,11 @@ paths:
       responses:
         '200':
           description: File stored.
+          headers:
+            ETag:
+              description: The file's new `revision` after this write.
+              schema:
+                type: string
           content:
             application/json:
               schema:
@@ -1716,6 +1733,17 @@ paths:
           $ref: '#/components/responses/ProblemResponse'
         '404':
           $ref: '#/components/responses/ProblemResponse'
+        '409':
+          description: The file was modified concurrently; the current revision is in the ETag header and problem detail.
+          headers:
+            ETag:
+              description: The file's current `revision`.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '413':
           $ref: '#/components/responses/ProblemResponse'
         default:
@@ -5489,6 +5517,14 @@ components:
           type: integer
           format: int64
           minimum: 0
+        revision:
+          type: integer
+          minimum: 1
+          description: >
+            Monotonic per-file revision for optimistic-concurrency autosave.
+            Bumped on every overwrite. Always present in responses. Send it
+            back in the `If-Match` request header on the next
+            `PUT /compositions/{id}/file` to detect a concurrent overwrite.
         updated_at:
           type: string
           format: date-time
