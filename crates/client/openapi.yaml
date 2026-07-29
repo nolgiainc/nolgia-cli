@@ -2218,6 +2218,50 @@ paths:
         default:
           $ref: '#/components/responses/ProblemResponse'
 
+  /credits/redeem:
+    post:
+      tags: [Billing]
+      operationId: redeemCreditCode
+      summary: Redeem a credit code for shared top-up credits.
+      description: >
+        Redeems an admin-issued credit code for the calling account. A valid
+        code (active, unexpired, under its redemption limit, never redeemed by
+        this account) grants its amount of shared top-up credits via the same
+        idempotent ledger primitive the Stripe purchase path uses
+        (`credits.Service.GrantTopup`, key `redeem:<code_id>:<user_id>`) — a
+        double-submit can never grant twice. Each account may redeem a given
+        code at most once. Rejections are explicit: `404` unknown code, `410`
+        deactivated/expired/fully-redeemed code, `409` already redeemed by
+        this account. Attempts are rate-limited per account (`429`) so codes
+        cannot be brute-forced.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreditRedeemRequest'
+      responses:
+        '200':
+          description: The credits granted by this redemption and the account's resulting balance.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreditRedeemResult'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        '410':
+          $ref: '#/components/responses/ProblemResponse'
+        '429':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
   /pat:
     get:
       tags: [PAT]
@@ -3018,8 +3062,8 @@ paths:
         ADMIN-ONLY: grants `amount` shared top-up credits to `user_id` by
         writing an idempotent `topup_grant` ledger entry — the same primitive
         the Stripe purchase path uses (`credits.Service.GrantTopup`). Intended
-        for internal R&D funding and support make-goods; a self-serve
-        redeemable-code layer on top is tracked as a follow-up. `idempotency_key`
+        for internal R&D funding and support make-goods; the self-serve
+        redeemable-code layer on top is `POST /credits/redeem`. `idempotency_key`
         makes the grant safe to retry: re-submitting the same key returns the
         existing grant instead of crediting twice. Non-admin callers get `404`
         so the surface is invisible.
@@ -3038,6 +3082,102 @@ paths:
                 $ref: '#/components/schemas/AdminCreditTopupResult'
         '400':
           $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /admin/credits/codes:
+    get:
+      tags: [Admin]
+      operationId: listAdminCreditCodes
+      summary: List redeemable credit codes with redemption counts (admin only).
+      description: >
+        ADMIN-ONLY: every minted credit code, newest first (capped at 200),
+        including its live `redeemed_count`. Non-admin callers get `404` so
+        the surface is invisible, exactly like the other `/admin` reads.
+        Browser (JWT) sessions only; PATs are rejected.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Credit codes, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminCreditCodeList'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+    post:
+      tags: [Admin]
+      operationId: createAdminCreditCode
+      summary: Mint a redeemable credit code (admin only).
+      description: >
+        ADMIN-ONLY: mints a high-entropy code (`NOLG-XXXXX-XXXXX-XXXXX`)
+        worth `amount` shared top-up credits, redeemable by up to
+        `max_redemptions` distinct accounts until `expires_at` (if set) or
+        deactivation. Redemption goes through the same idempotent GrantTopup
+        primitive as `/admin/credits/topup` — codes add a self-serve address
+        for a grant, not a new money path. Non-admin callers get `404`.
+        Browser (JWT) sessions only; PATs are rejected.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminCreateCreditCodeRequest'
+      responses:
+        '201':
+          description: The minted code, including its redeemable code string.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreditCode'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /admin/credits/codes/{id}/deactivate:
+    post:
+      tags: [Admin]
+      operationId: deactivateAdminCreditCode
+      summary: Deactivate a credit code (admin only).
+      description: >
+        ADMIN-ONLY: turns the code off immediately — future redemption
+        attempts get `410`. Already-completed redemptions are unaffected
+        (granted credits are never clawed back). Idempotent: deactivating an
+        already-inactive code returns it unchanged. Non-admin callers get
+        `404`, as does an unknown id. Browser (JWT) sessions only; PATs are
+        rejected.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The deactivated code.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreditCode'
         '401':
           $ref: '#/components/responses/ProblemResponse'
         '404':
@@ -6066,7 +6206,11 @@ components:
           type: string
           minLength: 1
           maxLength: 200
-          description: Unique per intended grant. Re-submitting the same key returns the existing grant instead of crediting again.
+          description: >
+            Unique per intended grant. Re-submitting the same key returns the
+            existing grant instead of crediting again. Keys starting with
+            `redeem:` are reserved for credit-code redemption and are rejected
+            with `400`.
         note:
           type: string
           maxLength: 500
@@ -6080,6 +6224,89 @@ components:
         granted:
           type: integer
           description: Credits added by this call. 0 when the idempotency key already existed (no double-grant).
+        balance:
+          $ref: '#/components/schemas/CreditBalance'
+
+    AdminCreateCreditCodeRequest:
+      type: object
+      additionalProperties: false
+      required: [amount, max_redemptions]
+      properties:
+        amount:
+          type: integer
+          minimum: 1
+          description: Shared top-up credits granted per redemption.
+        max_redemptions:
+          type: integer
+          minimum: 1
+          description: How many DISTINCT accounts may redeem this code. Each account can redeem it at most once.
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Optional expiry. Redemption attempts at or after this instant are rejected. Omit for no expiry.
+
+    CreditCode:
+      type: object
+      additionalProperties: false
+      required: [id, code, amount, max_redemptions, redeemed_count, created_by, active, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+          description: The redeemable code string (server-generated, high entropy, `NOLG-XXXXX-XXXXX-XXXXX`).
+        amount:
+          type: integer
+          description: Shared top-up credits granted per redemption.
+        max_redemptions:
+          type: integer
+        redeemed_count:
+          type: integer
+          description: Completed redemptions so far.
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_by:
+          type: string
+          description: Email of the admin who minted the code.
+        active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+
+    AdminCreditCodeList:
+      type: object
+      additionalProperties: false
+      required: [codes]
+      properties:
+        codes:
+          type: array
+          items:
+            $ref: '#/components/schemas/CreditCode'
+
+    CreditRedeemRequest:
+      type: object
+      additionalProperties: false
+      required: [code]
+      properties:
+        code:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: The code to redeem. Case-insensitive; surrounding whitespace is ignored.
+
+    CreditRedeemResult:
+      type: object
+      additionalProperties: false
+      required: [granted, balance]
+      properties:
+        granted:
+          type: integer
+          description: Shared top-up credits this redemption granted.
         balance:
           $ref: '#/components/schemas/CreditBalance'
 
