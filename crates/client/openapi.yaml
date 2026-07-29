@@ -2725,12 +2725,17 @@ paths:
     get:
       tags: [Agent]
       operationId: listAgentSessionAssets
-      summary: List the media a chat session's completed turns produced.
+      summary: List the media a chat session's agent turns produced.
       description: >
-        Returns the assets created during the session's completed agent turns
-        (each turn's active window), newest first and de-duplicated by asset
-        id, so a reload can re-render the session's generated media. The
-        session must belong to the caller (`404` otherwise).
+        Returns the session's agent-produced assets, newest first and
+        de-duplicated by asset id. Assets whose generating job was causally
+        stamped with this session (`jobs.agent_session_id`, recorded at job
+        creation) are included regardless of turn state — so polling during a
+        run surfaces each clip as it lands, and a run that dies before
+        delivering still shows everything it produced. Assets from jobs that
+        predate the stamp fall back to the legacy attribution: created inside
+        a completed turn's active window and attributable to the agent by
+        surface. The session must belong to the caller (`404` otherwise).
       parameters:
         - name: id
           in: path
@@ -2829,7 +2834,12 @@ paths:
         ADMIN-ONLY debugging surface: returns the full transcript of ANY user's
         agent chat session — the session meta and owner, every message
         (oldest first) with each agent turn's persisted steps embedded, and the
-        media the session's completed turns produced. Non-admin callers get
+        media the session produced. Assets are attributed exactly as
+        `listAgentSessionAssets` attributes them: jobs causally stamped with
+        the session (`jobs.agent_session_id`) are included regardless of turn
+        state, so a still-running or failed turn's output is visible, while
+        jobs predating the stamp fall back to the legacy completed-turn window.
+        Non-admin callers get
         `404` (the surface is invisible); an unknown session id is likewise
         `404`. Every successful read is audit-logged with the calling admin's
         email, the session id, and the owner's id.
@@ -6728,8 +6738,9 @@ components:
       additionalProperties: false
       required: [id]
       description: >
-        One asset a chat session's completed turns produced. A light identity
-        for the session gallery, not the full asset resource; fetch
+        One asset a chat session's agent turns produced, including turns still
+        running or ones that failed before delivering. A light identity for the
+        session gallery, not the full asset resource; fetch
         `GET /assets/{id}` for a fresh signed download URL and metadata.
       properties:
         id:
@@ -6831,7 +6842,7 @@ components:
             $ref: '#/components/schemas/AdminAgentMessage'
         assets:
           type: array
-          description: The media the session's completed turns produced, newest first.
+          description: The media the session's agent turns produced (running and failed turns included), newest first.
           items:
             $ref: '#/components/schemas/AgentSessionAsset'
 
