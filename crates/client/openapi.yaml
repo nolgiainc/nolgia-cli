@@ -2999,6 +2999,42 @@ paths:
         default:
           $ref: '#/components/responses/ProblemResponse'
 
+  /admin/credits/topup:
+    post:
+      tags: [Admin]
+      operationId: postAdminCreditsTopup
+      summary: Grant top-up credits to an account (admin only).
+      description: >
+        ADMIN-ONLY: grants `amount` shared top-up credits to `user_id` by
+        writing an idempotent `topup_grant` ledger entry — the same primitive
+        the Stripe purchase path uses (`credits.Service.GrantTopup`). Intended
+        for internal R&D funding and support make-goods; a self-serve
+        redeemable-code layer on top is tracked as a follow-up. `idempotency_key`
+        makes the grant safe to retry: re-submitting the same key returns the
+        existing grant instead of crediting twice. Non-admin callers get `404`
+        so the surface is invisible.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminCreditTopupRequest'
+      responses:
+        '200':
+          description: The grant that was applied (or the pre-existing grant for a repeated idempotency key) and the account's resulting balance.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminCreditTopupResult'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
   /admin/customers/{user_id}:
     get:
       tags: [Admin]
@@ -6002,6 +6038,40 @@ components:
       type: string
       description: Launch credit buckets. App uses subscription first, then shared top-up overflow; API uses shared top-up only.
       enum: [app_subscription, shared_topup]
+
+    AdminCreditTopupRequest:
+      type: object
+      additionalProperties: false
+      required: [user_id, amount, idempotency_key]
+      properties:
+        user_id:
+          type: string
+          format: uuid
+          description: The account to credit.
+        amount:
+          type: integer
+          minimum: 1
+          description: Credits to grant. Must be positive.
+        idempotency_key:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Unique per intended grant. Re-submitting the same key returns the existing grant instead of crediting again.
+        note:
+          type: string
+          maxLength: 500
+          description: Optional human note recorded as the ledger entry source (e.g. "R&D validation top-up").
+
+    AdminCreditTopupResult:
+      type: object
+      additionalProperties: false
+      required: [granted, balance]
+      properties:
+        granted:
+          type: integer
+          description: Credits added by this call. 0 when the idempotency key already existed (no double-grant).
+        balance:
+          $ref: '#/components/schemas/CreditBalance'
 
     CreditBalanceBucket:
       type: object
