@@ -520,6 +520,20 @@ paths:
           schema:
             type: string
             format: uuid
+        - name: agent_session_id
+          in: query
+          required: false
+          description: >
+            Return only assets whose generating job was caused by an agent
+            turn in the given chat session — causal attribution recorded at
+            job creation, not a time window, so it holds for async video that
+            lands long after the turn. Assets uploaded by the agent, and jobs
+            created before this attribution shipped, are not matched.
+            Composes with the other filters and is reflected in the page
+            `total`.
+          schema:
+            type: string
+            format: uuid
         - name: status
           in: query
           required: false
@@ -2401,11 +2415,12 @@ paths:
         unlocked composer without racing turn completion.
 
         Pass `session_id` to file the turn under one of your chat sessions
-        (see `/agent/sessions`). Omitting it targets the legacy/default
-        conversation. When the session is linked to a project, the platform
-        scopes the turn to that project server-side. An auto-delivered
-        steering turn uses its most recent steering message's session for
-        that scoping when the queued messages span sessions.
+        (see `/agent/sessions`). Omitting it files the turn under your
+        auto-created default session, reused by later sessionless submits.
+        When the session is linked to a project, the platform scopes the
+        turn to that project server-side. An auto-delivered steering turn
+        uses its most recent steering message's session for that scoping
+        when the queued messages span sessions.
       requestBody:
         required: true
         content:
@@ -6322,7 +6337,8 @@ components:
           format: uuid
           description: >
             Chat session to file the turn under (must be owned by the
-            caller). Omit for the legacy/default conversation. Note the
+            caller). Omit to file the turn under the caller's auto-created
+            default session, reused by later sessionless submits. Note the
             one-pending-turn-per-user limit is global across sessions.
         steering:
           type: boolean
@@ -6438,7 +6454,10 @@ components:
         session_id:
           type: string
           format: uuid
-          description: Chat session the message belongs to. Absent on legacy/default-conversation messages.
+          description: >
+            Chat session the message belongs to. Absent only on
+            legacy/default-conversation rows created before sessionless
+            submits began using an auto-created default session.
         steering:
           type: boolean
           description: >
@@ -6453,6 +6472,12 @@ components:
             message carries no attachments.
           items:
             $ref: '#/components/schemas/AgentMessageAttachment'
+        work_observed:
+          type: boolean
+          description: >
+            Present on completed agent replies the platform evaluated.
+            `false` means the turn completed without calling a tool or
+            producing an asset; absent means the result was not determined.
         created_at:
           type: string
           format: date-time
