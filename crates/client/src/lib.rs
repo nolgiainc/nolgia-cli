@@ -34,6 +34,19 @@ pub trait ClientExt {
         &self,
         id: Uuid,
     ) -> impl std::future::Future<Output = StdResult<types::Asset, ApiError<()>>> + Send;
+
+    /// POST `/assets/uploads/{id}/complete` to finish a signed upload,
+    /// returning the ready [`types::Asset`].
+    ///
+    /// This mirrors the generated `complete_asset_upload` builder but sends an
+    /// explicit empty body so a `Content-Length: 0` header is emitted. The
+    /// generated bodyless POST omits `Content-Length` entirely, which the
+    /// production load balancer rejects with `411 Length Required` before the
+    /// request ever reaches the API.
+    fn finish_asset_upload(
+        &self,
+        upload_id: Uuid,
+    ) -> impl std::future::Future<Output = StdResult<types::Asset, ApiError<()>>> + Send;
 }
 
 impl ClientExt for Client {
@@ -43,6 +56,22 @@ impl ClientExt for Client {
             .client()
             .patch(url)
             .json(&serde_json::json!({ "tags": [] }))
+            .send()
+            .await?;
+        let response = response.error_for_status()?;
+        Ok(response.json::<types::Asset>().await?)
+    }
+
+    async fn finish_asset_upload(&self, upload_id: Uuid) -> StdResult<types::Asset, ApiError<()>> {
+        let url = format!("{}/assets/uploads/{}/complete", self.baseurl(), upload_id);
+        let response = self
+            .client()
+            .post(url)
+            // reqwest omits `Content-Length` for a bodyless (or empty-body)
+            // POST, which the production LB rejects with 411. Set it
+            // explicitly so the request carries `Content-Length: 0`.
+            .header(reqwest::header::CONTENT_LENGTH, "0")
+            .body(Vec::<u8>::new())
             .send()
             .await?;
         let response = response.error_for_status()?;

@@ -4,7 +4,7 @@ use serde_json::json;
 use uuid::Uuid;
 use wiremock::{
     Mock, MockServer, ResponseTemplate,
-    matchers::{body_json, body_partial_json, method, path, query_param},
+    matchers::{body_json, body_partial_json, header, method, path, query_param},
 };
 
 const JOB_ID: &str = "11111111-1111-4111-8111-111111111111";
@@ -477,6 +477,87 @@ async fn assets_upload_sends_project_id() {
         ],
     )
     .stdout(predicate::str::contains("ref.png"));
+}
+
+#[tokio::test]
+async fn assets_upload_video_uses_signed_flow() {
+    let api = MockServer::start().await;
+    // A separate server stands in for GCS: the signed PUT target the API hands
+    // back must be a real URL the CLI can PUT the bytes to.
+    let storage = MockServer::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("master.mp4");
+    std::fs::write(&file, [0u8, 1, 2, 3, 4]).unwrap();
+    let put_url = format!("{}/signed-put", storage.uri());
+
+    // 1. Start the signed upload: video/mp4 declared, size + filename derived
+    //    from the file, project routed through.
+    Mock::given(method("POST"))
+        .and(path("/v1/assets/uploads"))
+        .and(body_partial_json(json!({
+            "content_type": "video/mp4",
+            "filename": "master.mp4",
+            "size_bytes": 5,
+            "project_id": PROJECT_ID,
+        })))
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({
+            "upload_id": ASSET_ID,
+            "asset_id": ASSET_ID,
+            "upload_url": put_url,
+            "expires_at": "2026-06-13T00:30:00Z",
+        })))
+        .expect(1)
+        .mount(&api)
+        .await;
+
+    // 2. Bytes go straight to storage with the declared Content-Type.
+    Mock::given(method("PUT"))
+        .and(path("/signed-put"))
+        .and(header("content-type", "video/mp4"))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(1)
+        .mount(&storage)
+        .await;
+
+    // 3. Complete flips the asset to ready and returns it.
+    Mock::given(method("POST"))
+        .and(path(format!("/v1/assets/uploads/{ASSET_ID}/complete")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": ASSET_ID, "user_id": USER_ID, "modality": "video", "model": "user-upload",
+            "signed_url": "https://files/master.mp4", "expires_at": "2026-06-13T00:00:00Z",
+            "created_at": "2026-06-13T00:00:00Z"
+        })))
+        .expect(1)
+        .mount(&api)
+        .await;
+
+    run_ok(
+        &api,
+        &[
+            "assets",
+            "upload",
+            file.to_str().unwrap(),
+            "--project-id",
+            PROJECT_ID,
+        ],
+    )
+    .stdout(predicate::str::contains("master.mp4"))
+    .stdout(predicate::str::contains("video"));
+}
+
+#[tokio::test]
+async fn assets_upload_rejects_unknown_extension() {
+    let api = MockServer::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("notes.txt");
+    std::fs::write(&file, b"hello").unwrap();
+    cmd()
+        .arg("--api-url")
+        .arg(api.uri())
+        .args(["assets", "upload", file.to_str().unwrap()])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("unsupported file extension"));
 }
 
 #[tokio::test]
