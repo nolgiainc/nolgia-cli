@@ -17,7 +17,14 @@ use tokio::time::Instant;
 
 use crate::output::{OutputFormat, print_json};
 
-pub const SERVICE_NAME: &str = "com.nolgiacorp.nolgia";
+pub const SERVICE_NAME: &str = "com.nolgiainc.nolgia";
+/// Pre-rename keyring service name. This is the ONLY remaining reference to
+/// the old org identifier, and it exists solely so `KeyringTokenStore::load`
+/// can perform a one-time migration of any tokens still stored under the old
+/// service into `SERVICE_NAME` — otherwise the rename would silently log out
+/// users who opted into the keyring store. Safe to delete once users have
+/// upgraded past this release.
+const LEGACY_SERVICE_NAME: &str = "com.nolgiacorp.nolgia";
 pub const ACCESS_TOKEN_ACCOUNT: &str = "access_token";
 pub const REFRESH_TOKEN_ACCOUNT: &str = "refresh_token";
 const TOKENS_FILE: &str = "tokens.json";
@@ -279,7 +286,10 @@ impl TokenStore for KeyringTokenStore {
         let access = entry(ACCESS_TOKEN_ACCOUNT)?.get_password();
         let access_json = match access {
             Ok(value) => value,
-            Err(keyring::Error::NoEntry) => return Ok(None),
+            // Nothing under the current service name: the tokens may still be
+            // under the pre-rename service. Try to migrate them once so the
+            // rename doesn't log the user out.
+            Err(keyring::Error::NoEntry) => return migrate_legacy_keyring(),
             Err(err) => return Err(AuthError::Keyring(err.to_string())),
         };
 
@@ -725,6 +735,45 @@ fn delete_entry(account: &str) -> std::result::Result<(), AuthError> {
         Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
         Err(err) => Err(AuthError::Keyring(err.to_string())),
     }
+}
+
+fn legacy_entry(account: &str) -> std::result::Result<keyring::Entry, AuthError> {
+    keyring::Entry::new(LEGACY_SERVICE_NAME, account)
+        .map_err(|err| AuthError::Keyring(err.to_string()))
+}
+
+fn delete_legacy_entry(account: &str) -> std::result::Result<(), AuthError> {
+    match legacy_entry(account)?.delete_credential() {
+        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Err(err) => Err(AuthError::Keyring(err.to_string())),
+    }
+}
+
+/// One-time migration off the pre-rename keyring service name. Called only when
+/// nothing is stored under the current `SERVICE_NAME`. If tokens exist under
+/// `LEGACY_SERVICE_NAME`, they are re-homed under the current service and the
+/// legacy entries are removed, so a keyring user is not logged out by the
+/// rename. Returns `Ok(None)` when there is nothing under either service.
+fn migrate_legacy_keyring() -> std::result::Result<Option<StoredTokens>, AuthError> {
+    let access_json = match legacy_entry(ACCESS_TOKEN_ACCOUNT)?.get_password() {
+        Ok(value) => value,
+        Err(keyring::Error::NoEntry) => return Ok(None),
+        Err(err) => return Err(AuthError::Keyring(err.to_string())),
+    };
+
+    let mut tokens = serde_json::from_str::<StoredTokens>(&access_json)?;
+    tokens.refresh_token = match legacy_entry(REFRESH_TOKEN_ACCOUNT)?.get_password() {
+        Ok(value) => Some(value),
+        Err(keyring::Error::NoEntry) => None,
+        Err(err) => return Err(AuthError::Keyring(err.to_string())),
+    };
+
+    // Re-home under the current service name first; only remove the legacy
+    // entries once the copy has succeeded, so a failure never loses the token.
+    KeyringTokenStore.save(&tokens)?;
+    let _ = delete_legacy_entry(ACCESS_TOKEN_ACCOUNT);
+    let _ = delete_legacy_entry(REFRESH_TOKEN_ACCOUNT);
+    Ok(Some(tokens))
 }
 
 #[cfg(test)]
