@@ -1,7 +1,9 @@
 use anyhow::{Context, Result};
 use clap::{Args, Subcommand};
+use nolgia_client::ClientExt;
 use nolgia_client::types::{
-    AspectRatio, AudioFormat, AudioModel, BitrateMode, GenerateAudioRequest, GenerateImageRequest,
+    AspectRatio, AudioFormat, AudioModel, BitrateMode, CreateAssetUploadRequest,
+    CreateAssetUploadRequestContentType, GenerateAudioRequest, GenerateImageRequest,
     GenerateImageRequestQuality, GenerateVideoRequest, GenerateVideoRequestNegativePrompt,
     GenerateVideoRequestQuality, ImageModel, UploadAssetRequest, UploadAssetRequestContentType,
     UploadAssetRequestFilename, VideoModel, VideoShot,
@@ -483,6 +485,125 @@ pub(crate) async fn upload_image_asset(
         .await
         .with_context(|| format!("uploading {}", path.display()))?
         .into_inner())
+}
+
+/// Map a lowercase file extension to the signed-upload content type used by
+/// the `POST /assets/uploads` → PUT → complete flow. Covers the video and
+/// audio artifacts the base64 `POST /assets` path can't carry; images are
+/// handled separately by [`upload_image_asset`]. Returns `None` for anything
+/// unsupported.
+fn signed_upload_content_type(ext: &str) -> Option<CreateAssetUploadRequestContentType> {
+    use CreateAssetUploadRequestContentType as Ct;
+    Some(match ext {
+        "mp4" => Ct::VideoMp4,
+        "mov" | "qt" => Ct::VideoQuicktime,
+        "webm" => Ct::VideoWebm,
+        "mp3" => Ct::AudioMpeg,
+        "wav" => Ct::AudioWav,
+        "ogg" | "oga" => Ct::AudioOgg,
+        "weba" => Ct::AudioWebm,
+        "m4a" => Ct::AudioMp4,
+        _ => return None,
+    })
+}
+
+/// Upload a local media file to `/assets`, choosing the transport by type.
+/// Images take the base64 `POST /assets` path (small, single round-trip);
+/// video and audio take the signed-upload flow. This is the path the agent
+/// film pipeline needs to deliver a stitched master MP4 — not just its
+/// component clips (NOL-109).
+pub(crate) async fn upload_asset_file(
+    path: &PathBuf,
+    ctx: &CommandContext,
+    project_id: Option<uuid::Uuid>,
+) -> Result<nolgia_client::types::Asset> {
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase());
+    match ext.as_deref() {
+        Some("png") | Some("jpg") | Some("jpeg") | Some("webp") => {
+            upload_image_asset(path, ctx, project_id).await
+        }
+        Some(ext) => match signed_upload_content_type(ext) {
+            Some(content_type) => upload_via_signed_url(path, ctx, content_type, project_id).await,
+            None => anyhow::bail!(
+                "unsupported file extension {ext:?} \
+                 (images: png/jpeg/webp; video: mp4/mov/webm; audio: mp3/wav/ogg/m4a)"
+            ),
+        },
+        None => anyhow::bail!(
+            "cannot determine content type: {} has no file extension",
+            path.display()
+        ),
+    }
+}
+
+/// Upload a large media file (video/audio) via the signed-upload flow:
+/// `POST /assets/uploads` mints a short-lived signed PUT URL, the bytes are
+/// PUT straight to storage (the API never proxies them, so this handles the
+/// hundreds-of-MB masters the base64 path rejects), then
+/// `POST /assets/uploads/{id}/complete` verifies the object and flips the
+/// asset to `ready`. The PUT must send exactly the declared Content-Type and
+/// no Authorization header (the signature covers the content type), so it uses
+/// a bare reqwest client rather than the authenticated API client.
+async fn upload_via_signed_url(
+    path: &PathBuf,
+    ctx: &CommandContext,
+    content_type: CreateAssetUploadRequestContentType,
+    project_id: Option<uuid::Uuid>,
+) -> Result<nolgia_client::types::Asset> {
+    let bytes = fs::read(path).with_context(|| format!("reading {}", path.display()))?;
+    let size = std::num::NonZeroU64::new(bytes.len() as u64)
+        .with_context(|| format!("{} is empty; nothing to upload", path.display()))?;
+    let filename = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .with_context(|| format!("{} has no usable filename", path.display()))?;
+    // Bind the exact MIME string for the PUT before moving the enum into the
+    // request builder; the signed URL rejects a mismatched Content-Type.
+    let mime = content_type.to_string();
+
+    let body: CreateAssetUploadRequest = CreateAssetUploadRequest::builder()
+        .content_type(content_type)
+        .size_bytes(size)
+        .filename(filename)
+        .project_id(project_id)
+        .try_into()
+        .context("building signed upload request")?;
+
+    let slot = ctx
+        .client()
+        .create_asset_upload()
+        .body(body)
+        .send()
+        .await
+        .with_context(|| format!("starting signed upload for {}", path.display()))?
+        .into_inner();
+
+    // PUT the bytes directly to storage. A fresh client keeps the API bearer
+    // token off the request (the signed URL needs none) and the Content-Type
+    // must match the declaration byte-for-byte.
+    let response = reqwest::Client::new()
+        .put(&slot.upload_url)
+        .header(reqwest::header::CONTENT_TYPE, &mime)
+        .body(bytes)
+        .send()
+        .await
+        .with_context(|| format!("uploading {} to storage", path.display()))?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let detail = response.text().await.unwrap_or_default();
+        anyhow::bail!("signed upload PUT to storage failed ({status}): {detail}");
+    }
+
+    // Use the ClientExt helper rather than the generated builder: the builder
+    // sends a bodyless POST with no Content-Length, which the production load
+    // balancer rejects with 411 before it reaches the API.
+    ctx.client()
+        .finish_asset_upload(slot.upload_id)
+        .await
+        .with_context(|| format!("finalizing upload for {}", path.display()))
 }
 
 async fn wait_for_asset(

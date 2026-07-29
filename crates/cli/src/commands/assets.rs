@@ -14,7 +14,7 @@ pub enum AssetsCommand {
     List(ListAssetsArgs),
     Get(GetAssetArgs),
     Delete(DeleteAssetArgs),
-    /// Upload an image (png/jpeg/webp) and get a reusable asset id
+    /// Upload a local media file (image/video/audio) and get a reusable asset id
     Upload(UploadAssetArgs),
     /// Replace an asset's full tag set
     Tag(TagAssetArgs),
@@ -247,7 +247,7 @@ async fn frame(args: FrameAssetArgs, ctx: &CommandContext) -> Result<()> {
 }
 
 async fn upload(args: UploadAssetArgs, ctx: &CommandContext) -> Result<()> {
-    let asset = super::r#gen::upload_image_asset(&args.file, ctx, args.project_id).await?;
+    let asset = super::r#gen::upload_asset_file(&args.file, ctx, args.project_id).await?;
     match ctx.format() {
         OutputFormat::Json => print_json(&asset),
         OutputFormat::Text => {

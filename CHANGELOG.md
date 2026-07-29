@@ -3,6 +3,19 @@
 Release notes for the Nolgia CLI. Each `## vX.Y.Z` section becomes the body of
 the matching GitHub release.
 
+## v0.2.12
+
+- **`nolgia assets upload` now accepts video and audio, not just images.**
+  Previously the command only handled `png`/`jpeg`/`webp` via the base64
+  `POST /assets` path, so an agent or preset workflow could never deliver its
+  final stitched master — the finished MP4 stayed pod-local while only the
+  component clips reached the Library (NOL-109). Video (`mp4`/`mov`/`webm`) and
+  audio (`mp3`/`wav`/`ogg`/`m4a`) now upload through the signed-upload flow
+  (`POST /assets/uploads` → direct PUT to storage → `POST
+  /assets/uploads/{id}/complete`), so the bytes stream straight to storage
+  without the base64 JSON size limit. Images keep their existing base64 path
+  unchanged; unknown extensions fail fast with the supported list.
+
 ## v0.2.11
 
 - **Fix: `models list` / `models get` against the live API.** nolgia-api#158
