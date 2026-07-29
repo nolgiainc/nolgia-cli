@@ -2764,9 +2764,11 @@ paths:
         chronologically-ordered feed for the chat's expandable step chips.
 
         The API proxies to the agent pod's dashboard server (cookie-authed,
-        server-side) and maps its raw session events to a stable schema. Input
-        and output payloads are truncated to 4KB each and secret-looking values
-        (tokens, keys, passwords, bearer credentials) are masked.
+        server-side) and maps its raw session events to a stable schema.
+        Secret-looking values (tokens, keys, passwords, bearer credentials) are
+        masked, and input/output payloads are size-capped — see
+        `detail_input`/`detail_output` for the caps and for how a JSON payload
+        is masked and capped structurally so it stays parseable.
 
         Poll with `since` set to the newest `at` already seen while a turn is
         pending, then stop shortly after it settles. When the agent has no
@@ -6617,10 +6619,23 @@ components:
           description: Short human label, e.g. the tool name or a truncated command.
         detail_input:
           type: string
-          description: Input payload (e.g. the terminal command or tool arguments), truncated to 4KB and secret-masked.
+          description: >
+            Input payload (e.g. the terminal command or tool arguments),
+            secret-masked and size-capped: 4KB for a generic tool payload, 64KB
+            for the agent's plan/todo payload (the checklist clients render).
+            A payload that is a JSON document is masked and capped
+            STRUCTURALLY so it stays parseable — values under
+            credential-looking keys are replaced, and an over-cap document has
+            trailing elements dropped from its longest array plus a
+            `_truncated` object (`omitted_items`, `original_bytes`) recording
+            what went missing, so a client can render the view as partial
+            instead of silently showing a stale one. Non-JSON text is cut on a
+            rune boundary with a trailing `…[truncated]` marker.
         detail_output:
           type: string
-          description: Output payload (e.g. captured terminal output or tool result), truncated to 4KB and secret-masked.
+          description: >
+            Output payload (e.g. captured terminal output or tool result),
+            secret-masked and size-capped on the same rules as `detail_input`.
         refs:
           type: array
           description: Related identifiers surfaced by the step (e.g. file paths touched).
