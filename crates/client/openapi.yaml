@@ -7178,6 +7178,15 @@ components:
         failed:
           type: integer
           description: How many of those jobs failed.
+        failed_content_policy:
+          type: integer
+          description: >
+            Of the failed jobs, how many were terminal provider content-policy
+            rejections (blocked user content, e.g. Seedance refusing
+            real-person likenesses) rather than potential model outages.
+            Matched by the exact crafted rejection messages the pipeline
+            stores on jobs.error. Optional for compatibility; always emitted
+            by current servers.
 
     UsagePresetStat:
       type: object
