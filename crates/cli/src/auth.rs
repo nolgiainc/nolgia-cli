@@ -283,23 +283,13 @@ pub struct KeyringTokenStore;
 
 impl TokenStore for KeyringTokenStore {
     fn load(&self) -> std::result::Result<Option<StoredTokens>, AuthError> {
-        let access = entry(ACCESS_TOKEN_ACCOUNT)?.get_password();
-        let access_json = match access {
-            Ok(value) => value,
+        match load_current_keyring()? {
+            Some(tokens) => Ok(Some(tokens)),
             // Nothing under the current service name: the tokens may still be
             // under the pre-rename service. Try to migrate them once so the
             // rename doesn't log the user out.
-            Err(keyring::Error::NoEntry) => return migrate_legacy_keyring(),
-            Err(err) => return Err(AuthError::Keyring(err.to_string())),
-        };
-
-        let mut tokens = serde_json::from_str::<StoredTokens>(&access_json)?;
-        tokens.refresh_token = match entry(REFRESH_TOKEN_ACCOUNT)?.get_password() {
-            Ok(value) => Some(value),
-            Err(keyring::Error::NoEntry) => None,
-            Err(err) => return Err(AuthError::Keyring(err.to_string())),
-        };
-        Ok(Some(tokens))
+            None => migrate_legacy_keyring(),
+        }
     }
 
     fn save(&self, tokens: &StoredTokens) -> std::result::Result<(), AuthError> {
@@ -319,6 +309,11 @@ impl TokenStore for KeyringTokenStore {
     fn delete(&self) -> std::result::Result<(), AuthError> {
         delete_entry(ACCESS_TOKEN_ACCOUNT)?;
         delete_entry(REFRESH_TOKEN_ACCOUNT)?;
+        // Also drop any not-yet-migrated pre-rename entries: otherwise logout
+        // reports success and the next load migrates them back, silently
+        // logging the user in again.
+        delete_legacy_entry(ACCESS_TOKEN_ACCOUNT)?;
+        delete_legacy_entry(REFRESH_TOKEN_ACCOUNT)?;
         Ok(())
     }
 }
@@ -749,6 +744,24 @@ fn delete_legacy_entry(account: &str) -> std::result::Result<(), AuthError> {
     }
 }
 
+/// Reads the tokens stored under the current `SERVICE_NAME`, without touching
+/// the legacy service. `Ok(None)` means there is no access-token entry.
+fn load_current_keyring() -> std::result::Result<Option<StoredTokens>, AuthError> {
+    let access_json = match entry(ACCESS_TOKEN_ACCOUNT)?.get_password() {
+        Ok(value) => value,
+        Err(keyring::Error::NoEntry) => return Ok(None),
+        Err(err) => return Err(AuthError::Keyring(err.to_string())),
+    };
+
+    let mut tokens = serde_json::from_str::<StoredTokens>(&access_json)?;
+    tokens.refresh_token = match entry(REFRESH_TOKEN_ACCOUNT)?.get_password() {
+        Ok(value) => Some(value),
+        Err(keyring::Error::NoEntry) => None,
+        Err(err) => return Err(AuthError::Keyring(err.to_string())),
+    };
+    Ok(Some(tokens))
+}
+
 /// One-time migration off the pre-rename keyring service name. Called only when
 /// nothing is stored under the current `SERVICE_NAME`. If tokens exist under
 /// `LEGACY_SERVICE_NAME`, they are re-homed under the current service and the
@@ -757,7 +770,10 @@ fn delete_legacy_entry(account: &str) -> std::result::Result<(), AuthError> {
 fn migrate_legacy_keyring() -> std::result::Result<Option<StoredTokens>, AuthError> {
     let access_json = match legacy_entry(ACCESS_TOKEN_ACCOUNT)?.get_password() {
         Ok(value) => value,
-        Err(keyring::Error::NoEntry) => return Ok(None),
+        // No legacy entry. A concurrent process may have migrated and removed
+        // it between our two lookups, so recheck the current service before
+        // concluding the user has no token at all.
+        Err(keyring::Error::NoEntry) => return load_current_keyring(),
         Err(err) => return Err(AuthError::Keyring(err.to_string())),
     };
 
@@ -770,7 +786,15 @@ fn migrate_legacy_keyring() -> std::result::Result<Option<StoredTokens>, AuthErr
 
     // Re-home under the current service name first; only remove the legacy
     // entries once the copy has succeeded, so a failure never loses the token.
-    KeyringTokenStore.save(&tokens)?;
+    // A partial copy (access written, refresh not) is rolled back: otherwise
+    // every later load takes the new-service path and never retries the
+    // migration, stranding the still-present legacy refresh token and failing
+    // with `MissingRefreshToken` once the access token expires.
+    if let Err(err) = KeyringTokenStore.save(&tokens) {
+        let _ = delete_entry(ACCESS_TOKEN_ACCOUNT);
+        let _ = delete_entry(REFRESH_TOKEN_ACCOUNT);
+        return Err(err);
+    }
     let _ = delete_legacy_entry(ACCESS_TOKEN_ACCOUNT);
     let _ = delete_legacy_entry(REFRESH_TOKEN_ACCOUNT);
     Ok(Some(tokens))
