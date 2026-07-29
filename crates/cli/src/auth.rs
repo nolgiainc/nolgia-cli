@@ -738,7 +738,8 @@ fn delete_entry(account: &str) -> std::result::Result<(), AuthError> {
 }
 
 fn legacy_entry(account: &str) -> std::result::Result<keyring::Entry, AuthError> {
-    keyring::Entry::new(LEGACY_SERVICE_NAME, account).map_err(|err| AuthError::Keyring(err.to_string()))
+    keyring::Entry::new(LEGACY_SERVICE_NAME, account)
+        .map_err(|err| AuthError::Keyring(err.to_string()))
 }
 
 fn delete_legacy_entry(account: &str) -> std::result::Result<(), AuthError> {
