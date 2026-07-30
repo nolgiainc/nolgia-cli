@@ -6850,6 +6850,26 @@ components:
           format: date-time
           nullable: true
           description: Creation time of the session's newest message; null while empty.
+        last_turn_status:
+          allOf:
+            - $ref: '#/components/schemas/AgentMessageStatus'
+          nullable: true
+          description: >
+            Status of the session's newest agent turn: `pending` while a
+            production is still running (the session is actively producing),
+            `complete` or `failed` once it settled. Null when the session has
+            no agent turns yet. Lets a sessions list surface a live
+            "producing" indicator and a finished/failed outcome without
+            opening each session — the durable-run surface's find-your-run
+            signal (NOL-150).
+        last_turn_completed_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: >
+            When the newest agent turn settled (completed or failed). Null
+            while that turn is still pending, and when the session has no
+            agent turns yet.
         created_at:
           type: string
           format: date-time
