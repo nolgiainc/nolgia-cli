@@ -2494,33 +2494,40 @@ paths:
         boundary) and completes or fails the pending row; poll
         `GET /agent/messages` to observe it.
 
-        One turn is in flight per user at a time — the agent pod holds a
-        single conversation. Submitting while a reply is still pending
-        returns `409` carrying the pending agent message id. This limit is
-        GLOBAL across all of the user's chat sessions, not per session: a
-        pending turn in any session blocks submits in every other session
-        until it completes or fails.
+        One turn is in flight PER SESSION at a time: submitting while that
+        session's reply is still pending returns `409` carrying the pending
+        agent message id (use steering to keep talking mid-turn). Turns
+        running in the user's OTHER sessions no longer block a submit
+        (NOL-187): the new turn is accepted (`202`) and QUEUED — the
+        platform executes a user's turns one at a time, FIFO by submit
+        time, so causal attribution (which turn produced which generation)
+        stays unambiguous — and starts automatically when the executing
+        turn settles. A queued reply row reports `queued: true` until it
+        starts; render it as waiting, not thinking. At most 10 turns may be
+        pending (executing plus queued) across a user's sessions; past
+        that, submits return `429`.
 
         **Steering**: pass `steering: true` to keep talking while a turn is
-        in flight without cancelling it. If a turn is pending, the message
-        is recorded immediately (transcript role `user` with
-        `steering: true`, no `409`) and `202` returns only
-        `user_message_id`; when the in-flight turn completes or fails, all
-        steering messages queued behind it are automatically delivered to
-        the agent as the next turn (joined in order, one per line, as a
-        single relayed prompt whose reply row references the last steering
-        message). If NO turn is pending, a steering send behaves exactly
-        like a normal send — it creates the turn and the response carries
-        both ids — so clients may always set `steering: true` from an
-        unlocked composer without racing turn completion.
+        in flight without cancelling it. If a turn is pending IN THE TARGET
+        SESSION, the message is recorded immediately (transcript role
+        `user` with `steering: true`, no `409`) and `202` returns only
+        `user_message_id`; when that session's in-flight turn completes or
+        fails, the steering messages queued behind it in the SAME session
+        are automatically delivered to the agent as that session's next
+        turn (joined in order, one per line, as a single relayed prompt
+        whose reply row references the last steering message). Steering is
+        per session: a steer typed into one chat only ever reaches that
+        chat's run. If the target session has NO pending turn, a steering
+        send behaves exactly like a normal send — it creates the turn and
+        the response carries both ids — so clients may always set
+        `steering: true` from an unlocked composer without racing turn
+        completion.
 
         Pass `session_id` to file the turn under one of your chat sessions
         (see `/agent/sessions`). Omitting it files the turn under your
         auto-created default session, reused by later sessionless submits.
         When the session is linked to a project, the platform scopes the
-        turn to that project server-side. An auto-delivered steering turn
-        uses its most recent steering message's session for that scoping
-        when the queued messages span sessions.
+        turn to that project server-side.
       requestBody:
         required: true
         content:
@@ -2541,11 +2548,13 @@ paths:
         '404':
           $ref: '#/components/responses/ProblemResponse'
         '409':
-          description: A previous turn is still pending; wait for it to complete or fail.
+          description: This session's previous turn is still pending; steer it, or wait for it to complete or fail.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/AgentMessageConflict'
+        '429':
+          $ref: '#/components/responses/ProblemResponse'
         default:
           $ref: '#/components/responses/ProblemResponse'
     get:
@@ -6722,17 +6731,20 @@ components:
           description: >
             Chat session to file the turn under (must be owned by the
             caller). Omit to file the turn under the caller's auto-created
-            default session, reused by later sessionless submits. Note the
-            one-pending-turn-per-user limit is global across sessions.
+            default session, reused by later sessionless submits. The
+            one-pending-turn limit is per session: a running turn in one
+            session never blocks submits into another (those queue and run
+            FIFO).
         steering:
           type: boolean
           default: false
           description: >
             Send as a mid-turn steering message: recorded immediately even
-            while a turn is pending (no `409`) and auto-delivered to the
-            agent as the next turn once the in-flight one settles. When no
-            turn is pending this behaves exactly like a normal send, so
-            clients may set it unconditionally from an unlocked composer.
+            while the target session's turn is pending (no `409`) and
+            auto-delivered to the agent as that session's next turn once
+            its in-flight one settles. When the session has no pending turn
+            this behaves exactly like a normal send, so clients may set it
+            unconditionally from an unlocked composer.
 
     SubmitAgentMessageAccepted:
       type: object
@@ -6862,6 +6874,14 @@ components:
             Present on completed agent replies the platform evaluated.
             `false` means the turn completed without calling a tool or
             producing an asset; absent means the result was not determined.
+        queued:
+          type: boolean
+          description: >
+            Present and true on a `pending` agent reply that has not started
+            executing yet: turns run one at a time per user, so a turn
+            submitted while another session's turn is executing waits its
+            turn (FIFO by submit time). Absent once execution starts (and on
+            settled rows) - render queued rows as "queued", not "thinking".
         created_at:
           type: string
           format: date-time
@@ -6936,7 +6956,17 @@ components:
             no agent turns yet. Lets a sessions list surface a live
             "producing" indicator and a finished/failed outcome without
             opening each session — the durable-run surface's find-your-run
-            signal (NOL-150).
+            signal (NOL-150). Sessions run independently: several sessions
+            may be `pending` at once (one executing, the rest queued — see
+            `last_turn_queued`).
+        last_turn_queued:
+          type: boolean
+          nullable: true
+          description: >
+            True when the newest agent turn is `pending` but has not started
+            executing: it is queued behind the user's other sessions' turns
+            (turns execute one at a time per user, FIFO). Null or absent
+            otherwise. Render queued sessions as waiting, not producing.
         last_turn_completed_at:
           type: string
           format: date-time
