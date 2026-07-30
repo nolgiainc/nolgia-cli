@@ -3846,7 +3846,7 @@ paths:
     patch:
       tags: [Presets]
       operationId: updatePreset
-      summary: Update a preset's lifecycle (admin only). The mutable fields here are `visibility` and `featured` (at least one must be provided). Flipping `visibility` to `private` "holds" the preset (removed from the customer catalog), flipping back to `public` unholds it — mirroring abilities; `featured` curates the catalog's featured rail. All other fields are edited by re-POSTing `/presets` with the same slug.
+      summary: Update a preset's lifecycle (admin only). The mutable fields here are `visibility`, `featured` and `sort_order` (at least one must be provided). Flipping `visibility` to `private` "holds" the preset (removed from the customer catalog), flipping back to `public` unholds it — mirroring abilities; `featured` curates the catalog's featured rail and `sort_order` sets the position presets are displayed in. All other fields are edited by re-POSTing `/presets` with the same slug.
       parameters:
         - $ref: '#/components/parameters/PresetSlug'
       requestBody:
@@ -8364,13 +8364,21 @@ components:
     UpdatePresetRequest:
       type: object
       additionalProperties: false
-      description: Lifecycle update for an existing preset. The mutable fields are `visibility` (hold/unhold, mirroring abilities) and `featured` (the featured-rail curation flag); at least one must be provided. Everything else is edited by re-POSTing `/presets`.
+      description: Lifecycle update for an existing preset. The mutable fields are `visibility` (hold/unhold, mirroring abilities), `featured` (the featured-rail curation flag) and `sort_order` (the rail/catalog display position); at least one must be provided. Everything else is edited by re-POSTing `/presets`.
       properties:
         visibility:
           $ref: '#/components/schemas/PresetVisibility'
         featured:
           type: boolean
           description: Sets (`true`) or clears (`false`) the preset's featured flag when provided.
+        sort_order:
+          type: integer
+          description: >-
+            Ascending display order on the /presets page and in the featured
+            rail. Provided alone this reorders the preset without touching its
+            visibility or featured flag, so ordering the rail no longer needs a
+            full-overwrite `POST /presets`. Omit to leave the position
+            unchanged.
 
     UpdateAgentDeploymentRequest:
       type: object
