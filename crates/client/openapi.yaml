@@ -163,6 +163,46 @@ paths:
         default:
           $ref: '#/components/responses/ProblemResponse'
 
+  /me/settings:
+    get:
+      tags: [Auth]
+      operationId: getUserSettings
+      summary: Get the current user's notification settings.
+      responses:
+        '200':
+          description: Notification settings.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserSettings'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+    put:
+      tags: [Auth]
+      operationId: putUserSettings
+      summary: Update the current user's notification settings.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserSettingsRequest'
+      responses:
+        '200':
+          description: Updated notification settings.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserSettings'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
   /auth/device:
     post:
       tags: [Auth]
@@ -6437,6 +6477,28 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/CreditBalanceBucket'
+
+    UserSettings:
+      type: object
+      additionalProperties: false
+      required: [email_on_completion]
+      properties:
+        email_on_completion:
+          type: boolean
+          default: false
+          description: >
+            Opt-in for the out-of-app completion email: when true, the account
+            is emailed when one of its productions settles (ready or failed).
+            Defaults to false, and no account is ever emailed without turning
+            this on.
+
+    UserSettingsRequest:
+      type: object
+      additionalProperties: false
+      required: [email_on_completion]
+      properties:
+        email_on_completion:
+          type: boolean
 
     AutoRefreshSettings:
       type: object
