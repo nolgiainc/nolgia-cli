@@ -896,6 +896,62 @@ paths:
         default:
           $ref: '#/components/responses/ProblemResponse'
 
+  /assets/{id}/duplicate:
+    post:
+      tags: [Assets]
+      operationId: duplicateAsset
+      summary: Duplicate one of the current user's assets.
+      description: |
+        Creates an independent copy of the asset: a new `assets` row owned by
+        the caller pointing at a **new** stored object, with the source's
+        modality, model, prompt, MIME type, size, duration, tags, and
+        metadata carried over. The bytes are duplicated with a server-side
+        GCS object copy — they never travel through the API or the client, so
+        duplicating a large video costs one storage-to-storage copy rather
+        than a download plus a re-upload.
+
+        The copy inherits the source's filing: it joins the same projects and
+        the same collections the source belongs to (falling back to the
+        default "Library" project when the source has no project). It is a
+        genuine second copy of the bytes, so it consumes storage
+        accordingly — nothing about it is a reference to the original, and
+        deleting either one leaves the other intact.
+
+        The copy's display name defaults to the source's name plus " copy"
+        (truncated to fit 200 characters) unless `display_name` is provided.
+        An unknown, foreign, or trashed asset returns 404; an asset whose
+        upload has not been completed returns 400.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DuplicateAssetRequest'
+      responses:
+        '201':
+          description: Duplicate created; the new asset with a fresh signed URL.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Asset'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '501':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
   /assets/uploads:
     post:
       tags: [Assets]
@@ -4660,6 +4716,19 @@ components:
         trades larger files for higher visual fidelity. Rejected (400) on
         models without bitrate selection.
       enum: [standard, high]
+
+    DuplicateAssetRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        display_name:
+          type: string
+          nullable: true
+          maxLength: 200
+          description: >-
+            Display name for the copy; defaults to the source's display name
+            plus " copy" (truncated to fit 200 characters).
+          examples: ['hero-shot copy']
 
     ExtractAssetFrameRequest:
       type: object
