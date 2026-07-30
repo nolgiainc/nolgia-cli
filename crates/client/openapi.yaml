@@ -3066,7 +3066,9 @@ paths:
         redeemable-code layer on top is `POST /credits/redeem`. `idempotency_key`
         makes the grant safe to retry: re-submitting the same key returns the
         existing grant instead of crediting twice. Non-admin callers get `404`
-        so the surface is invisible.
+        so the surface is invisible; an unknown `user_id` is likewise `404`.
+      security:
+        - bearerAuth: []
       requestBody:
         required: true
         content:
@@ -6201,7 +6203,11 @@ components:
         amount:
           type: integer
           minimum: 1
-          description: Credits to grant. Must be positive.
+          maximum: 2147483647
+          description: >
+            Credits to grant. Must be positive. Rejected with `400` when it, or the
+            resulting balance, would exceed the largest balance the ledger can
+            represent (a 32-bit signed integer).
         idempotency_key:
           type: string
           minLength: 1
