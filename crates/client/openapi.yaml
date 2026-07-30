@@ -2537,15 +2537,17 @@ paths:
         One turn is in flight PER SESSION at a time: submitting while that
         session's reply is still pending returns `409` carrying the pending
         agent message id (use steering to keep talking mid-turn). Turns
-        running in the user's OTHER sessions no longer block a submit
-        (NOL-187): the new turn is accepted (`202`) and QUEUED — the
-        platform executes a user's turns one at a time, FIFO by submit
-        time, so causal attribution (which turn produced which generation)
-        stays unambiguous — and starts automatically when the executing
-        turn settles. A queued reply row reports `queued: true` until it
-        starts; render it as waiting, not thinking. At most 10 turns may be
-        pending (executing plus queued) across a user's sessions; past
-        that, submits return `429`.
+        running in the user's OTHER sessions never block a submit
+        (NOL-187): the new turn is accepted (`202`) and — when the user's
+        concurrent execution slots are full — QUEUED, starting
+        automatically (FIFO by submit time) as slots free up. Up to a small
+        number of one user's turns execute concurrently (NOL-207, currently
+        2) when the agent pod supports per-turn attribution credentials, so
+        every generation still names the exact turn that caused it; older
+        pods execute one turn at a time. A queued reply row reports
+        `queued: true` until it starts; render it as waiting, not thinking.
+        At most 10 turns may be pending (executing plus queued) across a
+        user's sessions; past that, submits return `429`.
 
         **Steering**: pass `steering: true` to keep talking while a turn is
         in flight without cancelling it. If a turn is pending IN THE TARGET
@@ -6940,10 +6942,12 @@ components:
           type: boolean
           description: >
             Present and true on a `pending` agent reply that has not started
-            executing yet: turns run one at a time per user, so a turn
-            submitted while another session's turn is executing waits its
-            turn (FIFO by submit time). Absent once execution starts (and on
-            settled rows) - render queued rows as "queued", not "thinking".
+            executing yet: a user's turns execute in a bounded number of
+            concurrent slots (one on older pods, currently up to 2 when the
+            pod supports per-turn attribution — NOL-207), so a turn
+            submitted while the slots are full waits its turn (FIFO by
+            submit time). Absent once execution starts (and on settled
+            rows) - render queued rows as "queued", not "thinking".
         created_at:
           type: string
           format: date-time
@@ -7019,16 +7023,18 @@ components:
             "producing" indicator and a finished/failed outcome without
             opening each session — the durable-run surface's find-your-run
             signal (NOL-150). Sessions run independently: several sessions
-            may be `pending` at once (one executing, the rest queued — see
-            `last_turn_queued`).
+            may be `pending` at once (up to the concurrent execution cap
+            executing, the rest queued — see `last_turn_queued`).
         last_turn_queued:
           type: boolean
           nullable: true
           description: >
             True when the newest agent turn is `pending` but has not started
             executing: it is queued behind the user's other sessions' turns
-            (turns execute one at a time per user, FIFO). Null or absent
-            otherwise. Render queued sessions as waiting, not producing.
+            (a bounded number execute concurrently — currently up to 2 on
+            pods with per-turn attribution, one otherwise — FIFO). Null or
+            absent otherwise. Render queued sessions as waiting, not
+            producing.
         last_turn_completed_at:
           type: string
           format: date-time
