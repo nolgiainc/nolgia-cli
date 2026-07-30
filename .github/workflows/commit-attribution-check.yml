@@ -1,0 +1,85 @@
+name: Commit Attribution Check
+
+# Fails a PR when any commit in it carries a Co-authored-by trailer crediting
+# Claude or Anthropic. Org convention: commits carry no third-party attribution.
+#
+# NOL-171: the convention was enforced in hermes-agent alone, so every other
+# repo quietly accumulated `Co-authored-by: Claude ... <noreply@anthropic.com>`
+# trailers on its default branch — 59 of them in a single day. Nothing looked,
+# so nothing stopped it. This is the durable half of the fix; without a check
+# the convention decays again the moment someone forgets.
+#
+# Scope is deliberately narrow: only the `Co-authored-by:` TRAILER form is a
+# violation. Ordinary prose mentioning Claude or Anthropic is legitimate and
+# common here (the Anthropic adapter, Claude model classification), so the
+# pattern is anchored to the start of a trailer line and never judges prose.
+# A check that fires on real work gets switched off, which protects nothing.
+#
+# No paths filter on purpose: this gates commit messages, not files, so a
+# docs-only PR must not be able to skip it.
+#
+# Prevention only. Existing history is deliberately left alone — stripping the
+# trailers already merged would mean force-pushing six default branches and
+# invalidating every clone for a cosmetic gain.
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  attribution:
+    name: No third-party attribution trailers
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0 # full history: the check walks the PR's commit range
+
+      - name: Reject Claude/Anthropic Co-authored-by trailers
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -uo pipefail
+
+          if git rev-parse --verify --quiet "origin/$BASE_REF" >/dev/null; then
+            RANGE_START=$(git merge-base "origin/$BASE_REF" HEAD)
+          else
+            RANGE_START="$BASE_SHA"
+          fi
+
+          COMMITS=$(git log --no-merges --format=%H "$RANGE_START..HEAD")
+          if [ -z "$COMMITS" ]; then
+            echo "No non-merge commits in range — nothing to check."
+            exit 0
+          fi
+
+          FAILED=0
+          for sha in $COMMITS; do
+            HITS=$(git log -1 --format=%B "$sha" | grep -Ei '^Co-authored-by:.*(claude|anthropic)' || true)
+            if [ -n "$HITS" ]; then
+              FAILED=1
+              echo "::error::${sha} carries a disallowed attribution trailer"
+              git log -1 --format='  %h %s' "$sha"
+              echo "$HITS" | sed 's/^/    /'
+            fi
+          done
+
+          if [ "$FAILED" -ne 0 ]; then
+            echo ""
+            echo "Org commits carry no third-party attribution."
+            echo "Reword the offending commit(s) on this PR branch and update it:"
+            echo "    git rebase -i $RANGE_START"
+            echo "Never rewrite a default branch to fix this."
+            exit 1
+          fi
+
+          echo "OK — no Claude/Anthropic Co-authored-by trailers in $(git log --no-merges --oneline "$RANGE_START..HEAD" | wc -l | tr -d ' ') commit(s)."
