@@ -60,7 +60,7 @@ async fn models_catalog_tolerates_unknown_fields() {
                     "cost": {"credits": 42, "unit": "per_clip"},
                     "future_capability_block": {"nested": ["unknown"]},
                     "references": {
-                        "start_frame": true,
+                        "start_frame": true, "start_frame_required": false,
                         "end_frame": false,
                         "video_refs_max": 0,
                         "element_refs_max": 0,
