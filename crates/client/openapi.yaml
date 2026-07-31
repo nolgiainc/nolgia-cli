@@ -4336,7 +4336,7 @@ components:
         achieve. The API enforces the same limits: parameters outside a
         model's declared capabilities are rejected with a 400 naming the
         capability.
-      required: [start_frame, end_frame, video_refs_max, element_refs_max, audio_refs_max]
+      required: [start_frame, start_frame_required, end_frame, video_refs_max, element_refs_max, audio_refs_max]
       properties:
         start_frame:
           type: boolean
@@ -4344,6 +4344,16 @@ components:
             Whether the model accepts an `image_url` start frame. Dedicated
             image-to-video variants require one; models like Veo and Omni
             Flash take one optionally alongside the text prompt.
+        start_frame_required:
+          type: boolean
+          description: |
+            Whether the start frame is MANDATORY: the model is
+            image-to-video only and text-only requests are rejected with a
+            400 (dedicated `image-to-video` variants, Grok Imagine 1.5,
+            MiniMax Hailuo 2.3 Fast). False when `start_frame` is accepted
+            but optional, and always false when `start_frame` is false.
+            Clients must require an image before submitting when this is
+            true.
         end_frame:
           type: boolean
           description: |
@@ -4494,7 +4504,8 @@ components:
             variants require one; models like Veo and Omni Flash take one
             optionally alongside the text prompt. Mirrors
             `references.start_frame`, which carries the full reference-media
-            capability set.
+            capability set. Read `references.start_frame_required` to tell
+            an optional start frame from a mandatory one.
 
     ImageCapabilities:
       type: object
