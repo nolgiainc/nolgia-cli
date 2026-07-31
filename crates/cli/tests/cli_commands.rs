@@ -1677,7 +1677,7 @@ fn video_models_json() -> serde_json::Value {
                 {"id": "1080p", "credits": 360, "premium": false},
                 {"id": "4k", "credits": 778, "premium": true},
             ]},
-            "references": {"start_frame": false, "end_frame": false, "video_refs_max": 3,
+            "references": {"start_frame": false, "start_frame_required": false, "end_frame": false, "video_refs_max": 3,
                            "element_refs_max": 9, "audio_refs_max": 3, "bitrate_modes": ["standard", "high"]},
         },
         {
@@ -1688,7 +1688,7 @@ fn video_models_json() -> serde_json::Value {
                 {"id": "720p", "credits": 165, "premium": false},
                 {"id": "1080p", "credits": 360, "premium": false},
             ]},
-            "references": {"start_frame": true, "end_frame": true, "video_refs_max": 0,
+            "references": {"start_frame": true, "start_frame_required": false, "end_frame": true, "video_refs_max": 0,
                            "element_refs_max": 0, "audio_refs_max": 0},
         },
     ]})
