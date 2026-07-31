@@ -4501,8 +4501,9 @@ components:
       additionalProperties: false
       description: |
         Per-model image-generation options beyond the shared `image_size`
-        aliases. Published when the model renders aspect ratios natively
-        (currently Kling Image 3.0); absent otherwise.
+        aliases. Every published image model declares its supported
+        `aspect_ratio` values here — clients should drive their ratio
+        pickers from this list.
       properties:
         aspect_ratios:
           type: array
@@ -4753,11 +4754,12 @@ components:
     ImageAspectRatio:
       type: string
       description: >-
-        Native output aspect ratio for image models that declare
-        `image.aspect_ratios` on `GET /models` (Kling Image 3.0, FLUX
-        Kontext, Grok Imagine). Rejected (400) on models without native
-        aspect-ratio support — use `image_size` there.
-      enum: ['16:9', '9:16', '1:1', '4:3', '3:4', '3:2', '2:3', '21:9', '9:21', '2:1', '1:2']
+        Native output aspect ratio for image models. Every published image
+        model declares its supported values as `image.aspect_ratios` on
+        `GET /models`; a ratio outside the selected model's list is rejected
+        (400). Prefer this over `image_size`, whose closed aliases only
+        express the 16:9/4:3/1:1 families.
+      enum: ['16:9', '9:16', '1:1', '4:3', '3:4', '3:2', '2:3', '21:9', '9:21', '2:1', '1:2', '5:4', '4:5', '3:1', '1:3', '4:1', '1:4']
 
     AspectRatio:
       type: string
