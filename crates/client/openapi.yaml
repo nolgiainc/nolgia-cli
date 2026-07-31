@@ -4698,6 +4698,7 @@ components:
         - ideogram-v3
         - stable-diffusion-3.5
         - kling-image-v3
+        - minimax-image-01
 
     AudioModel:
       type: string
@@ -4723,7 +4724,8 @@ components:
     VideoModel:
       type: string
       description: |
-        Video model identifier. Priority models for v1 are Kling v3.0 and Seedance 2.0 Pro.
+        Video model identifier. Priority models are Kling v3.0, Seedance 2.0 Pro,
+        and MiniMax Hailuo 3 (`minimax-h3`, the 2K multimodal flagship).
         Default is `fal-ai/kling-video/v3/text-to-video`.
       enum:
         - fal-ai/kling-video/v3/text-to-video
@@ -4740,6 +4742,9 @@ components:
         - omni-flash
         - grok-imagine-video
         - grok-imagine-video-1.5
+        - minimax-h3
+        - minimax-hailuo-2.3
+        - minimax-hailuo-2.3-fast
 
     ImageSize:
       type: string
@@ -5083,7 +5088,8 @@ components:
           format: uri
           description: >-
             Final-frame image (https URL) for start+end frame pinning on
-            image-to-video models that support it (Seedance 2.0 Pro i2v).
+            models that support it (Seedance 2.0 Pro i2v, Kling v3 i2v,
+            MiniMax Hailuo 3 — see `references.end_frame` on `GET /models`).
             Requires `image_url` (the start frame). Mutually exclusive with
             `end_image_asset_id`.
         end_image_asset_id:
@@ -5099,15 +5105,16 @@ components:
           nullable: true
           maxItems: 3
           description: >-
-            Reference videos for reference-to-video models
-            (`fal-ai/bytedance/seedance/v2/pro/reference-to-video`), given as
-            ids of your video assets — the server resolves each to a signed
-            URL and forwards them as the provider's `video_urls`. Address
-            them in the prompt as `@Video1`..`@Video3` (optionally with
-            `[0-3s]`-style timeline markers). Provider constraints, enforced
-            where asset metadata allows: at most 3 videos combined with
-            `video_urls`, MP4/MOV, 480p–720p input, 2–15 seconds combined,
-            50MB total. This is the recommended way to pass reference videos.
+            Reference videos for models with `references.video_refs_max > 0`
+            on `GET /models` (`fal-ai/bytedance/seedance/v2/pro/reference-to-video`,
+            `minimax-h3`), given as ids of your video assets — the server
+            resolves each to a signed URL and forwards them as the provider's
+            `video_urls`. Address them in the prompt as `@Video1`..`@Video3`
+            (optionally with `[0-3s]`-style timeline markers). Provider
+            constraints, enforced where asset metadata allows: at most 3
+            videos combined with `video_urls`, MP4/MOV, 2–15 seconds
+            combined; Seedance additionally requires 480p–720p input and 50MB
+            total. This is the recommended way to pass reference videos.
           items:
             type: string
             format: uuid
@@ -5191,8 +5198,9 @@ components:
           nullable: true
           description: >-
             Ask the model to generate a synchronized audio track
-            (dialogue/ambient/SFX). Model-dependent — supported by Seedance
-            and Veo; ignored by models without native audio.
+            (dialogue/ambient/SFX). Model-dependent — supported by Seedance,
+            Veo, and MiniMax Hailuo 3; ignored by models without native
+            audio.
         quality:
           type: string
           nullable: true
