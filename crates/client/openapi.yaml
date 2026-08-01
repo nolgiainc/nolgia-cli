@@ -146,6 +146,30 @@ paths:
         default:
           $ref: '#/components/responses/ProblemResponse'
 
+  /providers/status:
+    get:
+      tags: [Models]
+      operationId: listProviderStatus
+      summary: List generation provider availability.
+      description: >-
+        Reports each video generation provider's current availability as seen
+        by the platform's hard-down detector: "degraded" while ~all recent
+        submissions to the provider are failing server-side (jobs targeting
+        it are parked and resume automatically on recovery), otherwise
+        "operational". Clients use this to explain a "provider_down" job
+        status instead of showing a generic failure.
+      responses:
+        '200':
+          description: Provider availability.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderStatusList'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
   /me:
     get:
       tags: [Auth]
@@ -4301,6 +4325,49 @@ components:
           items:
             $ref: '#/components/schemas/Model'
 
+    ProviderStatusList:
+      type: object
+      additionalProperties: false
+      required: [providers]
+      properties:
+        providers:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProviderStatus'
+
+    ProviderStatus:
+      type: object
+      additionalProperties: false
+      required: [provider, state]
+      properties:
+        provider:
+          type: string
+          description: Provider route-family key (e.g. minimax, fal, google, xai).
+          examples: ['minimax']
+        state:
+          type: string
+          enum: [operational, degraded]
+          x-enum-varnames: [ProviderStateOperational, ProviderStateDegraded]
+        degraded_since:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the hard-down detector tripped, if degraded.
+        parked_jobs:
+          type: integer
+          description: >-
+            Jobs currently parked "provider temporarily down" for this
+            provider; they resume automatically when it recovers.
+        oldest_parked_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Creation time of the oldest parked job, if any.
+        message:
+          type: string
+          nullable: true
+          description: Customer-safe explanation of a degraded state.
+
     Model:
       type: object
       additionalProperties: false
@@ -5316,6 +5383,21 @@ components:
           examples: ['fal-ai/kling-video/v3/text-to-video']
         status:
           $ref: '#/components/schemas/JobStatus'
+        status_detail:
+          type: string
+          nullable: true
+          description: >-
+            Machine-readable refinement of a non-terminal status.
+            "provider_down" marks a queued job parked because its model
+            provider is temporarily unavailable; the job resumes
+            automatically when the provider recovers.
+          examples: ['provider_down']
+        status_message:
+          type: string
+          nullable: true
+          description: >-
+            Human-readable companion to status_detail, safe to render to the
+            customer as-is.
         fal_request_id:
           type: string
           nullable: true
