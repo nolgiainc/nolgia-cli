@@ -31,6 +31,29 @@ the matching GitHub release.
   it); a value that contradicts the shots is now refused client-side, naming
   both numbers, before any asset upload or API call happens (NOL-342).
 
+- **`nolgia gen image` can now request an aspect ratio.** `gen video` has had
+  `--aspect-ratio` all along; `gen image` had no way to ask for anything but
+  the model's native default, and putting "vertical 9:16" in the prompt does
+  not work (flux-pro returned 512x512, gpt-image-2 returned 1024x1024). The
+  three vertical UGC presets therefore had to generate square and crop in
+  ffmpeg, discarding ~44% of the frame, handing the composition to whoever
+  wrote the crop, and — on a 512x512 source — yielding a 288x512 image that
+  Kling rejects outright with `Image pixel is invalid`.
+
+  `--aspect-ratio` maps to the API's `aspect_ratio` field, whose vocabulary is
+  ratios (`9:16`, `16:9`, `1:1`, …), *not* the `image_size` aliases
+  (`portrait_16_9`). The two are different knobs; the API prefers
+  `aspect_ratio` and validates it per-model, while `image_size` only expresses
+  the 16:9/4:3/1:1 families.
+
+  Bad values fail fast with a useful message instead of a server 400. A value
+  outside the enum lists every real ratio and points out the alias confusion; a
+  ratio the selected model does not publish is caught before the request is
+  sent and lists that model's actual options, taken from `image.aspect_ratios`
+  on `GET /models` — the same list the API validates against. `nolgia models
+  get <model>` and `models list` now show that list, which they previously
+  rendered nothing of for image models (NOL-345).
+
 ## v0.2.15
 
 - **Security: `--help` no longer prints the values of the environment

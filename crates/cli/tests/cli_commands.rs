@@ -632,6 +632,111 @@ async fn gen_video_cost_only_prices_quality_tier() {
     .stdout(predicate::str::contains("1556 credits"));
 }
 
+/// NOL-345: `gen image` can request an aspect ratio, and it reaches the API as
+/// the `aspect_ratio` field (the ratio vocabulary), not an `image_size` alias.
+///
+/// The three vertical UGC presets need a 9:16 start frame; before this the only
+/// route was to generate square and crop in ffmpeg, throwing away ~44% of the
+/// frame and — on a 512x512 source — producing a 288x512 image that Kling
+/// rejects outright with `Image pixel is invalid`.
+#[tokio::test]
+async fn gen_image_sends_aspect_ratio() {
+    let api = MockServer::start().await;
+    mount_image_models(&api).await;
+    Mock::given(method("POST"))
+        .and(path("/v1/generate/image"))
+        .and(body_partial_json(json!({"aspect_ratio": "9:16"})))
+        .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
+        .mount(&api)
+        .await;
+    run_ok(
+        &api,
+        &[
+            "--json",
+            "gen",
+            "image",
+            "--model",
+            "gpt-image-2",
+            "--prompt",
+            "vertical phone photo",
+            "--aspect-ratio",
+            "9:16",
+            "--no-wait",
+        ],
+    )
+    .stdout(predicate::str::contains("job_id"));
+}
+
+/// A ratio the selected model does not publish is refused client-side, naming
+/// the model's actual options, rather than becoming a server 400.
+#[tokio::test]
+async fn gen_image_rejects_aspect_ratio_the_model_does_not_publish() {
+    let api = MockServer::start().await;
+    mount_image_models(&api).await;
+    cmd()
+        .arg("--api-url")
+        .arg(api.uri())
+        .args([
+            "gen",
+            "image",
+            "--model",
+            "gpt-image-2",
+            "--prompt",
+            "x",
+            "--aspect-ratio",
+            "21:9",
+            "--no-wait",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("not supported by gpt-image-2"))
+        .stderr(predicate::str::contains("16:9, 9:16, 1:1"));
+
+    let submitted = api
+        .received_requests()
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|r| r.url.path().ends_with("/generate/image"))
+        .count();
+    assert_eq!(submitted, 0, "must not submit an unsupported aspect ratio");
+}
+
+/// The `image_size` alias vocabulary (`portrait_16_9`, and NOL-331's
+/// `portrait_1080_1920`) is what people reach for first. Rejecting it at parse
+/// time with the real ratio list beats an opaque server 400.
+#[test]
+fn gen_image_rejects_image_size_aliases_with_the_real_ratio_list() {
+    for bad in ["portrait_1080_1920", "portrait_16_9"] {
+        cmd()
+            .args([
+                "gen",
+                "image",
+                "--prompt",
+                "x",
+                "--aspect-ratio",
+                bad,
+                "--api-url",
+                "http://127.0.0.1:9",
+            ])
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains("expected a ratio, one of:"))
+            .stderr(predicate::str::contains("9:16"));
+    }
+}
+
+/// `models get` must surface the per-model ratio list, so the values are
+/// discoverable the way the video knobs already are.
+#[tokio::test]
+async fn models_get_lists_image_aspect_ratios() {
+    let api = MockServer::start().await;
+    mount_image_models(&api).await;
+    run_ok(&api, &["models", "get", "gpt-image-2"])
+        .stdout(predicate::str::contains("aspect ratios:"))
+        .stdout(predicate::str::contains("9:16"));
+}
+
 #[tokio::test]
 async fn gen_image_sends_quality() {
     let api = MockServer::start().await;
@@ -1938,6 +2043,21 @@ fn video_models_json() -> serde_json::Value {
                            "element_refs_max": 0, "audio_refs_max": 0},
         },
     ]})
+}
+
+async fn mount_image_models(api: &MockServer) {
+    Mock::given(method("GET"))
+        .and(path("/v1/models"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"models": [{
+            "id": "gpt-image-2", "modality": "image", "recommended": true,
+            "image": {
+                "aspect_ratios": ["16:9", "9:16", "1:1", "3:2", "2:3"],
+                "reference_images_max": 4,
+                "num_images_max": 4,
+            },
+        }]})))
+        .mount(api)
+        .await;
 }
 
 async fn mount_video_models(api: &MockServer) {

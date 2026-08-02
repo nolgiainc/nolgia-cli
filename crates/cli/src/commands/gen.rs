@@ -5,8 +5,8 @@ use nolgia_client::types::{
     AspectRatio, AudioFormat, AudioModel, BitrateMode, CreateAssetUploadRequest,
     CreateAssetUploadRequestContentType, GenerateAudioRequest, GenerateImageRequest,
     GenerateImageRequestQuality, GenerateVideoRequest, GenerateVideoRequestNegativePrompt,
-    GenerateVideoRequestQuality, ImageModel, UploadAssetRequest, UploadAssetRequestContentType,
-    UploadAssetRequestFilename, VideoModel, VideoShot,
+    GenerateVideoRequestQuality, ImageAspectRatio, ImageModel, UploadAssetRequest,
+    UploadAssetRequestContentType, UploadAssetRequestFilename, VideoModel, VideoShot,
 };
 use serde::Serialize;
 use std::{
@@ -39,6 +39,11 @@ pub struct ImageArgs {
     /// in `nolgia models get <model>`). Omit for the model's default tier.
     #[arg(long)]
     pub quality: Option<String>,
+    /// Output aspect ratio, e.g. 16:9, 9:16, 1:1, 4:3, 3:4 (model-dependent).
+    /// The values a given model accepts are listed as `aspect ratios` in
+    /// `nolgia models get <model>`. Omit for the model's native default.
+    #[arg(long, value_parser = parse_image_aspect_ratio)]
+    pub aspect_ratio: Option<ImageAspectRatio>,
     /// File the generated asset(s) into this project (`nolgia projects
     /// list` for ids). The project must exist and belong to you.
     #[arg(long, value_name = "PROJECT_UUID")]
@@ -152,6 +157,33 @@ pub struct AudioArgs {
     pub no_wait: bool,
 }
 
+/// Every value the API's `ImageAspectRatio` enum accepts, in spec order.
+///
+/// Only used to render a useful parse error — the authoritative check is
+/// per-model against `image.aspect_ratios` from `GET /models`. Kept honest by
+/// `image_aspect_ratio_choices_match_the_spec`, which reads the vendored
+/// OpenAPI spec and fails if this list ever drifts from the real enum.
+pub const IMAGE_ASPECT_RATIOS: &[&str] = &[
+    "16:9", "9:16", "1:1", "4:3", "3:4", "3:2", "2:3", "21:9", "9:21", "2:1", "1:2", "5:4", "4:5",
+    "3:1", "1:3", "4:1", "1:4",
+];
+
+/// Parse `--aspect-ratio`, naming every accepted value on a miss.
+///
+/// The generated enum's own `FromStr` error is the bare string "invalid
+/// value", which tells the caller nothing — and the values people reach for
+/// first are the `image_size` aliases (`portrait_16_9`, and NOL-331's
+/// `portrait_1080_1920`), which are a different vocabulary entirely.
+fn parse_image_aspect_ratio(raw: &str) -> Result<ImageAspectRatio, String> {
+    ImageAspectRatio::try_from(raw).map_err(|_| {
+        format!(
+            "expected a ratio, one of: {}. (Note these are ratios, not \
+             `image_size` aliases like `portrait_16_9`.)",
+            IMAGE_ASPECT_RATIOS.join(", ")
+        )
+    })
+}
+
 #[derive(Serialize)]
 struct AsyncJob {
     job_id: String,
@@ -171,6 +203,9 @@ async fn image(args: ImageArgs, ctx: &CommandContext) -> Result<()> {
     if let Some(tier) = args.quality.as_deref() {
         super::models::precheck_image_quality(ctx, &args.model.to_string(), tier).await?;
     }
+    if let Some(ratio) = args.aspect_ratio.as_ref() {
+        super::models::precheck_image_aspect_ratio(ctx, &args.model.to_string(), ratio).await?;
+    }
     let quality = args
         .quality
         .as_deref()
@@ -181,6 +216,7 @@ async fn image(args: ImageArgs, ctx: &CommandContext) -> Result<()> {
         .model(args.model)
         .prompt(args.prompt)
         .quality(quality)
+        .aspect_ratio(args.aspect_ratio)
         .project_id(args.project_id)
         .try_into()
         .context("building image request")?;
@@ -650,4 +686,99 @@ pub(crate) async fn download(url: &str, out: &PathBuf) -> Result<()> {
         fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
     }
     fs::write(out, bytes).with_context(|| format!("writing {}", out.display()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{IMAGE_ASPECT_RATIOS, ImageAspectRatio, parse_image_aspect_ratio};
+
+    /// The hand-written choice list exists only to render a good parse error,
+    /// so it must never drift from the enum the API actually publishes. This
+    /// reads the vendored OpenAPI spec — the same file codegen builds the
+    /// client from — and compares the two, so a spec change that adds or
+    /// removes a ratio fails here instead of silently teaching the CLI to
+    /// advertise the wrong set.
+    #[test]
+    fn image_aspect_ratio_choices_match_the_spec() {
+        let spec_path = concat!(env!("CARGO_MANIFEST_DIR"), "/../client/openapi.yaml");
+        let Ok(spec) = std::fs::read_to_string(spec_path) else {
+            // Not available when the crate is consumed outside the workspace.
+            return;
+        };
+        let from_spec = spec_enum_values(&spec, "ImageAspectRatio")
+            .expect("ImageAspectRatio enum present in the vendored spec");
+        assert_eq!(
+            from_spec, IMAGE_ASPECT_RATIOS,
+            "IMAGE_ASPECT_RATIOS has drifted from the spec's ImageAspectRatio enum"
+        );
+    }
+
+    /// Every advertised value must actually parse into the generated enum.
+    #[test]
+    fn every_advertised_image_aspect_ratio_parses() {
+        for value in IMAGE_ASPECT_RATIOS {
+            let parsed = parse_image_aspect_ratio(value)
+                .unwrap_or_else(|e| panic!("{value:?} is advertised but does not parse: {e}"));
+            assert_eq!(&parsed.to_string(), value);
+        }
+    }
+
+    #[test]
+    fn image_size_aliases_are_not_accepted_as_ratios() {
+        for alias in ["portrait_16_9", "portrait_1080_1920", "square_hd"] {
+            let err = parse_image_aspect_ratio(alias)
+                .expect_err("image_size aliases are a different vocabulary");
+            assert!(err.contains("9:16"), "error should list the real ratios");
+        }
+    }
+
+    #[test]
+    fn ratios_round_trip_through_display() {
+        let ratio = parse_image_aspect_ratio("9:16").expect("9:16 parses");
+        assert_eq!(ratio, ImageAspectRatio::X916);
+        assert_eq!(ratio.to_string(), "9:16");
+    }
+
+    /// Pull `components.schemas.<name>.enum` out of the spec, which avoids a
+    /// YAML dependency in the CLI crate for one test.
+    ///
+    /// Scans only the named schema's own block — everything up to the next
+    /// sibling key at the same indentation — so it cannot wander into a later
+    /// schema's `enum` if the shape ever changes. Handles both the inline flow
+    /// form the spec currently uses (`enum: ['16:9', ...]`) and a block list.
+    fn spec_enum_values(spec: &str, schema: &str) -> Option<Vec<String>> {
+        let body = spec.split_once(&format!("\n    {schema}:\n"))?.1;
+        let block: Vec<&str> = body
+            .lines()
+            .take_while(|l| l.trim().is_empty() || l.starts_with("      "))
+            .collect();
+        let enum_line = block
+            .iter()
+            .position(|l| l.trim_start().starts_with("enum:"))?;
+        let rest = block[enum_line]
+            .trim_start()
+            .trim_start_matches("enum:")
+            .trim();
+
+        let values: Vec<String> = if let Some(inline) = rest.strip_prefix('[') {
+            inline
+                .trim_end_matches(']')
+                .split(',')
+                .map(|v| v.trim().trim_matches('\'').trim_matches('"').to_string())
+                .collect()
+        } else {
+            block[enum_line + 1..]
+                .iter()
+                .take_while(|l| l.trim_start().starts_with("- "))
+                .map(|l| {
+                    l.trim()
+                        .trim_start_matches("- ")
+                        .trim_matches('\'')
+                        .trim_matches('"')
+                        .to_string()
+                })
+                .collect()
+        };
+        values.iter().all(|v| !v.is_empty()).then_some(values)
+    }
 }
