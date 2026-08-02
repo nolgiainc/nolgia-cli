@@ -45,6 +45,14 @@ jobs:
       - name: Test install.sh (hermetic sandbox, no network)
         run: bash tests/install_sh_test.sh
 
+      # Runs on every PR, not just at tag time: a manifest left behind by a
+      # partial bump reddens here, days before someone tries to tag it. The
+      # release workflow re-runs this same script with --tag as a hard gate.
+      - name: Test the release version guard (offline)
+        run: |
+          bash -n scripts/check-version-consistency.sh
+          bash tests/check-version-consistency_test.sh
+
   spec-check:
     name: OpenAPI spec drift
     runs-on: blacksmith-4vcpu-ubuntu-2404

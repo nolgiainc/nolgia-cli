@@ -9,8 +9,37 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # GATE EVERYTHING ON THE TAG BEING TRUTHFUL (NOL-328).
+  #
+  # A binary's version comes from CARGO_PKG_VERSION — from the manifest, not
+  # from the tag. v0.2.13 and v0.2.14 were tagged on trees whose manifests still
+  # read 0.2.12, so both releases shipped binaries self-reporting `nolgia
+  # 0.2.12`, and nolgia-agent's pods could never converge on either pin
+  # (NOL-294).
+  #
+  # A version check already existed, but only inside `publish-npm`: it read one
+  # manifest (npm/package.json) and ran in the LAST job, after crates.io had
+  # been published to, the binaries built and the GitHub Release created. It
+  # could redden a run; it could not prevent a bad release. This runs first,
+  # checks every version-bearing manifest, and every publishing job depends on
+  # it, so a mislabelled tag produces no artifacts at all.
+  verify-version:
+    name: Manifests match the tag
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Manifests agree with each other and with the tag
+        run: |
+          bash -n scripts/check-version-consistency.sh
+          bash scripts/check-version-consistency.sh --tag "${{ github.ref_name }}"
+
   test:
     name: Test, Lint & Format
+    needs: [verify-version]
     runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
       contents: read
@@ -139,7 +168,10 @@ jobs:
 
   release:
     name: Create GitHub Release
-    needs: [test, build-release]
+    # verify-version is named explicitly, not relied on transitively through
+    # `test`: this job publishes an artifact, and a future rearrangement of the
+    # graph must not be able to un-gate it.
+    needs: [verify-version, test, build-release]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
@@ -189,7 +221,12 @@ jobs:
 
   publish-crates:
     name: Publish to crates.io
-    needs: [test]
+    # See `release` above: gated explicitly because it publishes. This job also
+    # reported SUCCESS on both bad tags — it tried to publish 0.2.12, hit
+    # "already on crates.io" and took the skip branch — so the run looked
+    # half-fine while mislabelled binaries shipped (NOL-328). verify-version
+    # removes the precondition for that vacuous pass.
+    needs: [verify-version, test]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
@@ -237,9 +274,27 @@ jobs:
 
   publish-npm:
     name: Publish to npm
-    needs: [release]
+    needs: [verify-version, release]
     if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    # NOT blacksmith-*: npm provenance requires a github-hosted runner (NOL-327).
+    #
+    # Blacksmith runners register with GitHub as `self-hosted`. npm >= 11.5.1
+    # auto-detects the OIDC environment and attaches build provenance without
+    # being asked, and npm's sigstore verifier then rejects the publish:
+    #
+    #   npm error code E422
+    #   422 Unprocessable Entity - PUT https://registry.npmjs.org/@nolgia%2fcli
+    #   Error verifying sigstore provenance bundle: Unsupported GitHub Actions
+    #   runner environment: "self-hosted". Only "github-hosted" runners are
+    #   supported when publishing with provenance.
+    #
+    # So this job could not succeed on Blacksmith at any version. Moving it back
+    # to a github-hosted runner keeps BOTH tokenless OIDC Trusted Publishing and
+    # the provenance attestation. The alternative — staying on Blacksmith and
+    # disabling provenance — trades away the supply-chain attestation, which is
+    # the more valuable half. `notify-tap` also runs on Blacksmith but publishes
+    # nothing, so it is unaffected.
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       # OIDC for npm Trusted Publishing: @nolgia/cli has a trusted publisher
@@ -260,15 +315,12 @@ jobs:
       - name: Upgrade npm for OIDC trusted publishing
         run: npm install -g npm@^11.5.1
 
-      - name: Verify package version matches the tag
-        run: |
-          set -euo pipefail
-          PKG_VERSION=$(node -p "require('./npm/package.json').version")
-          TAG="${{ github.ref_name }}"
-          if [ "v${PKG_VERSION}" != "${TAG}" ]; then
-            echo "npm/package.json version v${PKG_VERSION} does not match tag ${TAG}" >&2
-            exit 1
-          fi
+      # The tag/manifest check that used to live here now runs in the
+      # `verify-version` job, before anything is built or published, and covers
+      # all six version declarations rather than npm/package.json alone. Leaving
+      # a second copy here would imply this is where the gate lives; it is not,
+      # and it never usefully could be — by this point crates.io and the GitHub
+      # Release have already committed (NOL-328).
 
       - name: Publish @nolgia/cli
         working-directory: npm
