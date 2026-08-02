@@ -24,9 +24,29 @@ const DEFAULT_BASE_URL: &str = "https://api.nolgia.ai";
 pub struct Cli {
     #[arg(long, global = true, help = "Emit machine-readable JSON")]
     pub json: bool,
-    #[arg(long, global = true, env = "NOLGIA_API_URL", default_value = DEFAULT_BASE_URL)]
+    // `hide_env_values` is mandatory on every env-backed arg, not just the
+    // credential ones: clap's default is to render the *resolved value* of the
+    // variable into `--help`, and help output is the least-guarded text in the
+    // system (scrollback, CI logs, agent transcripts, screenshots, bug
+    // reports). NOL-317 leaked a live PAT this way. Help must show the
+    // variable NAME only. Enforced for the whole command tree by
+    // `env_backed_args_never_render_their_values` below.
+    #[arg(
+        long,
+        global = true,
+        env = "NOLGIA_API_URL",
+        hide_env_values = true,
+        default_value = DEFAULT_BASE_URL,
+        help = "API base URL"
+    )]
     pub api_url: String,
-    #[arg(long, global = true, env = "NOLGIA_TOKEN")]
+    #[arg(
+        long,
+        global = true,
+        env = "NOLGIA_TOKEN",
+        hide_env_values = true,
+        help = "PAT (nol_...) or JWT to authenticate with, instead of the stored login"
+    )]
     pub token: Option<String>,
     #[command(subcommand)]
     pub command: Commands,
@@ -154,4 +174,42 @@ fn build_client(base_url: &str, token: String) -> Result<Client> {
         builder.pat(token)
     };
     Ok(builder.build()?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Cli;
+    use clap::CommandFactory;
+
+    /// NOL-317: clap renders the *resolved value* of an `env`-backed arg into
+    /// `--help` unless `hide_env_values` is set — which is how a live PAT
+    /// ended up in `nolgia --help` on the pod. Help must name the variable and
+    /// never show what it holds.
+    ///
+    /// This walks the whole command tree rather than checking `--token` alone,
+    /// so the rule binds every env-backed arg added later, anywhere in the
+    /// tree, without anyone having to remember it.
+    #[test]
+    fn env_backed_args_never_render_their_values() {
+        fn walk(cmd: &clap::Command, path: &str, offenders: &mut Vec<String>) {
+            for arg in cmd.get_arguments() {
+                if arg.get_env().is_some() && !arg.is_hide_env_values_set() {
+                    offenders.push(format!("`{path}` arg `{}`", arg.get_id()));
+                }
+            }
+            for sub in cmd.get_subcommands() {
+                walk(sub, &format!("{path} {}", sub.get_name()), offenders);
+            }
+        }
+
+        let mut offenders = Vec::new();
+        walk(&Cli::command(), "nolgia", &mut offenders);
+
+        assert!(
+            offenders.is_empty(),
+            "these env-backed args would print their resolved value in --help \
+             (leaking whatever the variable holds into scrollback, CI logs and \
+             agent transcripts); add `hide_env_values = true` to each: {offenders:?}"
+        );
+    }
 }
