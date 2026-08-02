@@ -4601,6 +4601,24 @@ components:
             `references.start_frame`, which carries the full reference-media
             capability set. Read `references.start_frame_required` to tell
             an optional start frame from a mandatory one.
+        audio:
+          type: string
+          enum: [none, always, optional]
+          description: |
+            What this model does about a soundtrack, and therefore what
+            `generate_audio` can achieve on it. The API resolves and enforces
+            exactly this value, so an omitted `generate_audio` never falls
+            through to the provider's own default.
+
+            * `none`: renders silent, always. `generate_audio: true` is
+              accepted but cannot add a track at generation time; supply one
+              with a separate `POST /generate/audio` pass.
+            * `always`: native audio that cannot be switched off.
+              `generate_audio: false` is refused with a 400, because nothing
+              downstream can take the soundtrack back out of the render.
+            * `optional`: the model honors `generate_audio`. Omitting it
+              resolves to `true`.
+          examples: ['optional']
 
     ImageCapabilities:
       type: object
@@ -5344,11 +5362,18 @@ components:
         generate_audio:
           type: boolean
           nullable: true
-          description: >-
+          description: |
             Ask the model to generate a synchronized audio track
-            (dialogue/ambient/SFX). Model-dependent — supported by Seedance,
-            Veo, and MiniMax Hailuo 3; ignored by models without native
-            audio.
+            (dialogue/ambient/SFX).
+
+            What this achieves is decided by the selected model's
+            `video.audio` capability on `GET /models`, never by the provider's
+            default: on `optional` models the flag is honored and OMITTING it
+            resolves to `true`; on `none` models the clip is silent whatever
+            you pass; on `always` models audio is native and
+            `generate_audio: false` is refused with a 400. The delivered asset
+            records the resolved outcome as
+            `generation.generate_audio_effective`.
         quality:
           type: string
           nullable: true
