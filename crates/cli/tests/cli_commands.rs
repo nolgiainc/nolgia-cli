@@ -2143,18 +2143,16 @@ fn audio_flag_help_stays_capability_driven() {
     // neighbouring description (--quality legitimately cites a model as a
     // tier example) cannot make this pass or fail by accident.
     let rest = &help[start..];
-    let mut block = rest;
-    for (offset, _) in rest.match_indices('\n') {
-        let line = rest[offset + 1..].trim_start();
-        let indent = rest[offset + 1..].len() - line.len();
-        if line.starts_with("--") || line.starts_with("-h,") || line.starts_with("-V,") {
-            if indent > 0 {
-                block = &rest[..offset];
-                break;
-            }
-        }
-    }
-    let block = block;
+    let block = rest
+        .match_indices('\n')
+        .find(|(offset, _)| {
+            let tail = &rest[offset + 1..];
+            let line = tail.trim_start();
+            let indented = tail.len() > line.len();
+            indented
+                && (line.starts_with("--") || line.starts_with("-h,") || line.starts_with("-V,"))
+        })
+        .map_or(rest, |(offset, _)| &rest[..offset]);
 
     assert!(
         block.contains("models list"),
