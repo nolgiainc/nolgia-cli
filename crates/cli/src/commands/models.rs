@@ -3,7 +3,7 @@
 
 use anyhow::{Context, Result};
 use clap::{Args, Subcommand, ValueEnum};
-use nolgia_client::types::{BitrateMode, Modality, Model, QualityCapabilities};
+use nolgia_client::types::{BitrateMode, ImageAspectRatio, Modality, Model, QualityCapabilities};
 
 use super::CommandContext;
 use crate::output::{OutputFormat, print_json};
@@ -122,6 +122,25 @@ fn capability_line(model: &Model) -> String {
             }
         }
         return parts.join("  ");
+    }
+    if let Some(image) = &model.image {
+        let mut parts: Vec<String> = Vec::new();
+        if !image.aspect_ratios.is_empty() {
+            parts.push(
+                image
+                    .aspect_ratios
+                    .iter()
+                    .map(|r| r.to_string())
+                    .collect::<Vec<_>>()
+                    .join(" "),
+            );
+        }
+        if let Some(quality) = &model.quality {
+            parts.push(quality_summary(quality));
+        }
+        if !parts.is_empty() {
+            return parts.join("  ");
+        }
     }
     if let Some(audio) = &model.audio
         && !audio.voices.is_empty()
@@ -330,6 +349,56 @@ pub async fn precheck_image_quality(
     check_quality(model, tier).map(|_| ())
 }
 
+/// Pre-validate `--aspect-ratio` against the ratios the selected image model
+/// actually publishes.
+///
+/// The spec's `ImageAspectRatio` enum is the union across every model, so clap
+/// accepting a value only means it is a real ratio somewhere in the catalog —
+/// not that this model renders it. `GET /models` publishes the per-model list
+/// as `image.aspect_ratios`, and the API validates against exactly that slice,
+/// so checking it here turns a server 400 (arriving after the request is on the
+/// wire) into an immediate error that names the model's actual options.
+///
+/// Best-effort, like the other prechecks: an unreachable catalog or an unknown
+/// model falls through to server validation rather than blocking the user.
+pub async fn precheck_image_aspect_ratio(
+    ctx: &CommandContext,
+    model_id: &str,
+    ratio: &ImageAspectRatio,
+) -> Result<()> {
+    let Ok(models) = fetch(ctx).await else {
+        return Ok(());
+    };
+    let Some(model) = models.iter().find(|m| m.id == model_id) else {
+        return Ok(());
+    };
+    let Some(image) = &model.image else {
+        return Ok(());
+    };
+    if image.aspect_ratios.is_empty() {
+        anyhow::bail!(
+            "--aspect-ratio: {model_id} does not support aspect-ratio selection \
+             — pick a model that lists `aspect ratios` in `nolgia models get <model>`"
+        );
+    }
+    if !image.aspect_ratios.contains(ratio) {
+        anyhow::bail!(
+            "--aspect-ratio {ratio}: not supported by {model_id}; available: {}",
+            image_ratio_list(&image.aspect_ratios)
+        );
+    }
+    Ok(())
+}
+
+/// e.g. `16:9, 9:16, 1:1` — in the order the catalog publishes them.
+fn image_ratio_list(ratios: &[ImageAspectRatio]) -> String {
+    ratios
+        .iter()
+        .map(|r| r.to_string())
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 async fn list(args: ListArgs, ctx: &CommandContext) -> Result<()> {
     let mut models = fetch(ctx).await?;
     if let Some(filter) = args.modality {
@@ -379,6 +448,14 @@ async fn get(args: GetArgs, ctx: &CommandContext) -> Result<()> {
                     println!("  {label} {line}");
                     label = "            ";
                 }
+            }
+            if let Some(image) = &model.image
+                && !image.aspect_ratios.is_empty()
+            {
+                println!(
+                    "  aspect ratios: {}",
+                    image_ratio_list(&image.aspect_ratios)
+                );
             }
             if let Some(refs) = &model.references {
                 let mut parts: Vec<String> = Vec::new();
