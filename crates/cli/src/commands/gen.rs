@@ -90,12 +90,12 @@ pub struct VideoArgs {
     // audio_flag_help_stays_capability_driven test.
     //
     // The behaviour below is published per model as `video.audio` on
-    // `GET /models` (nolgia-api#224), but this text deliberately does not
-    // send the reader to `nolgia models list` for it yet: the field is not in
-    // the canonical spec this crate vendors, so `capability_line` cannot
-    // render it and `--json` (reserialized from the generated types) drops
-    // it. Once the re-vendor lands and `models list` shows the capability,
-    // cite it here by name.
+    // `GET /models` (nolgia-api#224) and, since the re-vendor in #83, is in
+    // the spec this crate generates from — so `--json` now carries it. This
+    // text still does not send the reader to `nolgia models list` for it,
+    // because `capability_line` does not render the field yet, and citing a
+    // capability the reader cannot see is the same broken promise in a new
+    // place. Teach `models list` to show it, then cite it here by name.
     /// Generate a synchronized audio track. What this achieves is set by the
     /// model, not by the flag: models without audio render silent whatever
     /// you pass, models whose audio is native always produce it (so

@@ -2132,10 +2132,11 @@ fn user_json() -> serde_json::Value {
 /// itself, because any enumeration here is a second source of truth that will
 /// rot the moment the catalog changes.
 ///
-/// The help stops short of naming `video.audio` / `nolgia models list`: that
-/// capability is not in the vendored spec yet, so `models list` cannot show it
-/// (see the comment on the flag in `commands/gen.rs`). When the re-vendor lands
-/// this test should also require the citation back.
+/// The help stops short of naming `video.audio` / `nolgia models list`: the
+/// field is vendored now, but `models list` still does not render it (see the
+/// comment on the flag in `commands/gen.rs`), and pointing the reader at a
+/// capability they cannot see would just relocate the broken promise. When
+/// `models list` shows it, require the citation back here.
 #[test]
 fn audio_flag_help_stays_capability_driven() {
     let assert = cmd().args(["gen", "video", "--help"]).assert().success();
