@@ -2121,3 +2121,58 @@ fn pat_json() -> serde_json::Value {
 fn user_json() -> serde_json::Value {
     json!({"id": USER_ID, "email": "ada@nolgia.ai", "name": "Ada", "image_url": null, "created_at": "2026-06-13T00:00:00Z"})
 }
+
+/// NOL-352: the `--generate-audio` help text used to carry a hand-maintained
+/// list of model names ("Seedance/Veo"). Nothing kept that list honest, so it
+/// drifted — it still omitted MiniMax Hailuo 3 after that model was added, and
+/// it advertised audio support for models that turned out not to control the
+/// flag at all. That drift is what exposed the underlying defect, so the fix is
+/// structural rather than a one-off correction: the flag's help must point at
+/// the model registry (`nolgia models list` → `video.audio`) and must never
+/// enumerate models itself, because any enumeration here is a second source of
+/// truth that will rot the moment the catalog changes.
+#[test]
+fn audio_flag_help_stays_capability_driven() {
+    let assert = cmd().args(["gen", "video", "--help"]).assert().success();
+    let help = String::from_utf8(assert.get_output().stdout.clone()).expect("utf-8 help");
+
+    let start = help
+        .find("--generate-audio")
+        .expect("`gen video --help` no longer documents --generate-audio");
+    // Take just this flag's entry: everything up to the next flag line, so a
+    // neighbouring description (--quality legitimately cites a model as a
+    // tier example) cannot make this pass or fail by accident.
+    let rest = &help[start..];
+    let mut block = rest;
+    for (offset, _) in rest.match_indices('\n') {
+        let line = rest[offset + 1..].trim_start();
+        let indent = rest[offset + 1..].len() - line.len();
+        if line.starts_with("--") || line.starts_with("-h,") || line.starts_with("-V,") {
+            if indent > 0 {
+                block = &rest[..offset];
+                break;
+            }
+        }
+    }
+    let block = block;
+
+    assert!(
+        block.contains("models list"),
+        "--generate-audio help must send the reader to the live registry, got:\n{block}"
+    );
+    assert!(
+        block.contains("video.audio"),
+        "--generate-audio help must name the capability that decides its meaning, got:\n{block}"
+    );
+
+    // The registry is the only place model-specific audio behaviour is
+    // recorded. Naming models here re-creates exactly the list that rotted.
+    for model in ["seedance", "veo", "minimax", "hailuo", "kling", "grok"] {
+        assert!(
+            !block.to_ascii_lowercase().contains(model),
+            "--generate-audio help names the model {model:?}; describe the \
+             video.audio capability instead so the text cannot drift from the \
+             catalog, got:\n{block}"
+        );
+    }
+}
