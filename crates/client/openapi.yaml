@@ -4905,7 +4905,7 @@ components:
         `GET /models`; a ratio outside the selected model's list is rejected
         (400). Prefer this over `image_size`, whose closed aliases only
         express the 16:9/4:3/1:1 families.
-      enum: ['16:9', '9:16', '1:1', '4:3', '3:4', '3:2', '2:3', '21:9', '9:21', '2:1', '1:2', '5:4', '4:5', '3:1', '1:3', '4:1', '1:4']
+      enum: ['16:9', '9:16', '1:1', '4:3', '3:4', '3:2', '2:3', '21:9', '9:21', '2:1', '1:2', '5:4', '4:5', '3:1', '1:3', '4:1', '1:4', '99:1']
 
     AspectRatio:
       type: string
