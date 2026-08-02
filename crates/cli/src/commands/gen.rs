@@ -84,7 +84,15 @@ pub struct VideoArgs {
     pub seed: Option<u64>,
     #[arg(long)]
     pub negative_prompt: Option<String>,
-    /// Generate a synchronized audio track (Seedance/Veo)
+    // Keep this description capability-driven and free of model names: the
+    // enumeration it replaced ("Seedance/Veo") was a second source of truth
+    // that silently rotted (NOL-352). Pinned by the
+    // audio_flag_help_stays_capability_driven test.
+    /// Generate a synchronized audio track. What this achieves is set by
+    /// the model's `video.audio` capability in `nolgia models list`, not by
+    /// the provider: `optional` models honor it and omitting it means true;
+    /// `none` models render silent whatever you pass; `always` models have
+    /// native audio, so `--generate-audio false` is rejected.
     #[arg(long, action = clap::ArgAction::Set)]
     pub generate_audio: Option<bool>,
     /// Quality/resolution tier, e.g. 720p/1080p/4k on Seedance 2.0 Pro.
