@@ -2127,10 +2127,15 @@ fn user_json() -> serde_json::Value {
 /// drifted — it still omitted MiniMax Hailuo 3 after that model was added, and
 /// it advertised audio support for models that turned out not to control the
 /// flag at all. That drift is what exposed the underlying defect, so the fix is
-/// structural rather than a one-off correction: the flag's help must point at
-/// the model registry (`nolgia models list` → `video.audio`) and must never
-/// enumerate models itself, because any enumeration here is a second source of
-/// truth that will rot the moment the catalog changes.
+/// structural rather than a one-off correction: the flag's help must describe
+/// what the model's audio capability decides and must never enumerate models
+/// itself, because any enumeration here is a second source of truth that will
+/// rot the moment the catalog changes.
+///
+/// The help stops short of naming `video.audio` / `nolgia models list`: that
+/// capability is not in the vendored spec yet, so `models list` cannot show it
+/// (see the comment on the flag in `commands/gen.rs`). When the re-vendor lands
+/// this test should also require the citation back.
 #[test]
 fn audio_flag_help_stays_capability_driven() {
     let assert = cmd().args(["gen", "video", "--help"]).assert().success();
@@ -2155,15 +2160,12 @@ fn audio_flag_help_stays_capability_driven() {
         .map_or(rest, |(offset, _)| &rest[..offset]);
 
     assert!(
-        block.contains("models list"),
-        "--generate-audio help must send the reader to the live registry, got:\n{block}"
-    );
-    assert!(
-        block.contains("video.audio"),
-        "--generate-audio help must name the capability that decides its meaning, got:\n{block}"
+        block.to_ascii_lowercase().contains("set by the model"),
+        "--generate-audio help must attribute the outcome to the model's \
+         capability rather than to the flag, got:\n{block}"
     );
 
-    // The registry is the only place model-specific audio behaviour is
+    // The catalog is the only place model-specific audio behaviour is
     // recorded. Naming models here re-creates exactly the list that rotted.
     for model in ["seedance", "veo", "minimax", "hailuo", "kling", "grok"] {
         assert!(
