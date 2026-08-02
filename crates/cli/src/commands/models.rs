@@ -3,7 +3,7 @@
 
 use anyhow::{Context, Result};
 use clap::{Args, Subcommand, ValueEnum};
-use nolgia_client::types::{BitrateMode, ImageAspectRatio, Modality, Model, QualityCapabilities};
+use nolgia_client::types::{BitrateMode, ImageAspectRatio, Model, QualityCapabilities};
 
 use super::CommandContext;
 use crate::output::{OutputFormat, print_json};
@@ -35,12 +35,14 @@ pub enum ModalityFilter {
 }
 
 impl ModalityFilter {
-    fn matches(self, modality: &Modality) -> bool {
+    /// Compared as a string: the catalog's `modality` is deserialized
+    /// permissively (see `relax_response_only_enums` in the client's
+    /// build.rs), so a modality this CLI predates filters out cleanly instead
+    /// of failing the whole catalog.
+    fn matches(self, modality: &str) -> bool {
         matches!(
             (self, modality),
-            (Self::Image, Modality::Image)
-                | (Self::Video, Modality::Video)
-                | (Self::Audio, Modality::Audio)
+            (Self::Image, "image") | (Self::Video, "video") | (Self::Audio, "audio")
         )
     }
 }
@@ -66,7 +68,7 @@ async fn fetch(ctx: &CommandContext) -> Result<Vec<Model>> {
 fn cost_line(model: &Model) -> String {
     match &model.cost {
         Some(cost) => {
-            let unit = format!("{:?}", cost.unit).to_lowercase();
+            let unit = cost.unit.to_lowercase();
             match cost.baseline_seconds {
                 Some(base) => format!("{} credits per {base}s clip", cost.credits),
                 None => format!("{} credits ({unit})", cost.credits),
@@ -192,12 +194,8 @@ fn quality_lines(model: &Model, quality: &QualityCapabilities) -> Vec<String> {
         .collect()
 }
 
-fn bitrate_list(modes: &[BitrateMode]) -> String {
-    modes
-        .iter()
-        .map(|m| m.to_string())
-        .collect::<Vec<_>>()
-        .join("|")
+fn bitrate_list(modes: &[String]) -> String {
+    modes.join("|")
 }
 
 /// The tiers a model offers, phrased for error messages: credits and
@@ -294,7 +292,7 @@ pub async fn precheck_video_options(
         );
     }
     if let Some(mode) = options.bitrate
-        && !refs.bitrate_modes.contains(&mode)
+        && !refs.bitrate_modes.iter().any(|m| *m == mode.to_string())
     {
         anyhow::bail!(match refs.bitrate_modes.is_empty() {
             true => format!("--bitrate: {model_id} has no bitrate selection"),
@@ -381,7 +379,7 @@ pub async fn precheck_image_aspect_ratio(
              — pick a model that lists `aspect ratios` in `nolgia models get <model>`"
         );
     }
-    if !image.aspect_ratios.contains(ratio) {
+    if !image.aspect_ratios.iter().any(|r| *r == ratio.to_string()) {
         anyhow::bail!(
             "--aspect-ratio {ratio}: not supported by {model_id}; available: {}",
             image_ratio_list(&image.aspect_ratios)
@@ -390,13 +388,10 @@ pub async fn precheck_image_aspect_ratio(
     Ok(())
 }
 
-/// e.g. `16:9, 9:16, 1:1` — in the order the catalog publishes them.
-fn image_ratio_list(ratios: &[ImageAspectRatio]) -> String {
-    ratios
-        .iter()
-        .map(|r| r.to_string())
-        .collect::<Vec<_>>()
-        .join(", ")
+/// e.g. `16:9, 9:16, 1:1` — in the order the catalog publishes them,
+/// including any ratio added to the API after this CLI was built.
+fn image_ratio_list(ratios: &[String]) -> String {
+    ratios.join(", ")
 }
 
 async fn list(args: ListArgs, ctx: &CommandContext) -> Result<()> {
@@ -412,7 +407,7 @@ async fn list(args: ListArgs, ctx: &CommandContext) -> Result<()> {
                 println!(
                     "{star} {:52} {:7} {:28} {}",
                     model.id,
-                    format!("{:?}", model.modality).to_lowercase(),
+                    model.modality.to_lowercase(),
                     cost_line(model),
                     capability_line(model),
                 );
@@ -435,7 +430,7 @@ async fn get(args: GetArgs, ctx: &CommandContext) -> Result<()> {
         OutputFormat::Json => print_json(model),
         OutputFormat::Text => {
             println!("{}", model.id);
-            println!("  modality:    {:?}", model.modality);
+            println!("  modality:    {}", model.modality);
             println!("  recommended: {}", model.recommended);
             println!("  cost:        {}", cost_line(model));
             let caps = capability_line(model);

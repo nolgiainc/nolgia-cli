@@ -852,7 +852,7 @@ fn append_dir<W: std::io::Write>(
 
 fn print_ability_line(ability: &Ability) {
     let mut tags = Vec::new();
-    if ability.visibility == AbilityVisibility::Private {
+    if ability.visibility == AbilityVisibility::Private.to_string() {
         tags.push("private".to_string());
     }
     if !ability.min_tier.is_empty() {
