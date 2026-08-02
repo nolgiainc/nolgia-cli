@@ -199,6 +199,34 @@ job_uuid=$(nolgia gen video --prompt "..." --no-wait | jq -r .job_id)
 nolgia wait "$job_uuid" --timeout 600 --json | jq .asset.signed_url
 ```
 
+### Exit code 75: a job is live, do not re-run
+
+`wait` and `gen` exit **75** (sysexits `EX_TEMPFAIL`) to mean *the job exists
+and is still running* — the long-poll window closed, Ctrl-C arrived, the
+connection dropped after a successful submission, or the API refused a
+duplicate submission naming the job it already created. None of these is a
+failure, and **re-submitting starts a second billable job**. Every one of them
+prints the job id and the commands to follow it; under `--json` stdout also
+carries `{"job_id", "outcome", "billed_twice", "follow_up"}` while the human
+text goes to stderr. Genuine failures still exit `1`.
+
+So a polling loop keeps waiting rather than giving up or re-submitting:
+
+```bash
+while true; do
+  nolgia wait "$job_uuid" --timeout 300 --json > job.json && break
+  status=$?
+  # 75: the long-poll expired and the job is still running — keep waiting.
+  # Anything else is a real error; re-submitting would bill a second job.
+  [ "$status" -eq 75 ] || exit "$status"
+done
+```
+
+Generation is stochastic, so an identical prompt is sometimes a deliberate
+second take rather than an accidental re-run. Pass a fresh `--idempotency-key`
+(or `NOLGIA_IDEMPOTENCY_KEY`) to say so; reuse one to collapse your own retries
+into a single job.
+
 Human output otherwise depends on the command: completed image/audio generations print a signed URL, completed video prints the job UUID and status, and `--out <FILE>` downloads the asset. Signed URLs are temporary bearer capabilities; avoid sending them to persistent CI logs or telemetry, and save the file or query the asset again when needed.
 
 ## Command index

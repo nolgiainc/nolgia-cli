@@ -21,6 +21,7 @@ nolgia-cli/
 | Binary entry | `crates/cli/src/main.rs` | Global flags and subcommand dispatch |
 | Commands | `crates/cli/src/commands` | `auth`, `gen`, `status`, `wait`, `assets`, `account`, `billing` |
 | Output rules | `crates/cli/src/output.rs` | Human vs JSON formatting |
+| Live-job reporting | `crates/cli/src/livejob.rs` | A submitted job must never be lost: wait timeout (408), Ctrl-C, post-submit failure and duplicate refusal (409) all render as "a job is live" and exit 75 |
 | Auth flow | `crates/cli/src/auth.rs` | Device-code OAuth and local credentials |
 | Public command tests | `crates/cli/tests/cli_commands.rs` | Help, flags, command behavior |
 | E2E CLI tests | `crates/cli/tests/e2e_cli.rs` | Gated by `--features e2e` |
@@ -60,6 +61,10 @@ cargo build --release
 ```
 
 ## ANTI-PATTERNS
+- Do not report a job the server accepted as a bare error. Any ending after a
+  successful submit must name the job id and route through
+  `livejob::LiveJob`/`EXIT_LIVE_JOB` — a message that reads like a failure is
+  what makes a human re-run and pay twice (NOL-344, NOL-356).
 - Do not rename the binary to match the crate; the public command is `nolgia`.
 - Do not edit generated client internals when an OpenAPI or build-pipeline change is required.
 - Do not run e2e tests accidentally; they are feature-gated and may depend on real service behavior.

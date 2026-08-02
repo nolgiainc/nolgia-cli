@@ -3,6 +3,77 @@
 Release notes for the Nolgia CLI. Each `## vX.Y.Z` section becomes the body of
 the matching GitHub release.
 
+## v0.2.18
+
+- **A job the server accepted is never lost again — and a wait timeout no
+  longer reads as a failure.** These were the two behaviours that made a human
+  re-run a generation and pay for it twice (NOL-344 cost 84 credits exactly
+  this way).
+
+  Previously, if anything went wrong after a submission had already succeeded,
+  the CLI printed a transport error and **no job id** — so the command looked
+  like it had failed *before* submitting, and re-running was the natural
+  response. And a `408` from `GET /jobs/{id}/wait`, which only means the
+  server's long-poll window closed while the job kept running, surfaced as:
+
+  ```
+  Error: waiting for generation job
+
+  Caused by:
+      Unexpected Response: Response { url: "…/wait?timeout_seconds=300", status: 408, … }
+  ```
+
+  Nothing had failed, but the word `Error:` is the strongest possible prompt to
+  try again.
+
+  Four endings now deliver the same fact — *work is live under this id, follow
+  it, do not re-submit*:
+
+  ```
+  still running after 300s — job 60893909-3123-42bd-b04f-ed946b136c0f
+    Nothing failed. The server's long-poll window closed while the job was
+    still running — the job was not cancelled and is still being worked on.
+    It will be billed once, whether or not you keep waiting. Re-running this
+    command would start a second job.
+      nolgia wait 60893909-…    # keep waiting for it
+      nolgia status 60893909-…  # check it once
+  ```
+
+  - `gen` now prints the job id on stderr the moment the server accepts it,
+    before any waiting begins. This is the robust half: an error path can only
+    speak if the process lives long enough to reach it, and in the incident it
+    did not. The line is already in the operator's scrollback even if the CLI
+    is killed outright or the pipe is torn down.
+  - Ctrl-C after submission, and any other post-submission failure, report the
+    job id and how to follow it instead of a bare error.
+  - A duplicate submission — refused by the API with `409` since NOL-344 — is
+    rendered as the job that already exists, restating the API's advice as
+    commands a shell can actually run (the server says "check it with
+    `GET /jobs/{id}`", which is true and unusable at a prompt).
+  - `gen audio` refusals go through the RFC 7807 handler like `image` and
+    `video` already did; they previously surfaced as raw `Unexpected Response`
+    debug dumps. `nolgia status` likewise no longer dumps a raw response on a
+    404.
+
+  **New exit code `75`** (sysexits `EX_TEMPFAIL`) means "a job is live; do not
+  re-run" and is used for all four cases above. It replaces exit `1` *only*
+  there; every other failure still exits `1` with the same `Error:` text as
+  before. This also makes the situation machine-readable for the first time:
+  a `408` was previously indistinguishable from a genuine failure, which is
+  why nolgia-agent's CLI backend could not implement the "keep polling"
+  contract its SDK backend has always had. Under `--json`, stdout carries a
+  document (`job_id`, `outcome`, `billed_twice`, `follow_up`) while the human
+  block goes to stderr, so a program's stdout stays parseable.
+
+- **`--idempotency-key` (also `NOLGIA_IDEMPOTENCY_KEY`).** The API's duplicate
+  guard fingerprints the request body, so a *deliberate* second take of an
+  identical prompt is refused too; the documented escape hatch is an
+  `Idempotency-Key` header, which the CLI previously had no way to send — the
+  header is accepted by the API but is not declared in the OpenAPI spec, so the
+  generated client emits no parameter for it. Passing a fresh key runs an
+  identical request again on purpose; reusing one collapses a client's own
+  retries into a single job.
+
 ## v0.2.17
 
 - **The model catalog no longer fails to parse because the API added a value
