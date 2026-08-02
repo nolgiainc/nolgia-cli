@@ -36,6 +36,55 @@ fn help_lists_full_command_surface() {
         .stdout(predicate::str::contains("color-presets"));
 }
 
+/// NOL-317: `--help` must name the env vars it reads but never render their
+/// values. clap's default for `env`-backed args prints the resolved value,
+/// which put a live PAT into `nolgia --help` on the pod — and help output is
+/// the least-guarded text there is (scrollback, CI logs, agent transcripts,
+/// screenshots, bug reports).
+///
+/// The structural guard lives in `main.rs`
+/// (`env_backed_args_never_render_their_values`) and covers every arg in the
+/// tree; this one renders the real help of the real binary with the vars
+/// actually set, so the two failure modes stay independent.
+#[test]
+fn help_never_renders_env_var_values() {
+    const SENTINEL_TOKEN: &str = "nol_NOL317x0000_sentinel_must_not_appear";
+    const SENTINEL_URL: &str = "https://sentinel-nol317.invalid";
+
+    for args in [
+        ["--help"].as_slice(),
+        ["gen", "--help"].as_slice(),
+        ["auth", "--help"].as_slice(),
+        ["assets", "list", "--help"].as_slice(),
+    ] {
+        let assert = cmd()
+            .env("NOLGIA_TOKEN", SENTINEL_TOKEN)
+            .env("NOLGIA_API_URL", SENTINEL_URL)
+            .args(args)
+            .assert()
+            .success();
+        let help = String::from_utf8(assert.get_output().stdout.clone()).expect("utf-8 help");
+        let invocation = args.join(" ");
+
+        assert!(
+            !help.contains(SENTINEL_TOKEN),
+            "`nolgia {invocation}` rendered the value of NOLGIA_TOKEN into its help output"
+        );
+        assert!(
+            !help.contains(SENTINEL_URL),
+            "`nolgia {invocation}` rendered the value of NOLGIA_API_URL into its help output"
+        );
+    }
+
+    // The variable names themselves must still be discoverable.
+    cmd()
+        .arg("--help")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("NOLGIA_TOKEN"))
+        .stdout(predicate::str::contains("NOLGIA_API_URL"));
+}
+
 #[test]
 fn gen_help_lists_modalities() {
     cmd()

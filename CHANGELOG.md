@@ -3,6 +3,40 @@
 Release notes for the Nolgia CLI. Each `## vX.Y.Z` section becomes the body of
 the matching GitHub release.
 
+## v0.2.15
+
+- **Security: `--help` no longer prints the values of the environment
+  variables it reads.** clap's default rendering for an `env`-backed argument
+  shows the *resolved value* of the variable, so on any machine with
+  `NOLGIA_TOKEN` exported, `nolgia --help` printed the token inline in its
+  options block (`--token <TOKEN>  [env: NOLGIA_TOKEN=...]`). Help output is
+  the least-guarded text in a system — it lands in terminal scrollback, CI
+  logs, agent transcripts, screenshots and bug reports — so this defeated the
+  rest of the CLI's secret handling. Both env-backed globals (`--token` /
+  `NOLGIA_TOKEN` and `--api-url` / `NOLGIA_API_URL`) now carry
+  `hide_env_values`: help still names the variable, so the flag stays
+  discoverable, but never shows what it holds (NOL-317).
+
+  Two regression guards ship with the fix. A structural test walks the entire
+  clap command tree and fails if *any* env-backed argument — including ones
+  added in future, anywhere in the tree — is missing `hide_env_values`. A
+  black-box test renders the real binary's help with both variables set to
+  sentinel values and asserts neither value appears.
+
+  Anyone who ran `nolgia --help` with a real token exported on a released
+  build up to and including v0.2.14 should treat that token as disclosed and
+  rotate it.
+
+- **Housekeeping: version metadata now matches the tag.** The v0.2.13 and
+  v0.2.14 tags were cut on trees whose manifests still read 0.2.12, so their
+  npm publish step failed the tag/version check and neither crates.io nor npm
+  ever received them; the binaries attached to those two GitHub releases also
+  self-report `0.2.12`. This release carries the correct version in every
+  manifest, so it is the first publish since v0.2.12 to reach crates.io and
+  npm — and it includes the vendored-spec work that was intended for v0.2.13
+  and v0.2.14 (MiniMax models, model-specific image aspect ratios, color
+  presets, `start_frame_required`).
+
 ## v0.2.12
 
 - **`nolgia assets upload` now accepts video and audio, not just images.**
