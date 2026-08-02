@@ -4582,12 +4582,52 @@ components:
         aliases. Every published image model declares its supported
         `aspect_ratio` values here — clients should drive their ratio
         pickers from this list.
+
+        Published for EVERY image model (a model with no selectable ratios
+        still declares `reference_images_max`), so a client can always tell
+        whether an image model accepts a reference image.
       properties:
         aspect_ratios:
           type: array
           description: Selectable `aspect_ratio` values for this model.
           items:
             $ref: '#/components/schemas/ImageAspectRatio'
+        reference_images_max:
+          type: integer
+          description: |
+            How many reference images this model accepts across `image_url`
+            and `image_urls` for identity-preserving edits.
+
+            `0` means the model generates from the prompt ONLY: it has no way
+            to consume a reference, and sending one is rejected up front with
+            a 400 (before any credit hold is taken, so a rejected request
+            never costs credits). Clients MUST NOT offer a reference-image
+            affordance for these models, and should filter or disable them in
+            the model picker once the user has attached a reference.
+
+            `1` means a single reference via `image_url`; sending `image_urls`
+            is rejected. Values above 1 additionally accept `image_urls`, up
+            to this many references combined.
+
+            Absent on responses from an API build older than this field: treat
+            unknown as permitted rather than blocking the user.
+          minimum: 0
+          example: 4
+        num_images_max:
+          type: integer
+          description: |
+            The largest `num_images` this model accepts in one request. Most
+            models allow the contract maximum of 4; a model whose provider
+            returns exactly one image per call publishes `1`, and a request
+            above its ceiling is rejected up front with a 400 (before any
+            credit hold, so it never costs credits).
+
+            Clients should bound their image-count control by this value.
+            Absent on responses from an API build older than this field: fall
+            back to the schema maximum for `num_images`.
+          minimum: 1
+          maximum: 4
+          example: 4
 
     AudioCapabilities:
       type: object
