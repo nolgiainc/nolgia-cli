@@ -14,6 +14,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use crate::livejob;
 use crate::output::{OutputFormat, print_json};
 
 use super::CommandContext;
@@ -238,28 +239,33 @@ async fn image(args: ImageArgs, ctx: &CommandContext) -> Result<()> {
         .context("building image request")?;
     let job = match ctx.client().generate_image().body(body).send().await {
         Ok(response) => response.into_inner(),
-        Err(err) => return Err(super::api_error(err, "submitting image job").await),
+        Err(err) => return Err(super::submit_error(err, "submitting image job").await),
     };
     if args.no_wait {
         return print_json(&AsyncJob {
             job_id: job.id.to_string(),
         });
     }
-    let job = wait_for_asset(job.id, ctx, DEFAULT_WAIT_TIMEOUT_SECONDS).await?;
-    let asset = job
-        .asset
-        .as_ref()
-        .context("image job completed without asset")?;
-    if let Some(out) = args.out {
-        download(&asset.signed_url, &out).await?;
-    }
-    match ctx.format() {
-        OutputFormat::Json => print_json(&job),
-        OutputFormat::Text => {
-            println!("{}", asset.signed_url);
-            Ok(())
+    let job_id = job.id;
+    livejob::announce(job_id, DEFAULT_WAIT_TIMEOUT_SECONDS);
+    livejob::guard(job_id, async move {
+        let job = wait_for_asset(job_id, ctx, DEFAULT_WAIT_TIMEOUT_SECONDS).await?;
+        let asset = job
+            .asset
+            .as_ref()
+            .context("image job completed without asset")?;
+        if let Some(out) = args.out {
+            download(&asset.signed_url, &out).await?;
         }
-    }
+        match ctx.format() {
+            OutputFormat::Json => print_json(&job),
+            OutputFormat::Text => {
+                println!("{}", asset.signed_url);
+                Ok(())
+            }
+        }
+    })
+    .await
 }
 
 async fn video(args: VideoArgs, ctx: &CommandContext) -> Result<()> {
@@ -371,26 +377,31 @@ async fn video(args: VideoArgs, ctx: &CommandContext) -> Result<()> {
         builder = builder.element_asset_ids(Some(args.elements));
     }
     let body: GenerateVideoRequest = builder.try_into().context("building video request")?;
-    let mut job = match ctx.client().generate_video().body(body).send().await {
+    let job = match ctx.client().generate_video().body(body).send().await {
         Ok(response) => response.into_inner(),
-        Err(err) => return Err(super::api_error(err, "submitting video job").await),
+        Err(err) => return Err(super::submit_error(err, "submitting video job").await),
     };
     if args.no_wait || !args.wait {
         return print_json(&AsyncJob {
             job_id: job.id.to_string(),
         });
     }
-    job = wait_for_asset(job.id, ctx, args.timeout).await?;
-    if let (Some(asset), Some(out)) = (&job.asset, args.out.as_ref()) {
-        download(&asset.signed_url, out).await?;
-    }
-    match ctx.format() {
-        OutputFormat::Json => print_json(&job),
-        OutputFormat::Text => {
-            println!("{} {}", job.id, job.status);
-            Ok(())
+    let job_id = job.id;
+    livejob::announce(job_id, args.timeout);
+    livejob::guard(job_id, async move {
+        let job = wait_for_asset(job_id, ctx, args.timeout).await?;
+        if let (Some(asset), Some(out)) = (&job.asset, args.out.as_ref()) {
+            download(&asset.signed_url, out).await?;
         }
-    }
+        match ctx.format() {
+            OutputFormat::Json => print_json(&job),
+            OutputFormat::Text => {
+                println!("{} {}", job.id, job.status);
+                Ok(())
+            }
+        }
+    })
+    .await
 }
 
 async fn audio(args: AudioArgs, ctx: &CommandContext) -> Result<()> {
@@ -407,34 +418,38 @@ async fn audio(args: AudioArgs, ctx: &CommandContext) -> Result<()> {
         .project_id(args.project_id)
         .try_into()
         .context("building audio request")?;
-    let job = ctx
-        .client()
-        .generate_audio()
-        .body(body)
-        .send()
-        .await
-        .context("submitting audio job")?
-        .into_inner();
+    // Audio was the one modality that never went through the RFC 7807 helper,
+    // so every server refusal here — including the new duplicate `409` — came
+    // out as progenitor's raw `Unexpected Response` debug dump.
+    let job = match ctx.client().generate_audio().body(body).send().await {
+        Ok(response) => response.into_inner(),
+        Err(err) => return Err(super::submit_error(err, "submitting audio job").await),
+    };
     if args.no_wait {
         return print_json(&AsyncJob {
             job_id: job.id.to_string(),
         });
     }
-    let job = wait_for_asset(job.id, ctx, DEFAULT_WAIT_TIMEOUT_SECONDS).await?;
-    let asset = job
-        .asset
-        .as_ref()
-        .context("audio job completed without asset")?;
-    if let Some(out) = args.out {
-        download(&asset.signed_url, &out).await?;
-    }
-    match ctx.format() {
-        OutputFormat::Json => print_json(&job),
-        OutputFormat::Text => {
-            println!("{}", asset.signed_url);
-            Ok(())
+    let job_id = job.id;
+    livejob::announce(job_id, DEFAULT_WAIT_TIMEOUT_SECONDS);
+    livejob::guard(job_id, async move {
+        let job = wait_for_asset(job_id, ctx, DEFAULT_WAIT_TIMEOUT_SECONDS).await?;
+        let asset = job
+            .asset
+            .as_ref()
+            .context("audio job completed without asset")?;
+        if let Some(out) = args.out {
+            download(&asset.signed_url, &out).await?;
         }
-    }
+        match ctx.format() {
+            OutputFormat::Json => print_json(&job),
+            OutputFormat::Text => {
+                println!("{}", asset.signed_url);
+                Ok(())
+            }
+        }
+    })
+    .await
 }
 
 fn parse_shots(raw: &[String]) -> Result<Option<Vec<VideoShot>>> {
@@ -682,14 +697,19 @@ async fn wait_for_asset(
 ) -> Result<nolgia_client::types::Job> {
     let timeout = std::num::NonZeroU64::new(timeout_seconds)
         .context("--timeout must be greater than zero")?;
-    ctx.client()
+    match ctx
+        .client()
         .wait_for_job()
         .id(job_id)
         .timeout_seconds(timeout)
         .send()
         .await
-        .context("waiting for generation job")
-        .map(|response| response.into_inner())
+    {
+        Ok(response) => Ok(response.into_inner()),
+        Err(err) => {
+            Err(super::wait_error(err, "waiting for generation job", job_id, timeout_seconds).await)
+        }
+    }
 }
 
 pub(crate) async fn download(url: &str, out: &PathBuf) -> Result<()> {

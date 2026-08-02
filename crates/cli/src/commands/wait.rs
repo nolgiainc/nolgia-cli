@@ -16,15 +16,22 @@ pub struct WaitArgs {
 
 pub async fn run(args: WaitArgs, ctx: &CommandContext) -> Result<()> {
     let timeout = NonZeroU64::new(args.timeout).context("--timeout must be greater than zero")?;
-    let job = ctx
+    let job = match ctx
         .client()
         .wait_for_job()
         .id(args.job_id)
         .timeout_seconds(timeout)
         .send()
         .await
-        .context("waiting for job")?
-        .into_inner();
+    {
+        Ok(response) => response.into_inner(),
+        // A 408 here is the long-poll expiring, not the job failing. This is
+        // the command we tell people to re-run to keep waiting, so it must not
+        // greet them with `Error:` for doing exactly that.
+        Err(err) => {
+            return Err(super::wait_error(err, "waiting for job", args.job_id, args.timeout).await);
+        }
+    };
 
     match ctx.format() {
         OutputFormat::Json => print_json(&job),

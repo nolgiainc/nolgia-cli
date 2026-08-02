@@ -2177,3 +2177,287 @@ fn audio_flag_help_stays_capability_driven() {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// NOL-356: a job the server accepted must never be lost.
+//
+// Three endings used to leave the user with no job id and a message that read
+// like a failure, which is what made re-running — and paying twice — the
+// natural next move. These tests are written against what a user actually
+// sees: the exit status, and the text on their terminal.
+// ---------------------------------------------------------------------------
+
+/// Exit status meaning "a job is live; do not re-run" (sysexits EX_TEMPFAIL).
+const EXIT_LIVE_JOB: i32 = 75;
+
+/// The RFC 7807 body prod returns when the long-poll window closes. Note it
+/// does not name the job — the CLI has to supply that itself.
+fn wait_timeout_problem() -> serde_json::Value {
+    json!({
+        "type": "about:blank", "title": "Request Timeout", "status": 408,
+        "detail": "job did not finish before timeout"
+    })
+}
+
+/// The RFC 7807 body prod returns for a duplicate submission, with the job id
+/// carried in prose only.
+fn duplicate_problem() -> serde_json::Value {
+    json!({
+        "type": "about:blank", "title": "Conflict", "status": 409,
+        "detail": format!(
+            "this exact request was already submitted as job {JOB_ID} less than 5m0s ago \
+             and has not been billed twice — check it with GET /jobs/{JOB_ID}. To run it \
+             again anyway, resubmit with a different Idempotency-Key header."
+        )
+    })
+}
+
+/// Ask 2. A 408 is the long-poll expiring, not the job failing.
+#[tokio::test]
+async fn wait_timeout_reads_as_still_running_and_names_the_job() {
+    let api = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path(format!("/v1/jobs/{JOB_ID}/wait")))
+        .respond_with(ResponseTemplate::new(408).set_body_json(wait_timeout_problem()))
+        .mount(&api)
+        .await;
+
+    cmd()
+        .arg("--api-url")
+        .arg(api.uri())
+        .args(["wait", JOB_ID, "--timeout", "300"])
+        .assert()
+        .code(EXIT_LIVE_JOB)
+        // Reads as the non-event it is...
+        .stderr(predicate::str::contains("still running after 300s"))
+        .stderr(predicate::str::contains("Nothing failed."))
+        // ...names the job, which the 408 body itself never does...
+        .stderr(predicate::str::contains(JOB_ID))
+        // ...offers both ways to follow it...
+        .stderr(predicate::str::contains(format!("nolgia wait {JOB_ID}")))
+        .stderr(predicate::str::contains(format!("nolgia status {JOB_ID}")))
+        // ...and never claims something went wrong.
+        .stderr(predicate::str::contains("Error:").not())
+        .stderr(predicate::str::contains("Unexpected Response").not());
+}
+
+/// The same 408, hit while `gen` was waiting on a job it had just submitted.
+/// This is the Seedance case from the incident.
+#[tokio::test]
+async fn gen_wait_timeout_reads_as_still_running_and_names_the_job() {
+    let api = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/generate/image"))
+        .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
+        .mount(&api)
+        .await;
+    Mock::given(method("GET"))
+        .and(path(format!("/v1/jobs/{JOB_ID}/wait")))
+        .respond_with(ResponseTemplate::new(408).set_body_json(wait_timeout_problem()))
+        .mount(&api)
+        .await;
+
+    cmd()
+        .arg("--api-url")
+        .arg(api.uri())
+        .args(["gen", "image", "--prompt", "a cat"])
+        .assert()
+        .code(EXIT_LIVE_JOB)
+        .stderr(predicate::str::contains("still running after 300s"))
+        .stderr(predicate::str::contains(format!("nolgia status {JOB_ID}")))
+        .stderr(predicate::str::contains("Error:").not());
+}
+
+/// Ask 1, the robust half: the id is on the terminal the moment the server
+/// accepts it, so it survives an ending no error path can reach — a killed
+/// process, a torn-down pipe, a closed terminal.
+#[tokio::test]
+async fn gen_announces_the_job_id_before_it_starts_waiting() {
+    let api = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/generate/image"))
+        .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
+        .mount(&api)
+        .await;
+    Mock::given(method("GET"))
+        .and(path(format!("/v1/jobs/{JOB_ID}/wait")))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(job_json("succeeded", Some("https://files"))),
+        )
+        .mount(&api)
+        .await;
+
+    // Even on the happy path, and even under --json, the id is announced on
+    // stderr — stdout stays a single parseable document.
+    run_ok(&api, &["--json", "gen", "image", "--prompt", "a cat"])
+        .stderr(predicate::str::contains(format!("submitted job {JOB_ID}")))
+        .stderr(predicate::str::contains("Ctrl-C is safe"))
+        .stdout(predicate::str::contains("succeeded"));
+}
+
+/// Ask 1, the recovery half: when something fails *after* a successful
+/// submission, the message must make clear a job exists — the incident's
+/// error said nothing at all, so the command looked like it had failed before
+/// submitting.
+#[tokio::test]
+async fn a_failure_after_submission_still_names_the_job() {
+    let api = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/generate/image"))
+        .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
+        .mount(&api)
+        .await;
+    // The wait blows up in a way that is a genuine error, not a 408.
+    Mock::given(method("GET"))
+        .and(path(format!("/v1/jobs/{JOB_ID}/wait")))
+        .respond_with(ResponseTemplate::new(500).set_body_string("upstream exploded"))
+        .mount(&api)
+        .await;
+
+    cmd()
+        .arg("--api-url")
+        .arg(api.uri())
+        .args(["gen", "image", "--prompt", "a cat"])
+        .assert()
+        .code(EXIT_LIVE_JOB)
+        .stderr(predicate::str::contains(format!("submitted job {JOB_ID}")))
+        .stderr(predicate::str::contains(
+            "The submission itself succeeded, so the job exists",
+        ))
+        .stderr(predicate::str::contains(format!("nolgia status {JOB_ID}")))
+        // The diagnosis is kept, just no longer the whole message.
+        .stderr(predicate::str::contains("500"));
+}
+
+/// The new 409 carries the one fact the dead pipe swallowed. It must be
+/// promoted out of a generic error string.
+#[tokio::test]
+async fn a_duplicate_submission_renders_as_the_existing_job() {
+    let api = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/generate/video"))
+        .respond_with(ResponseTemplate::new(409).set_body_json(duplicate_problem()))
+        .mount(&api)
+        .await;
+
+    cmd()
+        .arg("--api-url")
+        .arg(api.uri())
+        .args(["gen", "video", "--prompt", "x", "--no-wait"])
+        .assert()
+        .code(EXIT_LIVE_JOB)
+        .stderr(predicate::str::contains(format!(
+            "already submitted — job {JOB_ID}"
+        )))
+        // The server's own assurance, verbatim.
+        .stderr(predicate::str::contains("has not been billed twice"))
+        // ...re-expressed as commands a shell can actually run, rather than
+        // the API's `GET /jobs/{id}`.
+        .stderr(predicate::str::contains(format!("nolgia status {JOB_ID}")))
+        .stderr(predicate::str::contains("--idempotency-key"))
+        .stderr(predicate::str::contains("Error:").not());
+}
+
+/// `gen audio` never went through the RFC 7807 helper at all, so it rendered
+/// every refusal as progenitor's raw debug dump — including the new 409.
+#[tokio::test]
+async fn a_duplicate_audio_submission_renders_as_the_existing_job() {
+    let api = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/generate/audio"))
+        .respond_with(ResponseTemplate::new(409).set_body_json(duplicate_problem()))
+        .mount(&api)
+        .await;
+
+    cmd()
+        .arg("--api-url")
+        .arg(api.uri())
+        .args(["gen", "audio", "--prompt", "hello"])
+        .assert()
+        .code(EXIT_LIVE_JOB)
+        .stderr(predicate::str::contains(format!(
+            "already submitted — job {JOB_ID}"
+        )))
+        .stderr(predicate::str::contains("Unexpected Response").not());
+}
+
+/// A refusal we cannot decode must not get worse than it was: the server's
+/// `detail` still reaches the user verbatim.
+#[tokio::test]
+async fn a_conflict_without_a_job_id_still_shows_the_server_detail() {
+    let api = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/generate/image"))
+        .respond_with(ResponseTemplate::new(409).set_body_json(json!({
+            "type": "about:blank", "title": "Conflict", "status": 409,
+            "detail": "a conflicting change was made elsewhere"
+        })))
+        .mount(&api)
+        .await;
+
+    cmd()
+        .arg("--api-url")
+        .arg(api.uri())
+        .args(["gen", "image", "--prompt", "x", "--no-wait"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "a conflicting change was made elsewhere",
+        ));
+}
+
+/// The escape hatch the 409 message advertises has to actually work — the
+/// header is accepted by the API but absent from the OpenAPI spec, so the
+/// generated builders cannot express it.
+#[tokio::test]
+async fn idempotency_key_is_sent_on_the_submission() {
+    let api = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/generate/image"))
+        .and(header("idempotency-key", "second-take"))
+        .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
+        .mount(&api)
+        .await;
+
+    run_ok(
+        &api,
+        &[
+            "--idempotency-key",
+            "second-take",
+            "gen",
+            "image",
+            "--prompt",
+            "x",
+            "--no-wait",
+        ],
+    )
+    .stdout(predicate::str::contains(JOB_ID));
+}
+
+/// `--json` callers get the same fact as a document they can parse, so a
+/// program can adopt the live job rather than re-submitting.
+#[tokio::test]
+async fn json_mode_emits_the_live_job_as_a_document() {
+    let api = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path(format!("/v1/jobs/{JOB_ID}/wait")))
+        .respond_with(ResponseTemplate::new(408).set_body_json(wait_timeout_problem()))
+        .mount(&api)
+        .await;
+
+    let output = cmd()
+        .arg("--api-url")
+        .arg(api.uri())
+        .args(["--json", "wait", JOB_ID, "--timeout", "300"])
+        .assert()
+        .code(EXIT_LIVE_JOB)
+        .get_output()
+        .stdout
+        .clone();
+
+    let parsed: serde_json::Value =
+        serde_json::from_slice(&output).expect("--json stdout must stay a parseable document");
+    assert_eq!(parsed["job_id"], JOB_ID);
+    assert_eq!(parsed["outcome"], "still_running");
+    assert_eq!(parsed["billed_twice"], false);
+}

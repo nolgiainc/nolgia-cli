@@ -84,11 +84,13 @@ pub struct ClientBuilder {
     base_url: String,
     auth_token: Option<String>,
     surface: Option<String>,
+    idempotency_key: Option<String>,
 }
 
 #[derive(Debug)]
 pub enum ClientBuilderError {
     InvalidAuthorization(reqwest::header::InvalidHeaderValue),
+    InvalidIdempotencyKey(String),
     Transport(reqwest::Error),
 }
 
@@ -96,6 +98,11 @@ impl fmt::Display for ClientBuilderError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::InvalidAuthorization(err) => write!(f, "invalid authorization header: {err}"),
+            Self::InvalidIdempotencyKey(key) => write!(
+                f,
+                "--idempotency-key {key:?} cannot be sent as an HTTP header \
+                 (use printable ASCII, no newlines)"
+            ),
             Self::Transport(err) => write!(f, "failed to construct HTTP client: {err}"),
         }
     }
@@ -105,6 +112,7 @@ impl std::error::Error for ClientBuilderError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::InvalidAuthorization(err) => Some(err),
+            Self::InvalidIdempotencyKey(_) => None,
             Self::Transport(err) => Some(err),
         }
     }
@@ -128,6 +136,7 @@ impl ClientBuilder {
             base_url: base_url.into(),
             auth_token: None,
             surface: None,
+            idempotency_key: None,
         }
     }
 
@@ -149,6 +158,21 @@ impl ClientBuilder {
         self
     }
 
+    /// Set `Idempotency-Key` on every request this client makes.
+    ///
+    /// The API claims `(user, request fingerprint)` before the credit hold and
+    /// before the provider call, and refuses a second identical submission
+    /// with `409`. Absent this header the fingerprint is a hash of the request
+    /// body — which is what catches a human blindly re-running a command — so
+    /// an explicit key is the only way to say "yes, I meant to run that exact
+    /// request again". It cannot be expressed through the generated builders:
+    /// the header is accepted by the API but is not declared in the OpenAPI
+    /// spec, so progenitor emits no parameter for it.
+    pub fn idempotency_key(mut self, key: impl Into<String>) -> Self {
+        self.idempotency_key = Some(key.into());
+        self
+    }
+
     pub fn build(self) -> StdResult<Client, ClientBuilderError> {
         let mut headers = HeaderMap::new();
 
@@ -161,6 +185,16 @@ impl ClientBuilder {
             && let Ok(value) = HeaderValue::from_str(&surface)
         {
             headers.insert("x-nolgia-surface", value);
+        }
+
+        // Never dropped silently the way an unusable surface is: a caller who
+        // passed a key is deliberately trying to run an identical request
+        // again, and quietly omitting it would hand them the very `409` the
+        // key exists to avoid.
+        if let Some(key) = self.idempotency_key {
+            let value = HeaderValue::from_str(&key)
+                .map_err(|_| ClientBuilderError::InvalidIdempotencyKey(key))?;
+            headers.insert("idempotency-key", value);
         }
 
         let http_client = reqwest::Client::builder()

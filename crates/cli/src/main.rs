@@ -1,7 +1,10 @@
 mod auth;
 mod commands;
+mod livejob;
 mod output;
 mod update_check;
+
+use std::process::ExitCode;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -48,6 +51,22 @@ pub struct Cli {
         help = "PAT (nol_...) or JWT to authenticate with, instead of the stored login"
     )]
     pub token: Option<String>,
+    /// The API refuses a re-submission of an identical generation request
+    /// with `409`, naming the job it already created, so a blind re-run
+    /// cannot bill twice. That guard keys on the request body, which means a
+    /// deliberate second take of the same prompt is refused too. This is the
+    /// escape hatch the API documents for exactly that case — and until now
+    /// the CLI had no way to send it, so its own advice was unfollowable.
+    #[arg(
+        long,
+        global = true,
+        env = "NOLGIA_IDEMPOTENCY_KEY",
+        hide_env_values = true,
+        value_name = "KEY",
+        help = "Idempotency-Key for generation submits: reuse a key to collapse retries \
+                into one job, or pass a fresh one to run an identical request again on purpose"
+    )]
+    pub idempotency_key: Option<String>,
     #[command(subcommand)]
     pub command: Commands,
 }
@@ -121,12 +140,37 @@ fn detect_surface() -> String {
 }
 
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() -> ExitCode {
     let cli = Cli::parse();
-    let update = update_check::start(cli.json);
+    let json = cli.json;
+    let update = update_check::start(json);
     let result = run_cli(cli).await;
     update.finish().await;
-    result
+    report(result, OutputFormat::from_json_flag(json))
+}
+
+/// Render the outcome and choose the exit status.
+///
+/// One case is separated out from "the command failed": a job the server
+/// accepted is still live. Rendering that as an error — which is what
+/// `Error: ... status: 408` did — is what taught operators to re-run and pay
+/// twice, so it gets its own presentation and its own exit code
+/// ([`livejob::EXIT_LIVE_JOB`]). Everything else keeps the previous behavior
+/// exactly: `Error:` plus anyhow's `Caused by:` chain, exit 1.
+fn report(result: Result<()>, format: OutputFormat) -> ExitCode {
+    match result {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(err) => match err.downcast::<livejob::LiveJob>() {
+            Ok(live) => {
+                live.report(format);
+                ExitCode::from(livejob::EXIT_LIVE_JOB)
+            }
+            Err(err) => {
+                eprintln!("Error: {err:?}");
+                ExitCode::FAILURE
+            }
+        },
+    }
 }
 
 pub async fn run_cli(cli: Cli) -> Result<()> {
@@ -144,7 +188,7 @@ pub async fn run_cli(cli: Cli) -> Result<()> {
     }
 
     let token = cli.token.or_else(auth::load_token).unwrap_or_default();
-    let client = build_client(&cli.api_url, token)?;
+    let client = build_client(&cli.api_url, token, cli.idempotency_key)?;
     let ctx = CommandContext::new(client, format);
 
     match cli.command {
@@ -166,12 +210,20 @@ pub async fn run_cli(cli: Cli) -> Result<()> {
     }
 }
 
-fn build_client(base_url: &str, token: String) -> Result<Client> {
+fn build_client(base_url: &str, token: String, idempotency_key: Option<String>) -> Result<Client> {
     let builder = ClientBuilder::new(base_url).surface(detect_surface());
     let builder = if token.is_empty() {
         builder
     } else {
         builder.pat(token)
+    };
+    // A process-wide default header is normally the wrong shape for
+    // idempotency, but this binary performs at most one submission per
+    // invocation, so "the key for this run" and "the key for this request"
+    // are the same thing.
+    let builder = match idempotency_key {
+        Some(key) => builder.idempotency_key(key),
+        None => builder,
     };
     Ok(builder.build()?)
 }
