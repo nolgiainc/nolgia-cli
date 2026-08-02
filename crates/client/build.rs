@@ -78,7 +78,68 @@ fn load_spec(
     let mut value: Value = serde_yaml::from_str(&sanitize_openapi_text(&raw_text))?;
     strip_non_success_responses(&mut value);
     strip_additional_properties_false(&mut value);
+    unmaterialize_server_side_defaults(&mut value);
     Ok(serde_yaml::from_str(&serde_yaml::to_string(&value)?)?)
+}
+
+/// Request-body fields whose `default:` describes what the **server** does when
+/// the field is absent, and which must therefore never be materialized onto the
+/// wire by the client.
+///
+/// Progenitor turns a non-nullable property with a `default:` into a plain
+/// (non-`Option`) field carrying `#[serde(default = ...)]` and **no**
+/// `skip_serializing_if`, so the value is serialized on every request whether
+/// or not the caller asked for it. For most defaults that is harmless — the
+/// value sent equals the value the server would have chosen anyway
+/// (`GenerateImageRequest.num_images: 1` is unconditionally correct, so it is
+/// deliberately not listed here).
+///
+/// It is *not* harmless when the field's real default is dynamic. On
+/// `GenerateVideoRequest`, `duration_seconds` defaults to the sum of `shots[]`
+/// when shots are supplied; the static `default: 5` in the spec is only correct
+/// for the shot-less case. Materializing it meant every multi-shot submit
+/// carried `duration_seconds: 5` alongside shots summing to something else, and
+/// the API rejected the contradiction:
+///
+/// ```text
+/// 400 duration_seconds (5) must equal the sum of shot durations (10) — or omit it
+/// ```
+///
+/// That 400 hit every `--shot` caller (NOL-342) and made the `short-film`
+/// preset unrunnable, because there was no way for the CLI to express "absent".
+/// Dropping the `default` and marking the property nullable makes progenitor
+/// emit `Option<T>` with `skip_serializing_if`, so an unset field is genuinely
+/// omitted and the server applies its own default — static or dynamic.
+///
+/// This rewrites the in-memory spec at codegen time only; the vendored
+/// `openapi.yaml` stays byte-identical to the published canonical spec, which
+/// is what the `spec-check` CI job diffs.
+const SERVER_SIDE_DEFAULT_FIELDS: &[(&str, &str)] = &[("GenerateVideoRequest", "duration_seconds")];
+
+fn unmaterialize_server_side_defaults(value: &mut Value) {
+    let Some(schemas) = value
+        .get_mut("components")
+        .and_then(|c| c.get_mut("schemas"))
+        .and_then(Value::as_mapping_mut)
+    else {
+        return;
+    };
+
+    for (schema_name, property_name) in SERVER_SIDE_DEFAULT_FIELDS {
+        let Some(property) = schemas
+            .get_mut(Value::from(*schema_name))
+            .and_then(|s| s.get_mut("properties"))
+            .and_then(|p| p.get_mut(Value::from(*property_name)))
+            .and_then(Value::as_mapping_mut)
+        else {
+            // The spec moved on (field renamed or already nullable upstream).
+            // Not fatal: the generated client simply keeps whatever shape the
+            // current spec implies.
+            continue;
+        };
+        property.remove(Value::from("default"));
+        property.insert(Value::from("nullable"), Value::from(true));
+    }
 }
 
 /// Remove every `additionalProperties: false` from the spec before codegen.
