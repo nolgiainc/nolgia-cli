@@ -4409,6 +4409,19 @@ components:
         recommended:
           type: boolean
           description: Whether this model is surfaced as a priority/recommended option.
+        min_tier:
+          allOf:
+            - $ref: '#/components/schemas/SubscriptionTier'
+          description: >-
+            Minimum subscription plan required to run this model. `starter`
+            means every plan can run it. A model published as `pro` needs Pro
+            or Studio, and submitting it on a lower plan is refused with a 402
+            "Upgrade Required" - that is a plan limit, so adding credits does
+            not unlock it. Sent for every model so a picker can mark or disable
+            what the account cannot run, rather than letting the user submit
+            and be refused. Cost and eligibility are independent: an affordable
+            model can still be out of plan. Optional in the schema only so that
+            existing clients keep parsing; the API always sends it.
         cost:
           $ref: '#/components/schemas/ModelCost'
         video:
