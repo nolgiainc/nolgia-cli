@@ -3,6 +3,34 @@
 Release notes for the Nolgia CLI. Each `## vX.Y.Z` section becomes the body of
 the matching GitHub release.
 
+## v0.2.16
+
+- **`--shot` no longer submits a contradictory `duration_seconds`, which was
+  400-ing every multi-shot job.** `duration_seconds` is declared `default: 5`
+  in the OpenAPI spec — a description of what the *server* does when the field
+  is absent. The generated client materialized that default into a
+  non-`Option` field with no `skip_serializing_if`, so every request carried
+  `duration_seconds: 5` whether or not the caller asked for it, and the CLI had
+  no way to express "absent" at all. Any job whose `--shot` durations summed to
+  something other than 5 was rejected:
+
+  ```
+  400 duration_seconds (5) must equal the sum of shot durations (10) — or omit it
+  ```
+
+  That is every multi-shot job at the film pipeline's default 12s batch, so the
+  `short-film` preset — featured on the landing rail — could not run and had
+  never once completed. `--cost-only` was unaffected (it sums the shots
+  locally), which is why the defect never surfaced during estimation.
+
+  The client now omits `duration_seconds` entirely unless the caller passed
+  `--duration-seconds`, letting the server derive the length: the shot sum when
+  shots are given, its own 5s default when they are not. Passing
+  `--duration-seconds` alongside `--shot` is still allowed when it *equals* the
+  shot sum (the API accepts that, and the nolgia-agent film pipeline relies on
+  it); a value that contradicts the shots is now refused client-side, naming
+  both numbers, before any asset upload or API call happens (NOL-342).
+
 ## v0.2.15
 
 - **Security: `--help` no longer prints the values of the environment

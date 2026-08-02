@@ -305,6 +305,203 @@ async fn gen_video_sends_end_frame_asset_id() {
     .stdout(predicate::str::contains(JOB_ID));
 }
 
+/// NOL-342, the exact regression: a `--shot`-only invocation must send **no**
+/// `duration_seconds` at all.
+///
+/// `duration_seconds` is declared `default: 5` in the spec, which describes
+/// what the *server* does when the field is absent. Progenitor materialized
+/// that default into a non-`Option` field with no `skip_serializing_if`, so
+/// every request carried `duration_seconds: 5` whether or not the caller asked
+/// for it — and the CLI had no way to express "absent". Against shots summing
+/// to anything other than 5 the API rejected the contradiction:
+///
+/// ```text
+/// 400 duration_seconds (5) must equal the sum of shot durations (10) — or omit it
+/// ```
+///
+/// That is every multi-shot job at the film pipeline's default 12s batch, which
+/// is why `short-film` — a featured preset — had never once run.
+///
+/// Asserted as an *exact* body match on purpose: `body_partial_json` would
+/// happily pass with a stray `duration_seconds` still in the body, which is
+/// precisely the bug being locked out.
+#[tokio::test]
+async fn gen_video_shots_only_sends_no_duration_seconds() {
+    let api = MockServer::start().await;
+    mount_video_models(&api).await;
+    Mock::given(method("POST"))
+        .and(path("/v1/generate/video"))
+        .and(body_json(json!({
+            "model": I2V_MODEL,
+            "prompt": "overall style",
+            "shots": [
+                {"prompt": "alpha", "duration_seconds": 5},
+                {"prompt": "beta", "duration_seconds": 7},
+            ],
+        })))
+        .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
+        .mount(&api)
+        .await;
+    run_ok(
+        &api,
+        &[
+            "gen",
+            "video",
+            "--model",
+            I2V_MODEL,
+            "--prompt",
+            "overall style",
+            "--shot",
+            "5:alpha",
+            "--shot",
+            "7:beta",
+            "--no-wait",
+        ],
+    )
+    .stdout(predicate::str::contains(JOB_ID));
+}
+
+/// A shot-less job with no `--duration-seconds` also omits the field entirely
+/// and lets the server apply its own 5s default — same resulting clip length as
+/// before the fix, without the client asserting a duration nobody asked for.
+#[tokio::test]
+async fn gen_video_without_duration_flag_sends_no_duration_seconds() {
+    let api = MockServer::start().await;
+    mount_video_models(&api).await;
+    Mock::given(method("POST"))
+        .and(path("/v1/generate/video"))
+        .and(body_json(json!({
+            "model": I2V_MODEL,
+            "prompt": "a single shot",
+        })))
+        .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
+        .mount(&api)
+        .await;
+    run_ok(
+        &api,
+        &[
+            "gen",
+            "video",
+            "--model",
+            I2V_MODEL,
+            "--prompt",
+            "a single shot",
+            "--no-wait",
+        ],
+    )
+    .stdout(predicate::str::contains(JOB_ID));
+}
+
+/// An explicitly requested duration is still sent verbatim.
+#[tokio::test]
+async fn gen_video_explicit_duration_seconds_is_sent() {
+    let api = MockServer::start().await;
+    mount_video_models(&api).await;
+    Mock::given(method("POST"))
+        .and(path("/v1/generate/video"))
+        .and(body_partial_json(json!({"duration_seconds": 8})))
+        .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
+        .mount(&api)
+        .await;
+    run_ok(
+        &api,
+        &[
+            "gen",
+            "video",
+            "--model",
+            I2V_MODEL,
+            "--prompt",
+            "x",
+            "--duration-seconds",
+            "8",
+            "--no-wait",
+        ],
+    )
+    .stdout(predicate::str::contains(JOB_ID));
+}
+
+/// `--shot` plus a `--duration-seconds` that *agrees* with the shot sum stays
+/// legal, because the API accepts it (it only rejects a mismatch).
+///
+/// This is not a nicety: the nolgia-agent film pipeline works around the bug by
+/// passing the shot sum explicitly (nolgia-agent#152, live on the pod). Erroring
+/// on the mere co-presence of both flags would break that pipeline the moment
+/// the chart pin moved to this version, so the check is on contradiction only.
+#[tokio::test]
+async fn gen_video_shots_allow_matching_duration_seconds() {
+    let api = MockServer::start().await;
+    mount_video_models(&api).await;
+    Mock::given(method("POST"))
+        .and(path("/v1/generate/video"))
+        .and(body_partial_json(json!({
+            "duration_seconds": 12,
+            "shots": [
+                {"prompt": "alpha", "duration_seconds": 5},
+                {"prompt": "beta", "duration_seconds": 7},
+            ],
+        })))
+        .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
+        .mount(&api)
+        .await;
+    run_ok(
+        &api,
+        &[
+            "gen",
+            "video",
+            "--model",
+            I2V_MODEL,
+            "--prompt",
+            "overall style",
+            "--shot",
+            "5:alpha",
+            "--shot",
+            "7:beta",
+            "--duration-seconds",
+            "12",
+            "--no-wait",
+        ],
+    )
+    .stdout(predicate::str::contains(JOB_ID));
+}
+
+/// A `--duration-seconds` that contradicts the shot sum is refused client-side,
+/// naming both numbers — instead of being shipped to the API for an opaque 400
+/// after an asset upload has already happened.
+#[tokio::test]
+async fn gen_video_rejects_duration_seconds_contradicting_shots() {
+    let api = MockServer::start().await;
+    cmd()
+        .arg("--api-url")
+        .arg(api.uri())
+        .args([
+            "gen",
+            "video",
+            "--model",
+            I2V_MODEL,
+            "--prompt",
+            "overall style",
+            "--shot",
+            "5:alpha",
+            "--shot",
+            "7:beta",
+            "--duration-seconds",
+            "5",
+            "--no-wait",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "--duration-seconds 5 contradicts the --shot durations",
+        ))
+        .stderr(predicate::str::contains("sum to 12"));
+
+    // It must fail before anything is submitted or uploaded.
+    assert!(
+        api.received_requests().await.unwrap_or_default().is_empty(),
+        "contradictory duration must be caught before any API call"
+    );
+}
+
 #[test]
 fn gen_video_end_frame_requires_input() {
     cmd()

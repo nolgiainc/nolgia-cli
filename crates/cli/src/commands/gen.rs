@@ -69,7 +69,10 @@ pub struct VideoArgs {
     /// e.g. 16:9, 9:16, 1:1, 4:3, 3:4 (model-dependent)
     #[arg(long)]
     pub aspect_ratio: Option<AspectRatio>,
-    /// Clip length in seconds (model-dependent; Kling/Seedance 3-15, Veo 4/6/8, Omni Flash 3-10)
+    /// Clip length in seconds (model-dependent; Kling/Seedance 3-15, Veo 4/6/8,
+    /// Omni Flash 3-10). Omit to let the server choose: 5s normally, or the sum
+    /// of the --shot durations when shots are given. If passed alongside --shot
+    /// it must equal that sum.
     #[arg(long)]
     pub duration_seconds: Option<std::num::NonZeroU64>,
     #[arg(long)]
@@ -240,6 +243,19 @@ async fn video(args: VideoArgs, ctx: &CommandContext) -> Result<()> {
         args.end_frame.is_none() || args.input.is_some(),
         "--end-frame requires --input (the start frame)"
     );
+    // Parsed up front so a contradictory duration fails before we upload a
+    // start frame or spend a round trip on the model precheck.
+    let shots = parse_shots(&args.shots)?;
+    if let (Some(shots), Some(duration)) = (shots.as_deref(), args.duration_seconds) {
+        let shot_total: u64 = shots.iter().map(|s| s.duration_seconds.get()).sum();
+        anyhow::ensure!(
+            shot_total == duration.get(),
+            "--duration-seconds {duration} contradicts the --shot durations \
+             (which sum to {shot_total}). The clip length of a multi-shot job is \
+             the sum of its shots — omit --duration-seconds, or pass \
+             --duration-seconds {shot_total}."
+        );
+    }
     let uses_capability_flags = args.quality.is_some()
         || args.bitrate.is_some()
         || args.end_frame.is_some()
@@ -278,7 +294,6 @@ async fn video(args: VideoArgs, ctx: &CommandContext) -> Result<()> {
         .map(GenerateVideoRequestNegativePrompt::try_from)
         .transpose()
         .map_err(|e| anyhow::anyhow!("--negative-prompt: {e}"))?;
-    let shots = parse_shots(&args.shots)?;
     let mut builder = GenerateVideoRequest::builder()
         .model(args.model)
         .prompt(args.prompt)
@@ -291,10 +306,12 @@ async fn video(args: VideoArgs, ctx: &CommandContext) -> Result<()> {
         .quality(quality)
         .bitrate_mode(args.bitrate)
         .project_id(args.project_id)
-        .shots(shots);
-    if let Some(duration) = args.duration_seconds {
-        builder = builder.duration_seconds(duration);
-    }
+        .shots(shots)
+        // Only ever the duration the caller actually asked for. Left unset the
+        // field is omitted entirely and the server derives it — from the shots
+        // when there are shots, from its own 5s default when there are not
+        // (NOL-342).
+        .duration_seconds(args.duration_seconds);
     if !args.video_refs.is_empty() {
         builder = builder.video_asset_ids(Some(args.video_refs));
     }
