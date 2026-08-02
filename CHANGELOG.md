@@ -3,6 +3,35 @@
 Release notes for the Nolgia CLI. Each `## vX.Y.Z` section becomes the body of
 the matching GitHub release.
 
+## v0.2.17
+
+- **The model catalog no longer fails to parse because the API added a value
+  this CLI has never heard of.** Generated response types treated every
+  OpenAPI `enum` as a closed set, so a single unrecognised value failed the
+  whole payload:
+
+  ```
+  unknown variant `3:1`, expected one of `16:9`, `9:16`, `1:1`, …
+  ```
+
+  `models list`, `models get`, `gen video --cost-only` and every capability
+  precheck fetch `GET /models` before doing anything else, so one unknown
+  aspect ratio took out jobs that never mentioned an aspect ratio — a startup
+  failure rather than a submission failure. This is the third occurrence of
+  the same shape (NOL-48, NOL-69, NOL-351); the first two were fixed by
+  re-vendoring the spec, which repairs only binaries built afterwards and has
+  never prevented the next one.
+
+  Enums the client only ever *receives* are now generated as plain strings, so
+  an unknown value parses and is preserved verbatim — a ratio this build
+  cannot offer is still a ratio it can list. Enums the client *sends* are
+  unchanged and still validated client-side, so `--aspect-ratio` still names
+  every accepted value on a miss.
+
+  Behaviour change: `nolgia models get <id>` prints `modality: video` rather
+  than `modality: Video`, matching `models list` and the `--json` output. JSON
+  output is otherwise unchanged — the same wire strings, at the same keys.
+
 ## v0.2.16
 
 - **`--shot` no longer submits a contradictory `duration_seconds`, which was

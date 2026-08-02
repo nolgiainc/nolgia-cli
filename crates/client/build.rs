@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeSet,
     env,
     error::Error,
     fs,
@@ -79,6 +80,7 @@ fn load_spec(
     strip_non_success_responses(&mut value);
     strip_additional_properties_false(&mut value);
     unmaterialize_server_side_defaults(&mut value);
+    relax_response_only_enums(&mut value);
     Ok(serde_yaml::from_str(&serde_yaml::to_string(&value)?)?)
 }
 
@@ -166,6 +168,240 @@ fn strip_additional_properties_false(value: &mut Value) {
         Value::Sequence(seq) => {
             for val in seq.iter_mut() {
                 strip_additional_properties_false(val);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Relax closed string enums to plain strings wherever they are only ever
+/// *received*, so a value the vendored spec predates cannot fail a response.
+///
+/// `strip_additional_properties_false` above made responses tolerate unknown
+/// *fields* after api#158's additive `image` capabilities broke `models list`
+/// (NOL-48). It did nothing for unknown *values*, so the identical failure
+/// recurred twice more: NOL-69 on the same field, then NOL-351 when NOL-208
+/// added the `3:1` image aspect ratio and every binary built before that
+/// re-vendor died on the whole catalog with
+///
+/// ```text
+/// unknown variant `3:1`, expected one of `16:9`, `9:16`, `1:1`, …
+/// ```
+///
+/// That is a startup failure, not a submission failure: `models list`,
+/// `models get`, `gen video --cost-only` and every capability precheck fetch
+/// `GET /models` first, so one unrecognised ratio took out jobs that never
+/// mentioned an aspect ratio. The API is right — it only ever adds values
+/// within a version — and a client that treats an additive contract as a
+/// closed set will keep breaking on every addition until someone re-vendors
+/// and re-releases. Three occurrences is enough evidence that re-vendoring is
+/// not the fix.
+///
+/// So: a value we do not recognise becomes an option we cannot *offer*,
+/// rather than a crash. Progenitor turns a `type: string` with no `enum` into
+/// a plain `String`, which deserializes anything and — unlike a catch-all
+/// variant — preserves the value, so a newly added ratio is listed correctly
+/// by `models list` on a CLI that predates it.
+///
+/// **Requests stay strict.** Only schemas reachable from responses and *not*
+/// from any request body or query parameter are relaxed, and the rewrite is
+/// applied at the point of use rather than to the shared definition. So
+/// `ImageCapabilities.aspect_ratios` (received) becomes `Vec<String>` while
+/// `GenerateImageRequest.aspect_ratio` (sent) keeps the generated enum, and
+/// with it NOL-345's `--aspect-ratio` validation that names every accepted
+/// value on a miss. Sending a ratio the server rejects should still fail
+/// early and legibly; being *told* about one should not fail at all.
+///
+/// Rewrites the in-memory spec at codegen time only — the vendored
+/// `openapi.yaml` stays byte-identical to the published contract, which is
+/// what the `spec-check` CI job diffs.
+fn relax_response_only_enums(value: &mut Value) {
+    let string_enums = string_enum_schema_names(value);
+    if string_enums.is_empty() {
+        return;
+    }
+
+    let request_reachable = reachable_schemas(value, SchemaRole::Request);
+    let response_reachable = reachable_schemas(value, SchemaRole::Response);
+
+    let relaxable: Vec<String> = response_reachable
+        .difference(&request_reachable)
+        .cloned()
+        .collect();
+
+    let Some(schemas) = value
+        .get_mut("components")
+        .and_then(|c| c.get_mut("schemas"))
+        .and_then(Value::as_mapping_mut)
+    else {
+        return;
+    };
+
+    for name in relaxable {
+        if let Some(schema) = schemas.get_mut(Value::from(name.as_str())) {
+            relax_enum_uses(schema, &string_enums);
+        }
+    }
+}
+
+/// Names of every `components.schemas` entry that is a closed set of strings.
+fn string_enum_schema_names(value: &Value) -> BTreeSet<String> {
+    let mut names = BTreeSet::new();
+    let Some(schemas) = value
+        .get("components")
+        .and_then(|c| c.get("schemas"))
+        .and_then(Value::as_mapping)
+    else {
+        return names;
+    };
+
+    for (name, schema) in schemas {
+        let (Some(name), Some(schema)) = (name.as_str(), schema.as_mapping()) else {
+            continue;
+        };
+        let is_string = schema.get(Value::from("type")).and_then(Value::as_str) == Some("string");
+        if is_string && schema.contains_key(Value::from("enum")) {
+            names.insert(name.to_string());
+        }
+    }
+
+    names
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SchemaRole {
+    /// Anything the client *sends*: request bodies and query/path parameters.
+    Request,
+    /// Anything the client *receives*.
+    Response,
+}
+
+/// Every schema reachable from the operations in `role` position, following
+/// `$ref`s transitively.
+fn reachable_schemas(value: &Value, role: SchemaRole) -> BTreeSet<String> {
+    let mut seeds = BTreeSet::new();
+
+    if let Some(paths) = value.get("paths").and_then(Value::as_mapping) {
+        for path_item in paths.values() {
+            let Some(path_item) = path_item.as_mapping() else {
+                continue;
+            };
+
+            // Parameters may be declared once for the whole path item.
+            if role == SchemaRole::Request
+                && let Some(params) = path_item.get(Value::from("parameters"))
+            {
+                collect_schema_refs(params, &mut seeds);
+            }
+
+            for (field, operation) in path_item {
+                let Some(operation) = operation.as_mapping() else {
+                    continue;
+                };
+                if field.as_str() == Some("parameters") {
+                    continue;
+                }
+
+                match role {
+                    SchemaRole::Request => {
+                        for key in ["requestBody", "parameters"] {
+                            if let Some(node) = operation.get(Value::from(key)) {
+                                collect_schema_refs(node, &mut seeds);
+                            }
+                        }
+                    }
+                    SchemaRole::Response => {
+                        if let Some(node) = operation.get(Value::from("responses")) {
+                            collect_schema_refs(node, &mut seeds);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let schemas = value
+        .get("components")
+        .and_then(|c| c.get("schemas"))
+        .and_then(Value::as_mapping);
+
+    let mut seen: BTreeSet<String> = BTreeSet::new();
+    let mut stack: Vec<String> = seeds.into_iter().collect();
+    while let Some(name) = stack.pop() {
+        if !seen.insert(name.clone()) {
+            continue;
+        }
+        let Some(schema) = schemas.and_then(|s| s.get(Value::from(name.as_str()))) else {
+            continue;
+        };
+        let mut nested = BTreeSet::new();
+        collect_schema_refs(schema, &mut nested);
+        stack.extend(nested);
+    }
+
+    seen
+}
+
+/// Collect the target names of every `$ref: '#/components/schemas/…'` under
+/// `node`.
+fn collect_schema_refs(node: &Value, out: &mut BTreeSet<String>) {
+    match node {
+        Value::Mapping(map) => {
+            for (key, val) in map {
+                if key.as_str() == Some("$ref")
+                    && let Some(target) = val.as_str().and_then(schema_ref_name)
+                {
+                    out.insert(target.to_string());
+                }
+                collect_schema_refs(val, out);
+            }
+        }
+        Value::Sequence(seq) => {
+            for val in seq {
+                collect_schema_refs(val, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn schema_ref_name(reference: &str) -> Option<&str> {
+    reference.strip_prefix("#/components/schemas/")
+}
+
+/// Replace, in place, every *use* of a closed string enum under `node` with a
+/// plain `type: string`, and drop inline `enum` constraints on string
+/// properties. Shared definitions are untouched — only this schema's view of
+/// them changes, which is what keeps request types strict.
+fn relax_enum_uses(node: &mut Value, string_enums: &BTreeSet<String>) {
+    match node {
+        Value::Mapping(map) => {
+            let refers_to_closed_enum = map
+                .get(Value::from("$ref"))
+                .and_then(Value::as_str)
+                .and_then(schema_ref_name)
+                .is_some_and(|target| string_enums.contains(target));
+
+            if refers_to_closed_enum {
+                map.clear();
+                map.insert(Value::from("type"), Value::from("string"));
+                return;
+            }
+
+            let is_inline_string_enum = map.get(Value::from("type")).and_then(Value::as_str)
+                == Some("string")
+                && map.contains_key(Value::from("enum"));
+            if is_inline_string_enum {
+                map.remove(Value::from("enum"));
+            }
+
+            for val in map.values_mut() {
+                relax_enum_uses(val, string_enums);
+            }
+        }
+        Value::Sequence(seq) => {
+            for val in seq.iter_mut() {
+                relax_enum_uses(val, string_enums);
             }
         }
         _ => {}
