@@ -309,6 +309,14 @@ paths:
         Returns immediately with a queued job. Use `GET /jobs/{id}` or
         `GET /jobs/{id}/wait` to track completion, then `GET /assets?job_id={id}`
         to retrieve the produced asset(s).
+
+        **Duplicate submissions are refused, not billed.** Submitting the same
+        request twice within five minutes returns `409` naming the job that
+        already exists, so a lost response — a closed tab, a dropped
+        connection, a timed-out request — cannot turn into a second charge.
+        Send a distinct `Idempotency-Key` header to declare a deliberate new
+        generation of an identical prompt; repeat the same key to make your
+        own retries collapse onto one job.
       requestBody:
         required: true
         content:
@@ -326,6 +334,8 @@ paths:
           $ref: '#/components/responses/ProblemResponse'
         '402':
           $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
         '422':
           $ref: '#/components/responses/ProblemResponse'
         default:
@@ -340,6 +350,12 @@ paths:
         Returns immediately with a queued job. Use `GET /jobs/{id}` or
         `GET /jobs/{id}/wait` to track completion, then `GET /assets?job_id={id}`
         to retrieve the produced asset.
+
+        **Duplicate submissions are refused, not billed.** Submitting the same
+        request twice within five minutes returns `409` naming the job that
+        already exists. Send a distinct `Idempotency-Key` header to declare a
+        deliberate new generation of an identical prompt; repeat the same key
+        to make your own retries collapse onto one job.
       requestBody:
         required: true
         content:
@@ -357,6 +373,8 @@ paths:
           $ref: '#/components/responses/ProblemResponse'
         '402':
           $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
         '422':
           $ref: '#/components/responses/ProblemResponse'
         default:
@@ -370,6 +388,14 @@ paths:
       description: |
         Returns immediately with a job. Default model is Kling v3.0 text-to-video.
         Use `GET /jobs/{id}` or `GET /jobs/{id}/wait` to retrieve the final asset.
+
+        **Duplicate submissions are refused, not billed.** Submitting the same
+        request twice within five minutes returns `409` naming the job that
+        already exists, so a lost response — a closed tab, a dropped
+        connection, a `wait` that timed out — cannot turn into a second
+        charge. Send a distinct `Idempotency-Key` header to declare a
+        deliberate new take of an identical prompt; repeat the same key to
+        make your own retries collapse onto one job.
       requestBody:
         required: true
         content:
@@ -386,6 +412,8 @@ paths:
         '401':
           $ref: '#/components/responses/ProblemResponse'
         '402':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
           $ref: '#/components/responses/ProblemResponse'
         '422':
           $ref: '#/components/responses/ProblemResponse'
