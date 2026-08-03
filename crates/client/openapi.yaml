@@ -2543,6 +2543,82 @@ paths:
         default:
           $ref: '#/components/responses/ProblemResponse'
 
+  /agent/models:
+    get:
+      tags: [Agent]
+      operationId: listAgentModels
+      summary: Selectable agent brains (reasoning models) with their flat per-turn credit rates.
+      description: >-
+        Every entry is a model the platform can actually serve for an agent's
+        reasoning loop — routed through the LLM proxy with a provider-outage
+        fallback group — priced as a flat credit rate per chat turn. The
+        default brain is included; premium brains cost more per turn.
+      responses:
+        '200':
+          description: The selectable brains, default first, then by ascending per-turn rate.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentModelCatalog'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /agent/model:
+    put:
+      tags: [Agent]
+      operationId: setAgentModel
+      summary: Choose which brain the user's agent runs; turns bill that brain's flat per-turn rate.
+      description: >-
+        Pins the agent's reasoning model to one of the selectable brains from
+        GET /agent/models. A running agent is flipped back to `pending_deploy`
+        so the deploy pipeline rolls the change onto the pod (the same
+        reconcile flow as a config edit). Subsequent chat turns bill the
+        selected brain's per-turn credit rate.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetAgentModelRequest'
+      responses:
+        '200':
+          description: The updated agent.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Agent'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+    delete:
+      tags: [Agent]
+      operationId: clearAgentModel
+      summary: Clear the agent's model pin — back to the platform default brain and rate.
+      description: >-
+        Removes an explicit model selection so the agent follows the fleet
+        default brain again (billed at the default per-turn rate). A running
+        agent is flipped back to `pending_deploy` to roll the change.
+      responses:
+        '200':
+          description: The updated agent.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Agent'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
   /agent/chat:
     post:
       tags: [Agent]
@@ -6873,6 +6949,54 @@ components:
             pending agent message). Populated only on the internal provisioner
             listing so the reconcile loop can defer a pod roll until the agent
             is idle and avoid killing a running turn. Omitted elsewhere.
+        model:
+          type: string
+          nullable: true
+          description: >-
+            The brain (reasoning model) this agent is configured to run,
+            when explicitly selected via PUT /agent/model or pinned by the
+            deploy pipeline. Omitted/null means the platform default brain,
+            billed at the default flat per-turn rate. Chat turns bill the
+            configured brain's rate (see GET /agent/models).
+          examples: ['glm-5.2']
+
+    AgentModelCatalog:
+      type: object
+      additionalProperties: false
+      required: [models]
+      properties:
+        models:
+          type: array
+          items:
+            $ref: '#/components/schemas/AgentModelOption'
+
+    AgentModelOption:
+      type: object
+      additionalProperties: false
+      required: [model, turn_credits, default]
+      properties:
+        model:
+          type: string
+          description: Model identifier, as accepted by PUT /agent/model.
+          examples: ['glm-5.2']
+        turn_credits:
+          type: integer
+          description: Flat credits billed per agent chat turn while the agent runs this brain.
+          examples: [30]
+        default:
+          type: boolean
+          description: True for the platform default brain (what an agent runs with no explicit selection).
+
+    SetAgentModelRequest:
+      type: object
+      additionalProperties: false
+      required: [model]
+      properties:
+        model:
+          type: string
+          minLength: 1
+          description: One of the selectable models from GET /agent/models.
+          examples: ['glm-5.2']
 
     ProvisionAgentRequest:
       type: object
@@ -8713,6 +8837,15 @@ components:
           type: string
           nullable: true
           description: Dashboard password (user "nolgia") the relay uses for its server-side hermes login when proxying. Omitted by older provisioners.
+        model:
+          type: string
+          nullable: true
+          description: >-
+            The chat model the deploy pipeline actually pinned on the release
+            (per-turn billing is keyed on it). Omit to leave the stored value
+            untouched; omitted by older provisioners and for releases running
+            the chart default brain.
+          examples: ['glm-5.2']
 
     AgentDashboardTicket:
       type: object
