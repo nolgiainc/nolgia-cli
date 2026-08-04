@@ -4199,6 +4199,41 @@ paths:
         default:
           $ref: '#/components/responses/ProblemResponse'
 
+  /internal/abilities/{slug}/versions:
+    post:
+      tags: [Abilities]
+      operationId: publishAbilityVersionInternal
+      summary: Publish a new immutable version of an EXISTING PUBLIC ability from a file set. CI publish pipeline only (ABILITY_PUBLISHER_TOKEN) — the repo-to-marketplace auto-publish path. Same body as `publishAbilityVersionFromFiles`, hard-restricted — the slug must already exist and be public (unknown slug 404, private slug 403), the version must be strictly greater than the current latest (409 otherwise), and ability metadata including visibility is always preserved. New abilities and visibility changes stay human-gated in the admin panel.
+      security:
+        - abilityPublisherAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AbilitySlug'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PublishAbilityVersionRequest'
+      responses:
+        '201':
+          description: New version published; installing agents are marked pending_deploy.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ability'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
   /internal/agents:
     get:
       tags: [Agent]
@@ -4321,6 +4356,11 @@ components:
       scheme: bearer
       bearerFormat: opaque
       description: Static shared secret (`AGENT_PROVISIONER_TOKEN`) for the internal agent deploy pipeline.
+    abilityPublisherAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque
+      description: Static shared secret (`ABILITY_PUBLISHER_TOKEN`) for the internal repo-to-marketplace ability publish pipeline. Deliberately narrow — it can only publish forward versions of existing public abilities.
 
   parameters:
     Limit:
