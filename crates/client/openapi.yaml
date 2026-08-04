@@ -3149,6 +3149,21 @@ paths:
             minimum: 1
             maximum: 200
             default: 100
+        - name: session_id
+          in: query
+          required: false
+          description: >
+            Chat session the caller is rendering. The live feed is otherwise
+            scoped only to the account, so with several sessions executing
+            concurrently every open session receives whichever pod session was
+            most recently active — one session's steps, media, and tool output
+            surface inside another's. When set, the feed is scoped to the pod
+            run backing THAT session's in-flight turn and returns an empty list
+            when the session has no turn in flight. Always send it; the
+            unscoped form is retained only for older clients.
+          schema:
+            type: string
+            format: uuid
         - name: agent_message_id
           in: query
           required: false
@@ -5516,7 +5531,19 @@ components:
           type: integer
           minimum: 1
           maximum: 60
-          default: 5
+          description: |
+            Clip length in seconds. Omit it to let the server pick a duration
+            the selected model actually renders: models with a discrete
+            duration list (video.durations on GET /models) get the listed
+            value nearest the 5s baseline (ties resolve upward, so Veo
+            defaults to 6s), ranged models clamp the baseline into
+            [min, max], and a request that attaches reference images takes
+            the model's element_refs_duration_seconds pin (8s on Veo 3.1).
+            An explicit value is validated strictly against the model's
+            capabilities — note that 5 itself is not a valid Veo duration, so
+            omit the field rather than sending the old baseline. The schema
+            deliberately declares no `default`, so generated clients leave
+            the field out instead of pinning 5.
         seed:
           type: integer
           nullable: true
