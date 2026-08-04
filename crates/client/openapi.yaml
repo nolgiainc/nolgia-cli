@@ -3776,6 +3776,99 @@ paths:
         default:
           $ref: '#/components/responses/ProblemResponse'
 
+  /agent/abilities/events:
+    get:
+      tags: [Abilities]
+      operationId: streamAgentAbilityEvents
+      summary: Stream ability version publishes for the current user's agent over Server-Sent Events.
+      description: >
+        Opens a `text/event-stream` connection scoped to the calling account's
+        agent that pushes an `ability_published` frame whenever a new version
+        of an installed ability is published — the push half of the ability
+        freshness design (no polling exists anywhere in it; the pod's
+        correctness backstop is its own turn-boundary installed-vs-latest
+        check, not a timer). Reconnection is protocol-level SSE: the server
+        opens with a `retry:` hint; every event frame carries a monotonic
+        `id:` line (the version's publish instant in epoch nanoseconds); a
+        reconnecting pod presents `Last-Event-ID` and the server REPLAYS every
+        publish it missed for the agent's installed abilities straight from
+        the database before resuming live delivery, so a pod that was down
+        while a version published catches up instead of silently staying
+        stale. Comment heartbeats (`: heartbeat`) flow every 20 seconds.
+
+        Connect sequence: `retry:` hint, then (given `Last-Event-ID`) the
+        replayed `ability_published` frames, then a `ready` frame whose `id:`
+        is the agent's current watermark and whose `replay` field reports
+        `none` (no usable Last-Event-ID; reconcile from
+        `GET /agent/manifest`), `complete` (fully caught up) or `truncated`
+        (gap exceeded the replay budget; reconcile from the manifest).
+
+        Event names equal the envelope's `type` — `ability_published`
+        (`data` carries `slug`, `version`, `at` and `seq`; fetch the content
+        via `GET /abilities/{slug}/content`). The stream only carries
+        abilities the agent has installed. The envelope is forward-compatible:
+        new `type` values may appear and consumers must ignore event types
+        they do not recognize.
+
+        Authenticated by the standard bearer schemes — pods connect with
+        their agent credential (`NOLGIA_TOKEN`). `404` when the account has
+        no provisioned agent.
+      parameters:
+        - name: Last-Event-ID
+          in: header
+          required: false
+          description: >
+            The `id:` of the last frame the pod saw (epoch nanoseconds).
+            Presented on reconnect; the server replays everything missed.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Event stream opened.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '503':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /agent/heartbeat:
+    post:
+      tags: [Agent]
+      operationId: reportAgentHeartbeat
+      summary: Report the agent pod's materialized state (installed ability versions) upstream.
+      description: >
+        The pod's visibility report: which ability versions it actually has
+        installed, so freshness drift is observable (as
+        `installed_version` vs `latest_version` on
+        `GET /agent/abilities`) rather than assumed from the deploy pipeline.
+        Sent on events — after an install, on event-stream connect — never on
+        a timer. Reports for slugs the agent does not have installed are
+        ignored.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentHeartbeatRequest'
+      responses:
+        '204':
+          description: Heartbeat recorded.
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
   /abilities:
     get:
       tags: [Abilities]
@@ -8592,6 +8685,38 @@ components:
         installed_at:
           type: string
           format: date-time
+        installed_version:
+          type: string
+          nullable: true
+          description: The version the agent pod itself reported as materialized (POST /agent/heartbeat). Null until a pod reports; drift is visible as installed_version differing from latest_version.
+        version_reported_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the pod last reported installed_version. Null until a pod reports.
+
+    AgentHeartbeatAbility:
+      type: object
+      additionalProperties: false
+      required: [slug, version]
+      description: One installed ability as the pod materialized it.
+      properties:
+        slug:
+          type: string
+        version:
+          type: string
+          description: The version currently installed on the pod.
+
+    AgentHeartbeatRequest:
+      type: object
+      additionalProperties: false
+      required: [abilities]
+      description: The pod's upstream visibility report (NOL-416). Carries the ability versions the pod has materialized; additive fields may join later.
+      properties:
+        abilities:
+          type: array
+          items:
+            $ref: '#/components/schemas/AgentHeartbeatAbility'
 
     AgentManifestAbility:
       type: object
