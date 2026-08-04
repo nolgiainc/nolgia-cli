@@ -3036,6 +3036,79 @@ paths:
         default:
           $ref: '#/components/responses/ProblemResponse'
 
+  /agent/sessions/{id}/events:
+    get:
+      tags: [Agent]
+      operationId: streamAgentSessionEvents
+      summary: Stream a chat session's transcript events over Server-Sent Events.
+      description: >
+        Opens a `text/event-stream` connection scoped to one chat session that
+        pushes transcript writes as they land. This stream is the ONLY live
+        transport (there is no client polling): reconnection is protocol-level
+        SSE. The server opens with a `retry:` hint; every `message` frame
+        carries a monotonic `id:` line (the row's change watermark in epoch
+        nanoseconds); a reconnecting client presents `Last-Event-ID` and the
+        server REPLAYS every write at/after that watermark from the database
+        before resuming live delivery, so no event is ever lost to a
+        disconnect. Comment heartbeats (`: heartbeat`) flow every 20 seconds.
+
+        Connect sequence: `retry:` hint, then (given `Last-Event-ID`) the
+        replayed `message` frames, then a `session_status` snapshot frame per
+        currently-active session of the caller's, then a `ready` frame whose
+        `id:` is the session's current watermark and whose `replay` field
+        reports `none` (no usable Last-Event-ID; hydrate via
+        `GET /agent/messages`), `complete` (fully caught up) or `truncated`
+        (gap exceeded the replay budget; rehydrate).
+
+        Event names equal the envelope's `type` — `message` (a transcript row
+        was created or settled; `data` is an `AgentSessionEvent` whose
+        `message` is the full row as `GET /agent/messages` serves it, omitted
+        only when the row was too large for the event bus, in which case
+        `message_id` alone signals "refetch"), `step` (a step batch was
+        persisted for a reply row; steps are summarized, refetch
+        `GET /agent/steps` with a `since` cursor), and `session_status` (a
+        session of the caller's flipped between running / queued / idle;
+        delivered on EVERY stream the caller has open, for any of their
+        sessions, so a sessions sidebar shows live multi-session activity).
+        The envelope is forward-compatible: new `type` values may appear and
+        consumers must ignore event types they do not recognize.
+
+        Authenticated by the standard bearer schemes (send the
+        `Authorization` header — read the stream with `fetch`, not
+        `EventSource`, which cannot send headers). The session must belong to
+        the caller (`404` otherwise). Events only cover session-filed rows;
+        legacy sessionless history never streams.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: Last-Event-ID
+          in: header
+          required: false
+          description: >
+            The `id:` of the last frame the client saw (epoch nanoseconds).
+            Presented on reconnect; the server replays everything missed.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Event stream opened.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '503':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
   /agent/steps:
     get:
       tags: [Agent]
@@ -7300,6 +7373,84 @@ components:
           items:
             $ref: '#/components/schemas/AgentMessage'
 
+    AgentSessionEvent:
+      type: object
+      description: >
+        One frame on `GET /agent/sessions/{id}/events`. `type` discriminates
+        the payload and is also the SSE event name. Forward-compatible by
+        contract: new `type` values may be added (queued/busy status events
+        are planned) and consumers must ignore unknown types. `message` is
+        present on `type: message` frames unless the row exceeded the event
+        bus payload budget, in which case `message_id` identifies the row to
+        refetch. `step` summarizes a persisted step batch on `type: step`
+        frames; step bodies never ride the stream.
+      required: [type, at]
+      properties:
+        type:
+          type: string
+          description: >
+            Event discriminator ("message", "step" or "session_status"
+            today; open set).
+        session_id:
+          type: string
+          format: uuid
+          description: >
+            Chat session the event belongs to. On `session_status` frames
+            this is the session whose state flipped, which may not be the
+            subscribed session.
+        at:
+          type: string
+          format: date-time
+          description: When the write happened.
+        seq:
+          type: integer
+          format: int64
+          description: >
+            The message row's change watermark in epoch nanoseconds; also
+            the frame's SSE `id:` line. Present on `message` frames only.
+        message_id:
+          type: string
+          format: uuid
+          description: The transcript row a `message` event refers to.
+        message:
+          $ref: '#/components/schemas/AgentMessage'
+        step:
+          $ref: '#/components/schemas/AgentSessionStepEvent'
+        status:
+          $ref: '#/components/schemas/AgentSessionStatusChange'
+
+    AgentSessionStatusChange:
+      type: object
+      description: >
+        A `session_status` frame's payload: the session's coarse live turn
+        state, derived from its in-flight agent reply (running while
+        executing, queued while waiting for an execution slot, idle once
+        settled). Kept as an object so richer turn-state fields can be added
+        without a new event type.
+      required: [state]
+      properties:
+        state:
+          type: string
+          enum: [running, queued, idle]
+
+    AgentSessionStepEvent:
+      type: object
+      additionalProperties: false
+      description: Summary of one persisted step batch on the session event stream.
+      required: [agent_message_id, count, latest_at]
+      properties:
+        agent_message_id:
+          type: string
+          format: uuid
+          description: The agent reply row the steps belong to.
+        count:
+          type: integer
+          description: How many step rows the batch wrote.
+        latest_at:
+          type: string
+          format: date-time
+          description: The newest step's timestamp in the batch.
+
     AgentSession:
       type: object
       additionalProperties: false
@@ -7376,6 +7527,16 @@ components:
             When the newest agent turn settled (completed or failed). Null
             while that turn is still pending, and when the session has no
             agent turns yet.
+        turn_status:
+          type: string
+          enum: [running, queued, idle]
+          description: >
+            The session's coarse live activity, derived from
+            `last_turn_status` + `last_turn_queued`: `running` while an agent
+            turn is executing, `queued` while one waits for an execution
+            slot, `idle` otherwise. Convenience for multi-session activity
+            indicators (a sessions sidebar's status chips); live flips ride
+            `GET /agent/sessions/{id}/events` as `session_status` frames.
         created_at:
           type: string
           format: date-time
