@@ -5200,8 +5200,9 @@ components:
       type: string
       description: |
         Video model identifier. Priority models are Kling v3.0, Seedance 2.0 Pro,
-        and MiniMax Hailuo 3 (`minimax-h3`, the 2K multimodal flagship).
-        Default is `fal-ai/kling-video/v3/text-to-video`.
+        and MiniMax Hailuo 3 (`minimax-h3`, the 2K multimodal flagship). BFL
+        FLUX 3 (`flux-3-video`) is the native-audio t2v/i2v flagship with hd/fhd
+        resolution tiers. Default is `fal-ai/kling-video/v3/text-to-video`.
       enum:
         - fal-ai/kling-video/v3/text-to-video
         - fal-ai/kling-video/v3/master/text-to-video
@@ -5220,6 +5221,7 @@ components:
         - minimax-h3
         - minimax-hailuo-2.3
         - minimax-hailuo-2.3-fast
+        - flux-3-video
 
     ImageSize:
       type: string
