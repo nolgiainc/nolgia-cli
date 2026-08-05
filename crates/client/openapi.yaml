@@ -3153,14 +3153,16 @@ paths:
           in: query
           required: false
           description: >
-            Chat session the caller is rendering. The live feed is otherwise
-            scoped only to the account, so with several sessions executing
-            concurrently every open session receives whichever pod session was
-            most recently active — one session's steps, media, and tool output
-            surface inside another's. When set, the feed is scoped to the pod
-            run backing THAT session's in-flight turn and returns an empty list
-            when the session has no turn in flight. Always send it; the
-            unscoped form is retained only for older clients.
+            Chat session the caller is rendering. REQUIRED to receive live
+            steps: the feed is scoped to the pod run backing THAT session's
+            in-flight turn, and returns an empty list when the session has no
+            turn in flight. A request WITHOUT session_id returns an empty list
+            and never proxies the agent pod. The pod's Hermes conversation is
+            global across the account's chat sessions, so an unscoped feed would
+            serve whichever run touched the pod last, surfacing one session's
+            steps, media (asset refs), and tool output inside another's. Always
+            send it; an omitted session_id is treated as a stale or older client
+            and served nothing rather than another session's content.
           schema:
             type: string
             format: uuid
