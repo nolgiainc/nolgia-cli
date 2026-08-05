@@ -3,6 +3,28 @@
 Release notes for the Nolgia CLI. Each `## vX.Y.Z` section becomes the body of
 the matching GitHub release.
 
+## v0.2.19
+
+- **`gen video/image/audio --model` now accepts any model id and lets the API
+  validate it.** The `--model` args used to validate against the generated,
+  closed `{Video,Image,Audio}Model` enums, which only track the vendored
+  OpenAPI spec — and the spec reaches users only through a release. So any model
+  the API added after the last released binary was cut was rejected at argument
+  parsing, even though the raw API accepted it (NOL-439):
+
+  ```
+  error: invalid value 'flux-3-video' for '--model <MODEL>': invalid value
+  ```
+
+  while `POST /generate/video {model: flux-3-video}` succeeded. The request-body
+  model selectors are now relaxed to plain strings at codegen and the `--model`
+  args are typed as `String`, so the id is forwarded verbatim and validated
+  server-side. A model the server rejects still fails legibly via the API's RFC
+  7807 response. This fixes the whole class: adopting a future model no longer
+  needs a CLI re-release.
+
+- Re-vendored the OpenAPI spec from nolgia-api (#85–#93).
+
 ## v0.2.18
 
 - **A job the server accepted is never lost again — and a wait timeout no
