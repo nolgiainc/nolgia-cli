@@ -208,11 +208,15 @@ fn quality_choices(model: &Model, quality: &QualityCapabilities) -> String {
 /// Estimate the credit charge for a video generation from the live catalog.
 /// Mirrors the server: ceil(credits * duration / baseline_seconds), where
 /// `credits` is the selected quality tier's rate when `--quality` is given.
+/// Audio is on by default, so the published `credits` already includes the
+/// model's audio surcharge; an explicit `--generate-audio false` renders the
+/// clip silent and is quoted at `credits - audio_surcharge`.
 pub async fn quote_video(
     ctx: &CommandContext,
     model_id: &str,
     duration_seconds: u64,
     quality: Option<&str>,
+    generate_audio: Option<bool>,
 ) -> Result<String> {
     let models = fetch(ctx).await?;
     let model = models.iter().find(|m| m.id == model_id).with_context(|| {
@@ -223,16 +227,33 @@ pub async fn quote_video(
             "{model_id}: pricing pending — the server will quote at submit time"
         ));
     };
-    let (base_credits, tier_note) = match quality {
+    // `credits` and `audio_surcharge` come from the selected quality tier when
+    // `--quality` is given, otherwise from the model's base cost.
+    let (base_credits, audio_surcharge, tier_note) = match quality {
         Some(tier) => {
             let option = check_quality(model, tier)?;
-            (option.credits, format!(", {tier}"))
+            (
+                option.credits.get(),
+                option.audio_surcharge,
+                format!(", {tier}"),
+            )
         }
-        None => (cost.credits, String::new()),
+        None => (cost.credits.get(), cost.audio_surcharge, String::new()),
+    };
+    // Audio is ON by default, so the published per-baseline `credits` already
+    // includes the surcharge. An explicit `--generate-audio false` renders the
+    // clip silent and is charged `credits - audio_surcharge`, subtracted from
+    // the per-baseline rate BEFORE duration scaling to match the server's order
+    // (pricing.go). Only models that charge more for audio (Kling today) carry a
+    // surcharge; every other model's price is unchanged.
+    let per_baseline = if generate_audio == Some(false) {
+        base_credits.saturating_sub(audio_surcharge.map_or(0, |s| s.get()))
+    } else {
+        base_credits
     };
     let credits = match cost.baseline_seconds {
-        Some(base) => (base_credits.get() * duration_seconds).div_ceil(base.get()),
-        None => base_credits.get(),
+        Some(base) => (per_baseline * duration_seconds).div_ceil(base.get()),
+        None => per_baseline,
     };
     Ok(format!(
         "{credits} credits ({model_id}, {duration_seconds}s{tier_note})"

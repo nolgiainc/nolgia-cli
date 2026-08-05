@@ -4850,10 +4850,26 @@ components:
         credits:
           type: integer
           minimum: 1
-          description: Credits charged per unit.
+          description: |
+            Credits charged per unit at the model's DEFAULT audio state. For a
+            model with native audio on by default (most video models), this
+            includes `audio_surcharge`; subtract it for the silent
+            (generate_audio=false) price.
           examples: [42]
         unit:
           $ref: '#/components/schemas/ModelCostUnit'
+        audio_surcharge:
+          type: integer
+          nullable: true
+          minimum: 1
+          description: |
+            Extra credits (per the model's `unit`) that a soundtrack adds, when
+            the provider charges more to render audio. Included in `credits`
+            because audio is on by default; a request with generate_audio=false
+            is charged `credits - audio_surcharge`. Absent when audio has no
+            price impact (the price is identical with or without audio) or the
+            model cannot toggle audio.
+          examples: [11]
         baseline_seconds:
           type: integer
           nullable: true
@@ -4909,8 +4925,20 @@ components:
           minimum: 1
           description: |
             Credits charged per the model's `cost.unit` when this tier is
-            selected (for video, per `baseline_seconds` clip).
+            selected (for video, per `baseline_seconds` clip), at the model's
+            DEFAULT audio state. Includes `audio_surcharge` when audio is on by
+            default; subtract it for the silent price of this tier.
           examples: [778]
+        audio_surcharge:
+          type: integer
+          nullable: true
+          minimum: 1
+          description: |
+            Extra credits this tier's soundtrack adds when the provider charges
+            more for audio. Included in `credits` (audio on by default); a
+            generate_audio=false request charges `credits - audio_surcharge`.
+            Absent when audio has no price impact on this tier.
+          examples: [11]
         premium:
           type: boolean
           description: |
