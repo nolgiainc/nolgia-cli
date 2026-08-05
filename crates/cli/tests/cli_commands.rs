@@ -694,6 +694,57 @@ async fn gen_video_cost_only_prices_quality_tier() {
     .stdout(predicate::str::contains("1556 credits"));
 }
 
+/// NOL-451 follow-up: `--cost-only` reflects the audio flag. Audio is on by
+/// default, so the quote includes the surcharge and matches the headline; an
+/// explicit `--generate-audio false` renders the clip silent and drops
+/// `audio_surcharge` from the per-baseline rate BEFORE duration scaling — the
+/// same subtract-then-scale order the server uses. R2V 4k is 778 per 5s (+48
+/// audio): audio-on 10s = ceil(778*10/5) = 1556, silent 10s =
+/// ceil((778-48)*10/5) = 1460.
+#[tokio::test]
+async fn gen_video_cost_only_drops_audio_surcharge_when_silent() {
+    let api = MockServer::start().await;
+    mount_video_models(&api).await;
+    // Audio on by default: the surcharge stays in, matching the headline price.
+    run_ok(
+        &api,
+        &[
+            "gen",
+            "video",
+            "--model",
+            R2V_MODEL,
+            "--prompt",
+            "x",
+            "--duration-seconds",
+            "10",
+            "--quality",
+            "4k",
+            "--cost-only",
+        ],
+    )
+    .stdout(predicate::str::contains("1556 credits"));
+    // Audio off: the 48-credit surcharge is subtracted before duration scaling.
+    run_ok(
+        &api,
+        &[
+            "gen",
+            "video",
+            "--model",
+            R2V_MODEL,
+            "--prompt",
+            "x",
+            "--duration-seconds",
+            "10",
+            "--quality",
+            "4k",
+            "--generate-audio",
+            "false",
+            "--cost-only",
+        ],
+    )
+    .stdout(predicate::str::contains("1460 credits"));
+}
+
 /// NOL-345: `gen image` can request an aspect ratio, and it reaches the API as
 /// the `aspect_ratio` field (the ratio vocabulary), not an `image_size` alias.
 ///
@@ -2083,12 +2134,12 @@ fn video_models_json() -> serde_json::Value {
     json!({"models": [
         {
             "id": R2V_MODEL, "modality": "video", "recommended": true,
-            "cost": {"credits": 165, "unit": "per_clip", "baseline_seconds": 5},
+            "cost": {"credits": 165, "unit": "per_clip", "baseline_seconds": 5, "audio_surcharge": 11},
             "video": {"min_duration": 2, "max_duration": 15, "aspect_ratios": ["16:9", "9:16"], "image_input": false},
             "quality": {"default": "720p", "options": [
-                {"id": "720p", "credits": 165, "premium": false},
-                {"id": "1080p", "credits": 360, "premium": false},
-                {"id": "4k", "credits": 778, "premium": true},
+                {"id": "720p", "credits": 165, "premium": false, "audio_surcharge": 11},
+                {"id": "1080p", "credits": 360, "premium": false, "audio_surcharge": 14},
+                {"id": "4k", "credits": 778, "premium": true, "audio_surcharge": 48},
             ]},
             "references": {"start_frame": false, "start_frame_required": false, "end_frame": false, "video_refs_max": 3,
                            "element_refs_max": 9, "audio_refs_max": 3, "bitrate_modes": ["standard", "high"]},

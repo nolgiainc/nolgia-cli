@@ -295,6 +295,7 @@ async fn video(args: VideoArgs, ctx: &CommandContext) -> Result<()> {
             &args.model.to_string(),
             duration,
             args.quality.as_deref(),
+            args.generate_audio,
         )
         .await?;
         println!("{quote}");
