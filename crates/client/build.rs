@@ -80,6 +80,7 @@ fn load_spec(
     strip_non_success_responses(&mut value);
     strip_additional_properties_false(&mut value);
     unmaterialize_server_side_defaults(&mut value);
+    relax_request_model_selectors(&mut value);
     relax_response_only_enums(&mut value);
     Ok(serde_yaml::from_str(&serde_yaml::to_string(&value)?)?)
 }
@@ -141,6 +142,82 @@ fn unmaterialize_server_side_defaults(value: &mut Value) {
         };
         property.remove(Value::from("default"));
         property.insert(Value::from("nullable"), Value::from(true));
+    }
+}
+
+/// Request-body `model` selectors whose `$ref` points at a closed
+/// `{Image,Video,Audio}Model` string enum, and which must be relaxed to a
+/// plain `type: string` so the client forwards whatever model the caller
+/// names and lets the **API** decide whether it exists.
+///
+/// This is the request-side twin of [`relax_response_only_enums`], and it
+/// exists for the same reason: the model list is an *additive* contract that
+/// the API extends within a version, and a client that hard-codes it as a
+/// closed set rejects every model added after it was built. A generated enum
+/// keeps `--model` in lockstep with the vendored spec, but the vendored spec
+/// only reaches users through a **release** — so a model the API already
+/// serves is rejected by every binary cut before its re-vendor. That is
+/// exactly NOL-439: BFL FLUX 3 (`flux-3-video`) went live in the API and in
+/// the vendored spec, yet the last released CLI (v0.2.18, cut before the
+/// re-vendor) died at argument parsing with
+///
+/// ```text
+/// error: invalid value 'flux-3-video' for '--model <MODEL>': invalid value
+/// ```
+///
+/// while the raw `POST /generate/video {model: "flux-3-video"}` accepted it.
+/// Re-vendoring and re-releasing fixes the symptom once; relaxing the selector
+/// fixes the whole class — a new model works on an old binary, and no CLI
+/// release is needed to adopt one.
+///
+/// The `model` selector is deliberately treated differently from the other
+/// request enums the sibling function leaves strict (e.g.
+/// `GenerateImageRequest.aspect_ratio`, whose strictness NOL-345 relies on to
+/// name every accepted ratio on a miss). Those have a small, slow vocabulary
+/// and are additionally checked per-model against `GET /models`; `model` is
+/// the primary, frequently-extended selector with no second live check, so the
+/// closed enum *is* the only gate and it is the one that rots. A model the
+/// server rejects still fails — just legibly, from the API's own RFC 7807
+/// response through `submit_error`, which can name the real catalog — instead
+/// of from a stale client-side list.
+///
+/// Only the *use* at these properties is rewritten; the `{Image,Video,Audio}
+/// Model` schemas stay defined, so the generated enum types (and their
+/// `Display`/`FromStr`) remain available. As with every transform here this
+/// edits the in-memory spec at codegen time only — the vendored `openapi.yaml`
+/// stays byte-identical to the published contract the `spec-check` CI job
+/// diffs.
+const MODEL_SELECTOR_FIELDS: &[(&str, &str)] = &[
+    ("GenerateImageRequest", "model"),
+    ("GenerateVideoRequest", "model"),
+    ("GenerateAudioRequest", "model"),
+];
+
+fn relax_request_model_selectors(value: &mut Value) {
+    let Some(schemas) = value
+        .get_mut("components")
+        .and_then(|c| c.get_mut("schemas"))
+        .and_then(Value::as_mapping_mut)
+    else {
+        return;
+    };
+
+    for (schema_name, property_name) in MODEL_SELECTOR_FIELDS {
+        let Some(property) = schemas
+            .get_mut(Value::from(*schema_name))
+            .and_then(|s| s.get_mut("properties"))
+            .and_then(|p| p.get_mut(Value::from(*property_name)))
+            .and_then(Value::as_mapping_mut)
+        else {
+            // The spec moved on (schema or field renamed). Not fatal: the
+            // generated client keeps whatever shape the current spec implies.
+            continue;
+        };
+        // Drop the `$ref` to the closed enum and pin the property to a plain
+        // string, which progenitor emits as `String` — deserializing and,
+        // crucially, *sending* any value the caller supplies.
+        property.clear();
+        property.insert(Value::from("type"), Value::from("string"));
     }
 }
 

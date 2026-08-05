@@ -2,11 +2,11 @@ use anyhow::{Context, Result};
 use clap::{Args, Subcommand};
 use nolgia_client::ClientExt;
 use nolgia_client::types::{
-    AspectRatio, AudioFormat, AudioModel, BitrateMode, CreateAssetUploadRequest,
+    AspectRatio, AudioFormat, BitrateMode, CreateAssetUploadRequest,
     CreateAssetUploadRequestContentType, GenerateAudioRequest, GenerateImageRequest,
     GenerateImageRequestQuality, GenerateVideoRequest, GenerateVideoRequestNegativePrompt,
-    GenerateVideoRequestQuality, ImageAspectRatio, ImageModel, UploadAssetRequest,
-    UploadAssetRequestContentType, UploadAssetRequestFilename, VideoModel, VideoShot,
+    GenerateVideoRequestQuality, ImageAspectRatio, UploadAssetRequest,
+    UploadAssetRequestContentType, UploadAssetRequestFilename, VideoShot,
 };
 use serde::Serialize;
 use std::{
@@ -28,8 +28,11 @@ pub enum GenCommand {
 
 #[derive(Args, Debug)]
 pub struct ImageArgs {
+    /// Model id (see `nolgia models list --modality image`). Any id the API
+    /// accepts is forwarded verbatim, so a model added after this binary was
+    /// built still works — the API is the authority on what exists.
     #[arg(long, default_value = "flux-pro")]
-    pub model: ImageModel,
+    pub model: String,
     #[arg(long)]
     pub prompt: String,
     #[arg(long)]
@@ -60,8 +63,13 @@ pub struct ImageArgs {
 Agents: estimate with --cost-only first and confirm with the user before \
 submitting batches over ~2000 credits.")]
 pub struct VideoArgs {
+    /// Model id (see `nolgia models list --modality video`). Any id the API
+    /// accepts is forwarded verbatim and validated server-side, so a model the
+    /// API already serves works even on a binary built before it was added
+    /// (NOL-439: `flux-3-video` was rejected by the closed client-side enum
+    /// though the API accepted it). The API is the authority on what exists.
     #[arg(long, default_value = "fal-ai/kling-video/v3/text-to-video")]
-    pub model: VideoModel,
+    pub model: String,
     #[arg(long)]
     pub prompt: String,
     /// Start image: a local file (uploaded to /assets) or the UUID of an
@@ -151,8 +159,11 @@ pub struct VideoArgs {
 
 #[derive(Args, Debug)]
 pub struct AudioArgs {
+    /// Model id (see `nolgia models list --modality audio`). Any id the API
+    /// accepts is forwarded verbatim, so a model added after this binary was
+    /// built still works — the API is the authority on what exists.
     #[arg(long, default_value = "fal-ai/stable-audio-25/text-to-audio")]
-    pub model: AudioModel,
+    pub model: String,
     #[arg(long)]
     pub prompt: String,
     #[arg(long)]

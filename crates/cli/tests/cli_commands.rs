@@ -159,6 +159,68 @@ async fn gen_video_no_wait_returns_job_id() {
         .stdout(predicate::str::contains(JOB_ID));
 }
 
+/// NOL-439: the CLI must forward whatever `--model` the caller names and let
+/// the API decide whether it exists. `flux-3-video` went live in the API (and
+/// in the vendored spec) but the closed client-side enum in the last released
+/// binary rejected it at argument parsing —
+/// `error: invalid value 'flux-3-video' for '--model <MODEL>': invalid value`
+/// — even though `POST /generate/video {model: "flux-3-video"}` accepted it.
+/// The build-time relaxation of the request `model` selector (client
+/// `build.rs::relax_request_model_selectors`) is what makes the id reach the
+/// wire; this asserts it is sent verbatim rather than gated locally.
+#[tokio::test]
+async fn gen_video_forwards_flux_3_video_model_verbatim() {
+    let api = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/generate/video"))
+        .and(body_partial_json(json!({ "model": "flux-3-video" })))
+        .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
+        .mount(&api)
+        .await;
+    run_ok(
+        &api,
+        &[
+            "gen",
+            "video",
+            "--model",
+            "flux-3-video",
+            "--prompt",
+            "x",
+            "--no-wait",
+        ],
+    )
+    .stdout(predicate::str::contains(JOB_ID));
+}
+
+/// The durable half of NOL-439: a model this binary has never heard of — one
+/// added to the API after it was built — must still be forwarded, so adopting
+/// a new model never again requires a CLI re-release. A closed enum would
+/// reject this at parse time; a plain-string selector cannot.
+#[tokio::test]
+async fn gen_video_forwards_unknown_future_model_verbatim() {
+    let api = MockServer::start().await;
+    let future_model = "some-model-added-after-this-binary-v99";
+    Mock::given(method("POST"))
+        .and(path("/v1/generate/video"))
+        .and(body_partial_json(json!({ "model": future_model })))
+        .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
+        .mount(&api)
+        .await;
+    run_ok(
+        &api,
+        &[
+            "gen",
+            "video",
+            "--model",
+            future_model,
+            "--prompt",
+            "x",
+            "--no-wait",
+        ],
+    )
+    .stdout(predicate::str::contains(JOB_ID));
+}
+
 #[tokio::test]
 async fn gen_video_wait_downloads_asset() {
     let api = MockServer::start().await;
