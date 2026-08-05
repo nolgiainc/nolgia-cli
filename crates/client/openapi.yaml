@@ -4820,6 +4820,18 @@ components:
           description: |
             Maximum reference audio tracks per request (`audio_asset_ids` +
             `audio_urls` combined, each at most 15s). 0 when unsupported.
+        voice_refs_max:
+          type: integer
+          minimum: 1
+          description: |
+            Maximum PRESET reference voices per request (`reference_voice_ids`),
+            each a `voice_id` from xAI's Text-to-Speech roster addressed in the
+            prompt as `<AUDIO_0>`..`<AUDIO_2>`. Distinct from `audio_refs_max`,
+            which counts UPLOADED audio tracks: these are roster voice
+            selections, not user uploads. Present only on models that expose the
+            preset-voice reference-to-video path (Grok Imagine 1.5 exposes 3;
+            xAI reference audio is US-only / trusted-partners and caps output at
+            720p). Absent when unsupported.
         bitrate_modes:
           type: array
           description: Selectable `bitrate_mode` values; absent when the model has no bitrate knob.
@@ -5684,6 +5696,24 @@ components:
           items:
             type: string
             format: uri
+        reference_voice_ids:
+          type: array
+          nullable: true
+          maxItems: 3
+          description: >-
+            Preset voices for Grok Imagine 1.5 reference-to-video (models with
+            `references.voice_refs_max > 0` on `GET /models`), each a `voice_id`
+            from xAI's Text-to-Speech roster (for example `eve`, the default;
+            case-insensitive, validated by xAI). Address them in the prompt as
+            `<AUDIO_0>`..`<AUDIO_2>`. These are roster voice selections, NOT
+            uploaded audio — unlike `audio_asset_ids`/`audio_urls`, which take
+            your own audio tracks. At most 3. Reference audio is US-only /
+            trusted-partners on xAI and caps output at 720p, so pairing voices
+            with a 1080p quality tier is rejected. Forwarded upstream as the
+            provider's `reference_audios` `[{voice_id}]`.
+          items:
+            type: string
+            minLength: 1
         bitrate_mode:
           $ref: '#/components/schemas/BitrateMode'
         aspect_ratio:
