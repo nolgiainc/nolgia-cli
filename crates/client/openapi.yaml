@@ -438,6 +438,17 @@ paths:
           required: false
           schema:
             $ref: '#/components/schemas/Modality'
+        - name: agent_session_id
+          in: query
+          required: false
+          description: >
+            Return only jobs whose agent turn ran in the given chat session
+            (`jobs.agent_session_id`, stamped at submit). Scoped to the
+            caller's own jobs. Jobs created before this attribution shipped,
+            and generations launched outside an agent turn, are not matched.
+          schema:
+            type: string
+            format: uuid
       responses:
         '200':
           description: Paginated list of jobs.
@@ -616,11 +627,12 @@ paths:
           in: query
           required: false
           description: >
-            Return only assets whose generating job was caused by an agent
-            turn in the given chat session — causal attribution recorded at
-            job creation, not a time window, so it holds for async video that
-            lands long after the turn. Assets uploaded by the agent, and jobs
-            created before this attribution shipped, are not matched.
+            Return only assets attributed to the given chat session — either
+            the generating job's `agent_session_id` (causal attribution
+            recorded at job creation, not a time window, so it holds for
+            async video that lands long after the turn) or, for agent uploads
+            with no job (NOL-207), the asset's `metadata.agent_session_id`.
+            Jobs created before this attribution shipped are not matched.
             Composes with the other filters and is reflected in the page
             `total`.
           schema:
@@ -2242,6 +2254,18 @@ paths:
           schema:
             type: string
             format: date-time
+        - name: agent_session_id
+          in: query
+          required: false
+          description: >
+            Restrict the feed to events caused by the given chat session —
+            the job's `agent_session_id` or an agent upload's
+            `metadata.agent_session_id`. Scoped to the caller's own events.
+            Composition and render events, which carry no session
+            attribution, are excluded when this is set.
+          schema:
+            type: string
+            format: uuid
         - name: limit
           in: query
           required: false
@@ -5820,6 +5844,16 @@ components:
         fal_request_id:
           type: string
           nullable: true
+        agent_session_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: >
+            The chat session whose agent turn caused this job
+            (`jobs.agent_session_id`, stamped at submit). Null for jobs not
+            created inside an agent turn and for jobs predating this
+            attribution. Lets a client group a session's generations without
+            inferring ownership from the account-wide feed.
         asset:
           oneOf:
             - $ref: '#/components/schemas/Asset'
@@ -5872,6 +5906,17 @@ components:
           $ref: '#/components/schemas/Modality'
         model:
           type: string
+        agent_session_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: >
+            The chat session that produced this asset — the generating job's
+            `agent_session_id`, or the agent upload's
+            `metadata.agent_session_id` for job-less uploads (NOL-207). Null
+            when the asset carries no session attribution. Populated on list
+            responses (`GET /assets`) so a client can group a session's media
+            directly instead of inferring it.
         display_name:
           type: string
           maxLength: 200
@@ -6723,6 +6768,15 @@ components:
         project_id:
           type: string
           format: uuid
+        agent_session_id:
+          type: string
+          format: uuid
+          description: >
+            The chat session whose agent turn caused this event's job or
+            asset — the job's `agent_session_id`, or an agent upload's
+            `metadata.agent_session_id`. Present on generation and asset
+            events attributed to a session; absent for events with no session
+            attribution (compositions, renders).
 
     ActivityEvent:
       type: object
