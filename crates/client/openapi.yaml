@@ -6090,7 +6090,9 @@ components:
             `noise_scale`; omit for the provider default, 0.1). Higher values
             recover more texture but hallucinate more; keep low for archival
             fidelity. The Topaz engines expose no equivalent control — the
-            engine choice and the resolution tier are the whole input.
+            engine choice and the resolution tier are the whole input — so
+            sending this field with a `topaz-*` model is rejected (400)
+            rather than accepted and dropped.
         duration_seconds:
           type: integer
           minimum: 1
@@ -6111,10 +6113,18 @@ components:
             charge scales with the source's frame rate as well as its
             length: the published per-tier rates price 30 fps, and a higher
             declared rate scales the charge proportionally (60 fps costs
-            twice a 30 fps clip of the same length). Omit it for footage at
-            or below 30 fps; values at or below 30 are billed at the 30 fps
-            basis. Footage above 60 fps is not supported (400) — downsample
-            it before restoring.
+            twice a 30 fps clip of the same length). Values at or below 30
+            are billed at the 30 fps basis, so declaring a slower rate never
+            buys a discount. Footage above 60 fps is not supported (400) —
+            downsample it before restoring.
+
+            **Required on the `topaz-*` engines** (400 when omitted): their
+            rates price the 30 fps basis exactly, and the server cannot
+            measure a source clip's true frame rate, so the lane refuses to
+            guess rather than under-reserve a 60 fps restore. Optional on
+            `seedvr2-restore`, whose rates carry the headroom to absorb an
+            undeclared faster source; omit it there for footage at or below
+            30 fps.
         seed:
           type: integer
           nullable: true

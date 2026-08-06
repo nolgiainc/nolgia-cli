@@ -73,6 +73,17 @@ pub struct RestoreVideoArgs {
     /// job before it runs. Ignored when the asset's stored duration is known.
     #[arg(long)]
     pub duration_seconds: Option<std::num::NonZeroU64>,
+    /// Source clip frame rate. The provider bills per OUTPUT frame, so a
+    /// 60 fps clip costs twice a 30 fps clip of the same length. Values at or
+    /// below 30 are billed at the 30 fps basis, so declaring a slower rate
+    /// never buys a discount; above 60 is refused.
+    ///
+    /// Required on the `topaz-*` engines, whose rates price the 30 fps basis
+    /// exactly and which therefore cannot absorb an undeclared faster source.
+    /// Optional on `seedvr2-restore`. The server cannot measure a clip's true
+    /// rate, so it refuses to guess rather than under-reserve the job.
+    #[arg(long)]
+    pub source_fps: Option<std::num::NonZeroU64>,
     #[arg(long)]
     pub seed: Option<u64>,
     /// File the restored asset into this project (`nolgia projects list`
@@ -141,6 +152,7 @@ fn build_body(
         .quality(quality.cloned())
         .noise_scale(args.noise_scale)
         .duration_seconds(args.duration_seconds)
+        .source_fps(args.source_fps)
         .seed(args.seed)
         .project_id(args.project_id)
         .try_into()

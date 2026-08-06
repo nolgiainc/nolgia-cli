@@ -259,6 +259,46 @@ async fn restore_video_submits_url_source_with_restore_controls() {
     .stdout(predicate::str::contains(JOB_ID));
 }
 
+/// The Topaz engines REQUIRE `source_fps`: their rates price the 30 fps basis
+/// exactly, so an undeclared 60 fps source would be reserved at half its cost
+/// and the API 400s when it is missing. The flag therefore has to exist and
+/// reach the wire, or every `topaz-*` restore is unsubmittable from the CLI.
+#[tokio::test]
+async fn restore_video_forwards_source_fps_for_topaz_engines() {
+    let api = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/restore/video"))
+        .and(body_partial_json(json!({
+            "model": "topaz-proteus",
+            "source_url": "https://cdn.example/clip.mp4",
+            "duration_seconds": 10,
+            "quality": "2160p",
+            "source_fps": 60,
+        })))
+        .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
+        .mount(&api)
+        .await;
+    run_ok(
+        &api,
+        &[
+            "restore",
+            "video",
+            "--model",
+            "topaz-proteus",
+            "--input",
+            "https://cdn.example/clip.mp4",
+            "--duration-seconds",
+            "10",
+            "--quality",
+            "2160p",
+            "--source-fps",
+            "60",
+            "--no-wait",
+        ],
+    )
+    .stdout(predicate::str::contains(JOB_ID));
+}
+
 /// An asset UUID `--input` is sent as `source_asset_id` with no client-side
 /// duration requirement: the server bills from the asset's stored duration.
 #[tokio::test]
