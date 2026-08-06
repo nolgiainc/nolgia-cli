@@ -79,7 +79,7 @@ jobs:
           # net loss. The chain is: PR base ref -> explicit dispatch input ->
           # the repository's default branch (which is why this file is portable
           # across repos whose default branch is `main` or `master`).
-          BASE_REF: ${{ github.event.pull_request.base.ref || inputs.base_ref || github.event.repository.default_branch }}
+          BASE_REF: ${{ github.event.pull_request.base.ref || github.event.inputs.base_ref || github.event.repository.default_branch }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -uo pipefail
