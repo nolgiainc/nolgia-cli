@@ -3,10 +3,28 @@ name: CI
 on:
   pull_request:
     branches: [main]
-    paths-ignore:
-      - '**/*.md'
-      - 'docs/**'
-      - 'LICENSE'
+    # NOL-488: there is deliberately NO `paths-ignore` here, and adding one back
+    # would make every docs-only PR unmergeable again.
+    #
+    # This trigger used to carry `paths-ignore: ['**/*.md', 'docs/**',
+    # 'LICENSE']` to fast-track docs PRs. It did the opposite. main's protection
+    # requires two contexts that ONLY this workflow produces — `Test, Lint &
+    # Format` and `OpenAPI spec drift`. When `paths-ignore` matched, GitHub
+    # created NO RUN AT ALL, so neither context reported; a required context
+    # that never reports sits `Expected`/Pending forever and is NOT treated as
+    # skipped. A docs-only PR was therefore permanently blocked, not
+    # fast-tracked. (`npm/README.md` is a docs-only surface that ships to
+    # npmjs.com, so this was not hypothetical — NOL-490 needed exactly such a
+    # PR.)
+    #
+    # The distinction that matters: a job that RUNS and exits early still POSTS
+    # its check context. A workflow that never triggers posts nothing. So the
+    # filtering moved INSIDE the jobs — see the `detect` job below, whose `code`
+    # output gates every expensive step in both required jobs. The contexts
+    # always report; on a docs-only PR they report success in seconds, and the
+    # runner saving is preserved because only the job shell runs.
+    #
+    # Same fix as nolgia.com's test.yml, which had the identical bug.
   # NOL-479: `Test, Lint & Format` and `OpenAPI spec drift` are both required
   # contexts on main and both come from this workflow, so while it was
   # `pull_request`-only a throttled webhook left PRs here BLOCKED with no way to
@@ -55,8 +73,96 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # NOL-488: the path filter that used to live in `on: pull_request:
+  # paths-ignore`. It lives here instead because a suppressed WORKFLOW posts no
+  # check contexts at all, while a job that runs and exits early still posts its
+  # own — and both of this repo's workflow-produced required contexts come from
+  # this file. See the long note on the trigger above.
+  #
+  # Single source of truth for the path list ON PURPOSE: inlining the same
+  # detection into both jobs would give two copies to rot independently, and a
+  # filter that disagrees with itself silently under-tests.
+  #
+  # FAILS OPEN, always. Every failure path writes `code=true` rather than
+  # exiting non-zero, because a failing `detect` would SKIP its dependents and
+  # skipped contexts reintroduce a softer version of the exact bug this fixes.
+  # Erring toward running the full suite costs runner minutes; erring the other
+  # way ships untested code or blocks a mergeable PR.
+  detect:
+    name: Detect changed paths
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Classify the diff
+        id: filter
+        env:
+          # `pull_request` checks out the synthetic merge commit, so the base
+          # tip is the commit to diff the whole PR against.
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -uo pipefail
+
+          emit() { echo "code=$1" >> "$GITHUB_OUTPUT"; }
+
+          if [ "${GITHUB_EVENT_NAME}" != "pull_request" ]; then
+            echo "Event is ${GITHUB_EVENT_NAME}, not pull_request: running the full suite."
+            emit true; exit 0
+          fi
+
+          if [ -z "${BASE_SHA}" ]; then
+            echo "::warning::No base SHA in the event payload; running the full suite."
+            emit true; exit 0
+          fi
+
+          # The checkout is shallow, so the base commit is not in history. Fetch
+          # just that one object: `git diff A B` is a TREE comparison and needs
+          # no connecting history, so depth 1 is enough.
+          if ! git fetch --no-tags --depth=1 --quiet origin "${BASE_SHA}"; then
+            echo "::warning::Could not fetch base ${BASE_SHA}; running the full suite."
+            emit true; exit 0
+          fi
+
+          if ! changed=$(git diff --name-only "${BASE_SHA}" "${GITHUB_SHA}"); then
+            echo "::warning::Could not diff against ${BASE_SHA}; running the full suite."
+            emit true; exit 0
+          fi
+
+          if [ -z "${changed}" ]; then
+            echo "::warning::Empty diff against ${BASE_SHA}; running the full suite."
+            emit true; exit 0
+          fi
+
+          echo "Changed files:"
+          echo "${changed}" | sed 's/^/  /'
+
+          # Docs/meta paths, byte-for-byte the old `paths-ignore` list. Anything
+          # NOT matching one of these counts as code and runs the full suite.
+          while IFS= read -r f; do
+            [ -n "$f" ] || continue
+            case "$f" in
+              *.md|docs/*|LICENSE) ;;
+              *)
+                echo "Code path changed: ${f} -> running the full suite."
+                emit true; exit 0
+                ;;
+            esac
+          done <<< "${changed}"
+
+          echo "Docs/meta-only change: the required contexts will report success without running the suite."
+          emit false
+
   test:
     name: Test, Lint & Format
+    needs: [detect]
     runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
       contents: read
@@ -94,6 +200,7 @@ jobs:
           echo "Testing $(git rev-parse --short HEAD) merged with origin/$BASE_REF ($(git rev-parse --short "origin/$BASE_REF"))."
 
       - name: Install Rust toolchain
+        if: needs.detect.outputs.code == 'true'
         uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
         with:
           toolchain: stable
@@ -101,31 +208,38 @@ jobs:
           cache: true
 
       - name: Install libdbus (keyring crate dependency)
+        if: needs.detect.outputs.code == 'true'
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libdbus-1-dev pkg-config
 
       - name: Run tests
+        if: needs.detect.outputs.code == 'true'
         # The e2e feature gates live-API tests (real generations, needs a token); compile-check it via clippy instead.
         run: cargo test --workspace --locked
 
       - name: Run clippy
+        if: needs.detect.outputs.code == 'true'
         run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 
       - name: Check formatting
+        if: needs.detect.outputs.code == 'true'
         run: cargo fmt --all -- --check
 
       - name: Test install.sh (hermetic sandbox, no network)
+        if: needs.detect.outputs.code == 'true'
         run: bash tests/install_sh_test.sh
 
       # Runs on every PR, not just at tag time: a manifest left behind by a
       # partial bump reddens here, days before someone tries to tag it. The
       # release workflow re-runs this same script with --tag as a hard gate.
       - name: Test the release version guard (offline)
+        if: needs.detect.outputs.code == 'true'
         run: |
           bash -n scripts/check-version-consistency.sh
           bash tests/check-version-consistency_test.sh
 
   spec-check:
     name: OpenAPI spec drift
+    needs: [detect]
     runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
       contents: read
@@ -180,6 +294,7 @@ jobs:
       # api merge). Retrying rides out that window; a genuine drift still fails
       # after all attempts.
       - name: Verify vendored spec matches canonical
+        if: needs.detect.outputs.code == 'true'
         env:
           SPEC_URL: ${{ vars.NOLGIA_CANONICAL_SPEC_URL || 'https://docs.nolgia.ai/api/openapi.yaml' }}
         run: |
