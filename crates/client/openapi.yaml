@@ -4481,6 +4481,42 @@ paths:
         default:
           $ref: '#/components/responses/ProblemResponse'
 
+  /internal/identity/score:
+    post:
+      tags: [Generation]
+      operationId: scoreIdentityInternal
+      summary: >
+        Score face identity similarity between two of the caller's image
+        assets (admin only). The test hook behind the Aura ArcFace gate
+        (NOL-462): NOL-461's acceptance tests 3 and 5 assert rendered faces
+        match their reference at cosine >= 0.60 through this endpoint.
+        Scoring runs in-process (the same scorer the image executor gates
+        with); face data never leaves the platform and no embeddings are
+        persisted. 503 when the deployment carries no face-id model bundle.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IdentityScoreRequest'
+      responses:
+        '200':
+          description: Identity similarity between the two assets' dominant faces.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityScoreResult'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '503':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
   /internal/agents:
     get:
       tags: [Agent]
@@ -6404,6 +6440,37 @@ components:
             for live assets; only trash listings
             (`GET /assets?trashed=true`) return trashed assets. Trashed
             assets are purged permanently 30 days after this timestamp.
+        identity_score:
+          type: number
+          nullable: true
+          minimum: -1
+          maximum: 1
+          description: >
+            ArcFace-family cosine similarity of this render's dominant face
+            against the request's face reference (Aura identity gate,
+            NOL-462). Present only on image assets generated with a
+            `face_reference_asset_id`; delivery is gated at >= 0.60 with one
+            automatic re-roll. Absent when no face reference rode the
+            generation or scoring was unavailable.
+          examples: [0.81]
+        identity_rerolls:
+          type: integer
+          nullable: true
+          minimum: 0
+          maximum: 1
+          description: >
+            Number of completed automatic identity re-rolls behind this
+            render (0 or 1 — the gate re-rolls at most once, then delivers
+            the better-scoring attempt). Present only alongside
+            `identity_score`.
+        identity_gate_passed:
+          type: boolean
+          nullable: true
+          description: >
+            Whether `identity_score` clears the 0.60 identity gate. A render
+            can be delivered with `false` when both the original and the one
+            automatic re-roll scored under the gate (the better attempt is
+            delivered and labeled). Present only alongside `identity_score`.
         created_at:
           type: string
           format: date-time
@@ -6423,6 +6490,38 @@ components:
         is_default:
           type: boolean
           description: True when this is the user's default "Library" project.
+
+    IdentityScoreRequest:
+      type: object
+      additionalProperties: false
+      required: [reference_asset_id, candidate_asset_id]
+      properties:
+        reference_asset_id:
+          type: string
+          format: uuid
+          description: Image asset holding the reference face (must belong to the caller).
+        candidate_asset_id:
+          type: string
+          format: uuid
+          description: Image asset whose dominant face is scored against the reference (must belong to the caller).
+
+    IdentityScoreResult:
+      type: object
+      additionalProperties: false
+      required: [score, threshold, passes]
+      properties:
+        score:
+          type: number
+          minimum: -1
+          maximum: 1
+          description: ArcFace-family cosine similarity between the two dominant faces.
+          examples: [0.81]
+        threshold:
+          type: number
+          description: The Aura identity gate threshold (0.60).
+        passes:
+          type: boolean
+          description: Whether `score` clears the gate (`score >= threshold`).
 
     AssetPage:
       type: object
