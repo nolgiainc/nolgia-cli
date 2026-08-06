@@ -49,7 +49,7 @@ nolgia auth status
 nolgia auth token
 ```
 
-For CI or agents, prefer a personal access token in `NOLGIA_TOKEN` or a secret manager. `--token` is also accepted, but command-line arguments can appear in shell history and process listings. The npm package is release-versioned: the `0.2.6` package metadata in this checkout uses its release's keyring-based login behavior; the file-backed `NOLGIA_TOKEN_STORE` and XDG token path described in the source/main README apply only to a release that contains that newer auth implementation. Confirm the installed binary's behavior with `nolgia --version` and its help/release notes.
+For CI or agents, prefer a personal access token in `NOLGIA_TOKEN` or a secret manager. `--token` is also accepted, but command-line arguments can appear in shell history and process listings. The npm package is release-versioned, and this README ships inside the package: the behavior described here is whatever the `version` in its `package.json` installed, which is the same version `nolgia --version` reports. Current releases default to the file-backed token store (see `NOLGIA_TOKEN_STORE` below) and read the OS keyring once to migrate a login made before that store existed; releases predating the file store used the keyring only. Confirm the installed binary's behavior with `nolgia --version` and its [release notes](https://github.com/nolgiainc/nolgia-cli/releases).
 
 `--json` is a global flag for commands that implement structured output; it is not a universal output contract. Generation with `--no-wait` prints a JSON job object, while `gen video --cost-only`, `auth token`, `completion`, and `skills show` remain text. `auth login` and `auth status`/`whoami` also print human text around any JSON response. A script can capture a job UUID and then wait for it:
 
@@ -66,7 +66,7 @@ Treat any signed URL returned by the CLI as a temporary bearer capability; avoid
 |---|---|
 | `NOLGIA_TOKEN` | PAT or JWT used when `--token` is not supplied |
 | `NOLGIA_API_URL` | Override the API base URL (the client appends `/v1`) |
-| `NOLGIA_TOKEN_STORE` | Supported only by releases containing the file-token implementation; older npm binaries use their release's auth store |
+| `NOLGIA_TOKEN_STORE` | Selects the token store: unset (default) uses the token file and migrates a pre-existing keyring login once, `file` uses the token file only, `keyring` forces the OS keyring. Releases predating the file store ignore it and always use the keyring |
 | `NOLGIA_NO_UPDATE_CHECK` | Disable the once-per-day release hint |
 | `NOLGIA_SURFACE` | Override the `X-Nolgia-Surface` request value |
 | `XDG_CONFIG_HOME` | Parent directory for install metadata; token location is release-version dependent |
