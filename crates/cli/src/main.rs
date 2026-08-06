@@ -10,7 +10,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use commands::{
     CommandContext, ability, account, assets, billing, characters, color_presets, r#gen, models,
-    pat, projects, skills, status, wait,
+    pat, projects, restore, skills, status, wait,
 };
 use nolgia_client::{Client, ClientBuilder};
 use output::OutputFormat;
@@ -77,6 +77,11 @@ pub enum Commands {
     Auth(auth::AuthCommand),
     #[command(subcommand, about = "Generate images, video, or audio")]
     Gen(r#gen::GenCommand),
+    #[command(
+        subcommand,
+        about = "Restore and upscale existing footage (de-noise, de-haze, up-res)"
+    )]
+    Restore(restore::RestoreCommand),
     #[command(about = "Show current job status")]
     Status(status::StatusArgs),
     #[command(about = "Wait for a job to finish")]
@@ -194,6 +199,7 @@ pub async fn run_cli(cli: Cli) -> Result<()> {
     match cli.command {
         Commands::Auth(_) => unreachable!("auth handled before client construction"),
         Commands::Gen(command) => r#gen::run(command, &ctx).await,
+        Commands::Restore(command) => restore::run(command, &ctx).await,
         Commands::Status(args) => status::run(args, &ctx).await,
         Commands::Wait(args) => wait::run(args, &ctx).await,
         Commands::Assets(command) => assets::run(command, &ctx).await,

@@ -420,6 +420,52 @@ paths:
         default:
           $ref: '#/components/responses/ProblemResponse'
 
+  /restore/video:
+    post:
+      tags: [Generate]
+      operationId: restoreVideo
+      summary: Submit a video restoration/upscale job (asynchronous).
+      description: |
+        The AI footage-restorer lane: re-renders existing footage (a video
+        asset you generated or uploaded, or a URL you host) at a target
+        resolution tier with de-noise, de-haze and detail recovery. Restore
+        models take NO prompt — the source clip is the whole input. Returns
+        immediately with a job (modality `video`); use `GET /jobs/{id}` or
+        `GET /jobs/{id}/wait` to retrieve the restored asset.
+
+        Credits scale with the source clip length at the selected quality
+        tier's per-5-second rate — see the model's `quality.options` on
+        `GET /models`. Restore-lane models carry `restore: true` in the
+        model catalog.
+
+        **Duplicate submissions are refused, not billed.** Same idempotency
+        contract as `POST /generate/video`: an identical request within five
+        minutes returns `409` naming the existing job; send a distinct
+        `Idempotency-Key` header to declare a deliberate new run.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RestoreVideoRequest'
+      responses:
+        '202':
+          description: Job accepted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '402':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        '422':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
   /jobs:
     get:
       tags: [Jobs]
@@ -4757,6 +4803,12 @@ components:
           $ref: '#/components/schemas/QualityCapabilities'
         references:
           $ref: '#/components/schemas/ReferenceCapabilities'
+        restore:
+          type: boolean
+          description: >-
+            True for video-restoration lane models: they are submitted via
+            `POST /restore/video` with a source clip and NO prompt, not via
+            `POST /generate/video`. Absent for generation models.
 
     ReferenceCapabilities:
       type: object
@@ -5289,6 +5341,18 @@ components:
         - minimax-hailuo-2.3-fast
         - flux-3-video
 
+    RestoreVideoModel:
+      type: string
+      description: |
+        Video-restoration lane model, submitted via `POST /restore/video`.
+        `seedvr2-restore` is the AI footage restorer (SeedVR2): de-noise,
+        de-haze, detail recovery and up-res of existing footage to a target
+        resolution tier (720p/1080p/1440p/2160p). The lane is built to take
+        further restorers as additional enum members (a master-upscale
+        driver is planned).
+      enum:
+        - seedvr2-restore
+
     ImageSize:
       type: string
       enum: [square, square_hd, portrait_4_3, portrait_16_9, landscape_4_3, landscape_16_9]
@@ -5401,6 +5465,29 @@ components:
             format: uri
             maxLength: 2048
           examples: [['https://assets.nolgia.ai/ref-character.png', 'https://assets.nolgia.ai/ref-outfit.png']]
+        aura:
+          type: boolean
+          nullable: true
+          description: >-
+            Enable the Aura photoreal character engine layer (NOL-461). When
+            true on an aura_compatible model with a person subject, the server
+            composes the beauty floor, realism core, and eye clause into the
+            prompt and appends the negative tail to negative_prompt (where
+            supported). Default ON (true) for photoreal person renders on
+            aura_compatible models; OFF and ignored on non-photoreal models.
+            Job params echo this flag for audit and gallery badging.
+          examples: [true]
+        face_reference_asset_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: >-
+            Asset id of a face reference to condition identity on when Aura is
+            enabled. Rides as image conditioning plus the Identity Lock prompt
+            block. Output is ArcFace-gated (cosine >= 0.60) with one automatic
+            re roll before delivery. Ignored when aura is false or the model
+            cannot carry a reference (route to a lane that can; never silently
+            drop the reference).
         quality:
           type: string
           nullable: true
@@ -5859,6 +5946,91 @@ components:
           nullable: true
           maxLength: 500
           description: Sound-design direction for this shot (written into the composed prompt).
+
+    RestoreVideoRequest:
+      type: object
+      additionalProperties: false
+      required: [model]
+      properties:
+        model:
+          $ref: '#/components/schemas/RestoreVideoModel'
+        source_asset_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: >-
+            One of your video assets to restore (the server resolves it to a
+            signed URL). Exactly one of `source_asset_id` and `source_url`
+            is required. When the asset's stored metadata carries a
+            duration, billing uses it and `duration_seconds` is ignored.
+        source_url:
+          type: string
+          format: uri
+          nullable: true
+          description: >-
+            Raw https URL of the footage to restore, for callers that host
+            media outside Nolgia. Exactly one of `source_asset_id` and
+            `source_url` is required. `duration_seconds` is required with a
+            raw URL (the server cannot measure external media). Prefer
+            `source_asset_id`.
+        quality:
+          type: string
+          nullable: true
+          maxLength: 16
+          description: >-
+            Target output resolution tier (`720p`, `1080p`, `1440p`,
+            `2160p`). Omit for the model's default (`1080p` on
+            `seedvr2-restore`). Allowed values and per-tier credit rates are
+            on the model's `quality.options` on `GET /models`; the charge
+            scales with the source clip length like a generation's does.
+          examples: ['2160p']
+        noise_scale:
+          type: number
+          nullable: true
+          minimum: 0
+          maximum: 1
+          description: >-
+            Detail-injection strength (the provider's `noise_scale`; omit
+            for the provider default, 0.1 on SeedVR2). Higher values recover
+            more texture but hallucinate more; keep low for archival
+            fidelity.
+        duration_seconds:
+          type: integer
+          minimum: 1
+          maximum: 120
+          description: |
+            Source clip length in seconds (round up), used to compute the
+            credit charge before the job runs. Required when the source is a
+            raw `source_url` or an asset without stored duration metadata;
+            when the asset's stored duration is known the server bills from
+            that instead and this field is ignored.
+        seed:
+          type: integer
+          nullable: true
+          minimum: 0
+        tags:
+          type: array
+          maxItems: 10
+          description: Applied to the restored asset; normalized to lowercase.
+          items:
+            type: string
+            minLength: 1
+            maxLength: 40
+          examples: [['restored', 'archive']]
+        project_id:
+          type: string
+          format: uuid
+          description: >-
+            Files the restored asset into this project at creation (the
+            async asset lands in the project when the job completes). The
+            project must exist and belong to the caller (400 otherwise).
+        preset_slug:
+          type: string
+          nullable: true
+          maxLength: 128
+          description: >-
+            Slug of the preset this restoration was launched from, if any.
+            Same semantics as on `POST /generate/video`.
 
     JobStatus:
       type: string

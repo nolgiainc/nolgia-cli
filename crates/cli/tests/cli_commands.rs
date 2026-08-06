@@ -33,6 +33,7 @@ fn help_lists_full_command_surface() {
         .stdout(predicate::str::contains("account"))
         .stdout(predicate::str::contains("billing"))
         .stdout(predicate::str::contains("pat"))
+        .stdout(predicate::str::contains("restore"))
         .stdout(predicate::str::contains("color-presets"));
 }
 
@@ -215,6 +216,116 @@ async fn gen_video_forwards_unknown_future_model_verbatim() {
             future_model,
             "--prompt",
             "x",
+            "--no-wait",
+        ],
+    )
+    .stdout(predicate::str::contains(JOB_ID));
+}
+
+/// The restore lane (`POST /restore/video`) takes a source clip and no
+/// prompt. A URL source must forward `source_url` plus the restore controls
+/// verbatim; `duration_seconds` prices the job.
+#[tokio::test]
+async fn restore_video_submits_url_source_with_restore_controls() {
+    let api = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/restore/video"))
+        .and(body_partial_json(json!({
+            "model": "seedvr2-restore",
+            "source_url": "https://cdn.example/clip.mp4",
+            "duration_seconds": 10,
+            "quality": "2160p",
+            "noise_scale": 0.2,
+        })))
+        .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
+        .mount(&api)
+        .await;
+    run_ok(
+        &api,
+        &[
+            "restore",
+            "video",
+            "--input",
+            "https://cdn.example/clip.mp4",
+            "--duration-seconds",
+            "10",
+            "--quality",
+            "2160p",
+            "--noise-scale",
+            "0.2",
+            "--no-wait",
+        ],
+    )
+    .stdout(predicate::str::contains(JOB_ID));
+}
+
+/// An asset UUID `--input` is sent as `source_asset_id` with no client-side
+/// duration requirement: the server bills from the asset's stored duration.
+#[tokio::test]
+async fn restore_video_sends_asset_uuid_as_source_asset_id() {
+    let api = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/restore/video"))
+        .and(body_partial_json(json!({
+            "model": "seedvr2-restore",
+            "source_asset_id": ASSET_ID,
+        })))
+        .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
+        .mount(&api)
+        .await;
+    run_ok(
+        &api,
+        &["restore", "video", "--input", ASSET_ID, "--no-wait"],
+    )
+    .stdout(predicate::str::contains(JOB_ID));
+}
+
+/// A raw-URL source cannot be measured server-side, so the CLI refuses it
+/// without `--duration-seconds` before spending a round trip; the message
+/// tells the caller what to pass.
+#[tokio::test]
+async fn restore_video_url_source_requires_duration_client_side() {
+    let api = MockServer::start().await;
+    cmd()
+        .arg("--api-url")
+        .arg(api.uri())
+        .args([
+            "restore",
+            "video",
+            "--input",
+            "https://cdn.example/clip.mp4",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--duration-seconds is required"));
+    assert!(
+        api.received_requests().await.unwrap().is_empty(),
+        "the refusal must happen before any API request"
+    );
+}
+
+/// Restore forwards whatever `--model` the caller names (the NOL-439 rule):
+/// the planned master-upscale driver must work on this binary the day the
+/// API serves it, with no CLI re-release.
+#[tokio::test]
+async fn restore_video_forwards_unknown_future_model_verbatim() {
+    let api = MockServer::start().await;
+    let future_model = "topaz-master-upscale-added-after-this-binary";
+    Mock::given(method("POST"))
+        .and(path("/v1/restore/video"))
+        .and(body_partial_json(json!({ "model": future_model })))
+        .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
+        .mount(&api)
+        .await;
+    run_ok(
+        &api,
+        &[
+            "restore",
+            "video",
+            "--model",
+            future_model,
+            "--input",
+            ASSET_ID,
             "--no-wait",
         ],
     )

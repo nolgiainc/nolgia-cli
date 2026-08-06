@@ -213,8 +213,8 @@ fn parse_image_aspect_ratio(raw: &str) -> Result<ImageAspectRatio, String> {
 }
 
 #[derive(Serialize)]
-struct AsyncJob {
-    job_id: String,
+pub(crate) struct AsyncJob {
+    pub(crate) job_id: String,
 }
 
 const DEFAULT_WAIT_TIMEOUT_SECONDS: u64 = 300;
@@ -702,7 +702,7 @@ async fn upload_via_signed_url(
         .with_context(|| format!("finalizing upload for {}", path.display()))
 }
 
-async fn wait_for_asset(
+pub(crate) async fn wait_for_asset(
     job_id: uuid::Uuid,
     ctx: &CommandContext,
     timeout_seconds: u64,

@@ -239,6 +239,7 @@ Replace every `<PLACEHOLDER>` below with a real value; angle-bracket placeholder
 |---|---|
 | `auth` | `login`, `logout`, `status`/`whoami`, `token` |
 | `gen` | `image`, `video`, `audio` generation |
+| `restore` | `video` footage restoration/upscale (de-noise, de-haze, up-res to a target tier) |
 | `status`, `wait` | Inspect or wait for a job by UUID |
 | `assets` | `list`, `get`, `delete`, `upload`, `tag`, `frame` |
 | `characters` | `list`, `get`, `create`, `update`, `delete` reusable characters |

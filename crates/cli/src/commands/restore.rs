@@ -1,0 +1,154 @@
+use anyhow::{Context, Result};
+use clap::{Args, Subcommand};
+use nolgia_client::types::{RestoreVideoRequest, RestoreVideoRequestQuality};
+use std::path::{Path, PathBuf};
+
+use crate::livejob;
+use crate::output::{OutputFormat, print_json};
+
+use super::CommandContext;
+use super::r#gen::{AsyncJob, download, upload_asset_file, wait_for_asset};
+
+#[derive(Subcommand, Debug)]
+pub enum RestoreCommand {
+    Video(RestoreVideoArgs),
+}
+
+/// The AI footage-restorer lane: re-renders existing footage at a target
+/// resolution tier with de-noise, de-haze and detail recovery. Restore models
+/// take no prompt; the source clip is the whole input.
+#[derive(Args, Debug)]
+#[command(after_help = "Restore jobs cost credits that scale with the source \
+clip length and the target resolution tier (see `nolgia models get \
+seedvr2-restore`). Agents: check the tier rates first and confirm with the \
+user before restoring long footage at 1440p/2160p.")]
+pub struct RestoreVideoArgs {
+    /// Restore model id (see models with `restore: true` in `nolgia models
+    /// list --modality video`). Any id the API accepts is forwarded verbatim
+    /// and validated server-side; the API is the authority on what exists.
+    #[arg(long, default_value = "seedvr2-restore")]
+    pub model: String,
+    /// The footage to restore: the UUID of one of your video assets, a local
+    /// video file (uploaded to /assets first), or a raw https URL.
+    #[arg(long)]
+    pub input: String,
+    #[arg(long)]
+    pub out: Option<PathBuf>,
+    /// Target output resolution tier (720p, 1080p, 1440p, 2160p on
+    /// seedvr2-restore; per-tier credits in `nolgia models get <model>`).
+    /// Omit for the model's default tier (1080p).
+    #[arg(long)]
+    pub quality: Option<String>,
+    /// Detail-injection strength 0..1 (the provider's noise_scale; default
+    /// 0.1). Higher values recover more texture but hallucinate more; keep
+    /// low for archival fidelity.
+    #[arg(long)]
+    pub noise_scale: Option<f64>,
+    /// Source clip length in seconds (round up). Required for raw URL
+    /// sources and assets without stored duration metadata; it prices the
+    /// job before it runs. Ignored when the asset's stored duration is known.
+    #[arg(long)]
+    pub duration_seconds: Option<std::num::NonZeroU64>,
+    #[arg(long)]
+    pub seed: Option<u64>,
+    /// File the restored asset into this project (`nolgia projects list`
+    /// for ids). The project must exist and belong to you.
+    #[arg(long, value_name = "PROJECT_UUID")]
+    pub project_id: Option<uuid::Uuid>,
+    #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
+    pub wait: bool,
+    #[arg(long, default_value_t = false)]
+    pub no_wait: bool,
+    /// Seconds to wait for the restore to finish. Restores re-render every
+    /// frame, so long or high-tier sources take longer than generations.
+    #[arg(long, default_value_t = 600)]
+    pub timeout: u64,
+}
+
+pub async fn run(command: RestoreCommand, ctx: &CommandContext) -> Result<()> {
+    match command {
+        RestoreCommand::Video(args) => video(args, ctx).await,
+    }
+}
+
+/// How `--input` resolves: a raw URL is forwarded as `source_url`, anything
+/// else becomes a `source_asset_id` (an existing asset's UUID, or the asset
+/// created by uploading a local file).
+enum RestoreSource {
+    Url(String),
+    Asset(uuid::Uuid),
+}
+
+async fn resolve_source(input: &str, ctx: &CommandContext) -> Result<RestoreSource> {
+    if input.starts_with("https://") || input.starts_with("http://") {
+        return Ok(RestoreSource::Url(input.to_string()));
+    }
+    if !Path::new(input).exists() {
+        let id = uuid::Uuid::parse_str(input).with_context(|| {
+            format!("--input: {input:?} is not an https URL, an asset UUID, or an existing file")
+        })?;
+        return Ok(RestoreSource::Asset(id));
+    }
+    let asset = upload_asset_file(&PathBuf::from(input), ctx, None).await?;
+    Ok(RestoreSource::Asset(asset.id))
+}
+
+async fn video(args: RestoreVideoArgs, ctx: &CommandContext) -> Result<()> {
+    let source = resolve_source(&args.input, ctx).await?;
+    // A raw URL cannot be measured server-side, so the API requires the
+    // declared clip length; fail here before spending the round trip.
+    if matches!(source, RestoreSource::Url(_)) {
+        anyhow::ensure!(
+            args.duration_seconds.is_some(),
+            "--duration-seconds is required with a URL source: the server cannot \
+             measure external media, and the clip length prices the job. Round \
+             the source duration up to whole seconds."
+        );
+    }
+    let quality = args
+        .quality
+        .as_deref()
+        .map(RestoreVideoRequestQuality::try_from)
+        .transpose()
+        .map_err(|e| anyhow::anyhow!("--quality: {e}"))?;
+    let (source_asset_id, source_url) = match source {
+        RestoreSource::Asset(id) => (Some(id), None),
+        RestoreSource::Url(url) => (None, Some(url)),
+    };
+    let body: RestoreVideoRequest = RestoreVideoRequest::builder()
+        .model(args.model)
+        .source_asset_id(source_asset_id)
+        .source_url(source_url)
+        .quality(quality)
+        .noise_scale(args.noise_scale)
+        .duration_seconds(args.duration_seconds)
+        .seed(args.seed)
+        .project_id(args.project_id)
+        .try_into()
+        .context("building restore request")?;
+    let job = match ctx.client().restore_video().body(body).send().await {
+        Ok(response) => response.into_inner(),
+        Err(err) => return Err(super::submit_error(err, "submitting restore job").await),
+    };
+    if args.no_wait || !args.wait {
+        return print_json(&AsyncJob {
+            job_id: job.id.to_string(),
+        });
+    }
+    let job_id = job.id;
+    livejob::announce(job_id, args.timeout);
+    livejob::guard(job_id, async move {
+        let job = wait_for_asset(job_id, ctx, args.timeout).await?;
+        if let (Some(asset), Some(out)) = (&job.asset, args.out.as_ref()) {
+            download(&asset.signed_url, out).await?;
+        }
+        match ctx.format() {
+            OutputFormat::Json => print_json(&job),
+            OutputFormat::Text => {
+                println!("{} {}", job.id, job.status);
+                Ok(())
+            }
+        }
+    })
+    .await
+}
