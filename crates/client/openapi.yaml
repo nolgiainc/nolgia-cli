@@ -1181,6 +1181,88 @@ paths:
         default:
           $ref: '#/components/responses/ProblemResponse'
 
+  /characters/autopilot:
+    post:
+      tags: [Characters]
+      operationId: autopilotCharacter
+      summary: Roll a new Aura character and start its portrait render.
+      description: |
+        Runs the Aura variety engine (8 deterministic axes with an anti-clone
+        rule across consecutive rolls) to produce a canonical character
+        description, and submits its photoreal portrait as an image job on
+        grok-imagine-image. Returns the queued job plus the rolled description
+        and axes; create the character with `POST /characters` once the
+        portrait asset is ready, passing the description as
+        `canonical_description` verbatim.
+
+        Billed exactly like the equivalent `POST /generate/image` call.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AutopilotCharacterRequest'
+      responses:
+        '202':
+          description: Portrait job accepted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AutopilotCharacterResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '402':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /characters/{id}/sheets:
+    post:
+      tags: [Characters]
+      operationId: createCharacterSheet
+      summary: Generate a one-tap character sheet (split, five-view turnaround, or expression).
+      description: |
+        Composes the requested sheet scaffold with the character's canonical
+        description and the full Aura layer on gpt-image-2, with the
+        character's primary reference attached as identity conditioning. The
+        character must have at least one reference image. Optional wearable
+        references ride the same request and are rendered exactly as shown in
+        every view - a request whose references exceed what the sheet lane can
+        carry is refused (400), never silently dropped.
+
+        Billed exactly like the equivalent gpt-image-2 `POST /generate/image`
+        call.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCharacterSheetRequest'
+      responses:
+        '202':
+          description: Sheet job accepted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '402':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
   /characters:
     get:
       tags: [Characters]
@@ -4234,7 +4316,7 @@ paths:
     post:
       tags: [Presets]
       operationId: upsertPreset
-      summary: Create or update a preset by slug (admin only). Presets are mutable metadata — unlike abilities there are no immutable versions; posting an existing slug overwrites all of its fields with the request body.
+      summary: Create or update a preset by slug (admin only). Presets are mutable metadata — unlike abilities there are no immutable versions; posting an existing slug overwrites all of its content fields with the request body. The lifecycle fields (`sort_order`, `visibility`, `featured`) are preserved when omitted, so a catalog sync cannot unpublish or unfeature curated presets; change them explicitly here or via `PATCH /presets/{slug}`.
       requestBody:
         required: true
         content:
@@ -5082,16 +5164,6 @@ components:
           description: Selectable `aspect_ratio` values for this model.
           items:
             $ref: '#/components/schemas/ImageAspectRatio'
-        aura_compatible:
-          type: boolean
-          description: |-
-            Whether the model can carry the Aura photoreal character engine
-            layer (NOL-461): realism core, eye clause, negative tail, and
-            optional face-reference conditioning. True for photoreal person
-            renders; false for vector/anime/illustration surfaces. Drives
-            whether the Create Image page shows the Aura toggle and defaults it
-            ON for person prompts.
-          examples: [true]
         reference_images_max:
           type: integer
           description: |
@@ -5128,6 +5200,18 @@ components:
           minimum: 1
           maximum: 4
           example: 4
+        aura_compatible:
+          type: boolean
+          description: |
+            Whether Aura (the Nolgia character engine) composes on this model:
+            true for photoreal person lanes, false for vector, anime, and
+            illustration models (the recraft family). Clients drive the Aura
+            toggle from this flag - show it (default ON for person prompts)
+            when true, hide it entirely when false. The API mirrors the same
+            stance: `aura: true` on an incompatible model is a no-op. Absent
+            on responses from an API build older than this field: treat as
+            false (hide the toggle).
+          example: true
 
     AudioCapabilities:
       type: object
@@ -5526,40 +5610,6 @@ components:
             format: uri
             maxLength: 2048
           examples: [['https://assets.nolgia.ai/ref-character.png', 'https://assets.nolgia.ai/ref-outfit.png']]
-        aura:
-          type: boolean
-          nullable: true
-          description: >-
-            Enable the Aura photoreal character engine layer (NOL-461). When
-            true on an aura_compatible model with a person subject, the server
-            composes the beauty floor, realism core, and eye clause into the
-            prompt and appends the negative tail to negative_prompt (where
-            supported). Default ON (true) for photoreal person renders on
-            aura_compatible models; OFF and ignored on non-photoreal models.
-            Job params echo this flag for audit and gallery badging.
-          examples: [true]
-        face_reference_asset_id:
-          type: string
-          format: uuid
-          nullable: true
-          description: >-
-            Asset id of a face reference to condition identity on when Aura is
-            enabled. Rides as image conditioning plus the Identity Lock prompt
-            block. Output is ArcFace-gated (cosine >= 0.60) with one automatic
-            re roll before delivery. Ignored when aura is false or the model
-            cannot carry a reference (route to a lane that can; never silently
-            drop the reference).
-        sheet_type:
-          type: string
-          nullable: true
-          enum: [split, turnaround, expression]
-          description: >-
-            One-tap character sheet scaffold (NOL-461). When set with Aura, the
-            server composes the verbatim sheet composition (split screen, four
-            view turnaround, or expression sheet) plus its hard framing tail and
-            the Aura realism stack, with the face/primary reference attached.
-            The scaffold text is server-side IP and is never sent by clients.
-          examples: ['turnaround']
         quality:
           type: string
           nullable: true
@@ -5600,6 +5650,38 @@ components:
             verbatim and NOT validated against the preset catalog (a preset may
             be deleted later).
           examples: ['cinematic-portrait']
+        aura:
+          type: boolean
+          nullable: true
+          description: >-
+            Applies Aura, the Nolgia character engine: server-side photoreal
+            composition layered onto the prompt (people render as photographs,
+            real skin, real light, no AI gloss). Honored only on models whose
+            catalog entry publishes `image.aura_compatible: true`; a true value
+            on any other model is a no-op, never an error. When OMITTED, the
+            server applies the product default: ON for prompts that read as a
+            person subject on aura_compatible models, OFF otherwise. An
+            explicit false always wins. The job's persisted params echo the
+            effective value for audit and gallery badging.
+        face_reference_asset_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: >-
+            Image asset (owned by the caller) whose face conditions the render
+            for identity. A face reference IS an Aura identity request: it
+            turns the pipeline on (an explicit `aura: false` alongside it is a
+            400) and needs a model that accepts reference images
+            (`image.reference_images_max` above the number of references
+            already attached) - rejected with a 400 otherwise, so a reference
+            is never silently dropped. Rides alongside
+            `image_url`/`image_urls` and counts against the model's combined
+            reference budget. The delivered render is subject to the ArcFace
+            identity acceptance gate (>= 0.60 against this reference, one
+            automatic re-roll) once the scoring runtime is enabled; that gate
+            scores and re-rolls a single render, so `num_images` must be 1
+            (or omitted) alongside a face reference - a batch is a 400 rather
+            than a set of renders where only one was actually scored.
 
     GenerateImageResponse:
       type: object
@@ -6476,20 +6558,23 @@ components:
           examples: ['A silver-haired astronaut with a scarred left cheek and a teal flight suit.']
         canonical_description:
           type: string
-          maxLength: 4000
-          description: >-
-            The canonical written character bible (face, hair, build, wardrobe,
-            anchor) stored on the character and reused verbatim by every
-            downstream generation (NOL-461). The written description IS the
-            continuity contract.
+          maxLength: 2000
+          description: |
+            The character's canonical written description - the asset bible
+            entry (face, hair, build, wardrobe, anchor) reused VERBATIM by
+            every downstream generation. This is the continuity contract:
+            downstream prompts must fold it in unchanged, never paraphrased.
+            Falls back to `description` when the record predates this field.
+            Optional in the schema only so existing clients keep parsing; the
+            API always sends it (empty string when never set).
         primary_reference_asset_id:
           type: string
           format: uuid
           nullable: true
-          description: >-
-            Asset id of the character's primary identity reference, used as the
-            ArcFace-scored identity anchor (>= 0.60) for new renders and sheet
-            scaffolds (NOL-461).
+          description: |
+            The reference asset that anchors the character's identity: sheet
+            actions attach it as the character reference and identity scoring
+            runs against it. Defaults to the first reference asset when unset.
         reference_assets:
           type: array
           maxItems: 4
@@ -6530,17 +6615,18 @@ components:
         canonical_description:
           type: string
           nullable: true
-          maxLength: 4000
-          description: >-
-            The canonical written character bible (NOL-461), stored verbatim and
-            reused by every downstream generation.
+          maxLength: 2000
+          description: |
+            The canonical written description reused verbatim by downstream
+            generations (see `Character.canonical_description`). Defaults to
+            `description` when omitted, so every new character has one.
         primary_reference_asset_id:
           type: string
           format: uuid
           nullable: true
-          description: >-
-            Asset id of the character's primary identity reference (must be one
-            of reference_asset_ids). ArcFace-scored identity anchor (>= 0.60).
+          description: |
+            The identity-anchor reference. Must be one of
+            `reference_asset_ids`. Defaults to the first reference asset.
         reference_asset_ids:
           type: array
           minItems: 0
@@ -6566,15 +6652,17 @@ components:
         canonical_description:
           type: string
           nullable: true
-          maxLength: 4000
-          description: The canonical written character bible (NOL-461).
+          maxLength: 2000
+          description: |
+            Replaces the canonical written description (see
+            `Character.canonical_description`) when provided.
         primary_reference_asset_id:
           type: string
           format: uuid
           nullable: true
-          description: >-
-            Asset id of the character's primary identity reference (must be one
-            of reference_asset_ids). Set to null to clear.
+          description: |
+            Replaces the identity-anchor reference when provided. Must name
+            one of the character's reference assets after this update.
         reference_asset_ids:
           type: array
           nullable: true
@@ -6584,6 +6672,76 @@ components:
           items:
             type: string
             format: uuid
+
+    CharacterSheetKind:
+      type: string
+      enum: [split, turnaround, expression]
+      description: |
+        One-tap character-sheet scaffolds: `split` (full-body plus close-up
+        split screen), `turnaround` (five consistent views: close up, medium,
+        full front, side profile, back), `expression` (full-body reference
+        plus an expression grid).
+
+    CreateCharacterSheetRequest:
+      type: object
+      additionalProperties: false
+      required: [kind]
+      properties:
+        kind:
+          $ref: '#/components/schemas/CharacterSheetKind'
+        wearable_reference_asset_ids:
+          type: array
+          maxItems: 3
+          description: |
+            Image assets (owned by the caller) showing exact wearable items -
+            garments, jewelry, eyewear, footwear - that must render EXACTLY as
+            shown on the character in every view: never redesigned, restyled,
+            recolored, or reinterpreted. They ride the generation as
+            additional reference conditioning alongside the character's
+            primary reference (the sheet lane carries up to 4 references
+            total, so at most 3 wearables).
+          items:
+            type: string
+            format: uuid
+        project_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Files the generated sheet into this caller-owned project.
+
+    AutopilotCharacterRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        project_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Files the generated portrait into this caller-owned project.
+
+    AutopilotCharacterResponse:
+      type: object
+      additionalProperties: false
+      required: [job, canonical_description, axes]
+      properties:
+        job:
+          $ref: '#/components/schemas/Job'
+        canonical_description:
+          type: string
+          description: |
+            The rolled canonical written description. Store it on the
+            character record unchanged when creating the character from this
+            roll - it is the continuity contract for every downstream
+            generation.
+        axes:
+          type: object
+          additionalProperties:
+            type: string
+          description: |
+            The variety-engine roll: all 8 axis values (heritage, age_band,
+            hair_color, build, hair_style, eye_color, wardrobe, anchor).
+            Consecutive rolls are guaranteed to differ on at least 2 of the 4
+            core axes (heritage, age_band, hair_color, build).
 
     Project:
       type: object
@@ -9524,7 +9682,14 @@ components:
       type: object
       additionalProperties: false
       required: [slug, name, output_type, target]
-      description: Create-or-update payload for a preset. Posting an existing slug overwrites all fields with this body (omitted optional fields reset to their defaults) — presets are mutable metadata, there are no versions.
+      description: >-
+        Create-or-update payload for a preset. Posting an existing slug
+        overwrites its content fields with this body (omitted optional content
+        fields reset to their defaults) — presets are mutable metadata, there
+        are no versions. The lifecycle fields (`sort_order`, `visibility`,
+        `featured`) are the exception: omitting one preserves the existing
+        row's curated value instead of resetting it, and applies the default
+        (`0` / `private` / `false`) only when the preset is first created.
       properties:
         slug:
           type: string
@@ -9584,17 +9749,23 @@ components:
           $ref: '#/components/schemas/PresetTarget'
         sort_order:
           type: integer
-          description: Ascending display order. Defaults to 0 when omitted.
+          description: >-
+            Ascending display order. Lifecycle field: omit to keep an existing
+            preset's current position; defaults to `0` on first create.
         visibility:
           allOf:
             - $ref: '#/components/schemas/PresetVisibility'
-          description: Defaults to `private` when omitted — publish explicitly with `public`.
+          description: >-
+            Lifecycle field: omit to keep an existing preset's current
+            visibility (an omitted value never unpublishes a public preset);
+            defaults to `private` on first create — publish explicitly with
+            `public`.
         featured:
           type: boolean
           description: >-
-            Marks the preset for the /presets page's featured rail. Defaults
-            to `false` when omitted; the upsert replaces all fields, so
-            omitting the flag clears it.
+            Marks the preset for the /presets page's featured rail. Lifecycle
+            field: omit to keep an existing preset's current flag; defaults to
+            `false` on first create. Clear it by sending `false` explicitly.
 
     UpdatePresetRequest:
       type: object
