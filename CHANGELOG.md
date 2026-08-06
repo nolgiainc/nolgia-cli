@@ -3,7 +3,7 @@
 Release notes for the Nolgia CLI. Each `## vX.Y.Z` section becomes the body of
 the matching GitHub release.
 
-## Unreleased
+## v0.2.20
 
 - **New `nolgia restore video`: the AI footage-restorer lane.** Re-renders
   existing footage with de-noise, de-haze, detail recovery and up-res to a
@@ -22,6 +22,17 @@ the matching GitHub release.
 - A duplicate-submission (`409`) recovery block now names the command that
   submitted (`nolgia restore video ... --idempotency-key <new-value>`) instead
   of always suggesting `nolgia gen ...`.
+- **`gen video --cost-only` now reflects the audio flag.** Video models whose
+  provider charges extra for a soundtrack carry an `audio_surcharge` on
+  `GET /models`; asking for a silent clip with `--generate-audio false` is
+  charged `credits - audio_surcharge`. The estimate now subtracts the surcharge
+  from the per-baseline rate *before* duration scaling, matching the server's
+  order of operations, so a quoted silent clip matches what is actually billed.
+  Audio is on by default, so default quotes are unchanged; Kling v3 is the only
+  family carrying a nonzero surcharge today (720p 32 credits with audio vs 21
+  silent, 1080p 42 vs 28, 4k 158 vs 110).
+- Re-vendored the OpenAPI spec so the generated client carries `audio_surcharge`
+  on `ModelCost` and `QualityOption`.
 
 ## v0.2.19
 
