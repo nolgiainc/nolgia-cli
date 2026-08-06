@@ -163,10 +163,15 @@ async fn update(args: UpdateCharacterArgs, ctx: &CommandContext) -> Result<()> {
         name.is_some() || description.is_some() || reference_asset_ids.is_some(),
         "provide at least one of --name, --description, or --reference-asset-id"
     );
+    // `..Default::default()` leaves the Aura identity fields
+    // (canonical_description, primary_reference_asset_id) unset: they are
+    // patch-semantics optionals this command has no flags for yet, and
+    // omitting them from the body is what leaves them untouched server-side.
     let body = UpdateCharacterRequest {
         name,
         description,
         reference_asset_ids,
+        ..Default::default()
     };
     let character = ctx
         .client()
