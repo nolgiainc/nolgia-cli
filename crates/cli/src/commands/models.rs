@@ -78,7 +78,22 @@ fn cost_line(model: &Model) -> String {
     }
 }
 
+/// One-line capability summary. Restore-lane models lead with a `restore`
+/// marker: the lane takes a source clip and no prompt, so a human reading the
+/// default catalog output has to be able to tell a restorer from an ordinary
+/// video generator without discovering that `--json` exposes `restore: true`.
 fn capability_line(model: &Model) -> String {
+    let capabilities = modality_capability_line(model);
+    if model.restore != Some(true) {
+        return capabilities;
+    }
+    if capabilities.is_empty() {
+        return "restore".to_string();
+    }
+    format!("restore  {capabilities}")
+}
+
+fn modality_capability_line(model: &Model) -> String {
     if let Some(video) = &model.video {
         let mut parts: Vec<String> = Vec::new();
         if !video.durations.is_empty() {

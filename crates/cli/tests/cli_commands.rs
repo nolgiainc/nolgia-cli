@@ -304,6 +304,79 @@ async fn restore_video_url_source_requires_duration_client_side() {
     );
 }
 
+/// A local file is uploaded before it can be restored, and an upload's
+/// duration is probed asynchronously — so without `--duration-seconds` the
+/// submission would be rejected *after* the whole file went over the wire.
+/// The refusal has to land before the upload, and before any option
+/// validation that would also strand an asset.
+#[tokio::test]
+async fn restore_video_local_file_requires_duration_before_uploading() {
+    let api = MockServer::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let clip = dir.path().join("clip.mp4");
+    std::fs::write(&clip, b"not really an mp4").unwrap();
+
+    cmd()
+        .arg("--api-url")
+        .arg(api.uri())
+        .args(["restore", "video", "--input"])
+        .arg(&clip)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--duration-seconds is required"));
+    assert!(
+        api.received_requests().await.unwrap().is_empty(),
+        "nothing may be uploaded before the duration check"
+    );
+
+    // Same rule for a bounded option the generated request rejects: it must
+    // fail before the upload rather than leaving an orphaned asset behind.
+    cmd()
+        .arg("--api-url")
+        .arg(api.uri())
+        .args(["restore", "video", "--input"])
+        .arg(&clip)
+        .args([
+            "--duration-seconds",
+            "10",
+            "--quality",
+            "a-tier-name-far-too-long-for-the-schema",
+        ])
+        .assert()
+        .failure();
+    assert!(
+        api.received_requests().await.unwrap().is_empty(),
+        "option validation must precede the upload"
+    );
+}
+
+/// A duplicate restore must be told how to repeat *this* command. The 409
+/// recovery block used to hard-code `nolgia gen ...`, which a restore caller
+/// cannot run.
+#[tokio::test]
+async fn a_duplicate_restore_names_the_restore_command() {
+    let api = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/restore/video"))
+        .respond_with(ResponseTemplate::new(409).set_body_json(duplicate_problem()))
+        .mount(&api)
+        .await;
+
+    cmd()
+        .arg("--api-url")
+        .arg(api.uri())
+        .args(["restore", "video", "--input", ASSET_ID, "--no-wait"])
+        .assert()
+        .code(EXIT_LIVE_JOB)
+        .stderr(predicate::str::contains(format!(
+            "already submitted — job {JOB_ID}"
+        )))
+        .stderr(predicate::str::contains(
+            "nolgia restore video ... --idempotency-key <new-value>",
+        ))
+        .stderr(predicate::str::contains("nolgia gen ").not());
+}
+
 /// Restore forwards whatever `--model` the caller names (the NOL-439 rule):
 /// the planned master-upscale driver must work on this binary the day the
 /// API serves it, with no CLI re-release.
@@ -1358,6 +1431,33 @@ async fn models_list_shows_quality_and_reference_capabilities() {
         .stdout(predicate::str::contains("720p/1080p/4k*"))
         .stdout(predicate::str::contains("video-refs:3"))
         .stdout(predicate::str::contains("end-frame"));
+}
+
+/// A restore-lane model takes a source clip and no prompt, so the human
+/// catalog has to say so: without a marker there is nothing to look for
+/// unless the caller knows `--json` carries `restore: true`.
+#[tokio::test]
+async fn models_catalog_marks_restore_lane_models() {
+    let api = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/models"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"models": [{
+            "id": "seedvr2-restore", "modality": "video", "recommended": false, "restore": true,
+            "cost": {"credits": 240, "unit": "per_clip", "baseline_seconds": 5},
+            "quality": {"default": "1080p", "options": [
+                {"id": "720p", "credits": 180, "premium": false},
+                {"id": "1080p", "credits": 240, "premium": false},
+            ]},
+        }]})))
+        .mount(&api)
+        .await;
+    // The marker sits in the capability column, so the assertion cannot be
+    // satisfied by the model id alone.
+    run_ok(&api, &["models", "list", "--modality", "video"])
+        .stdout(predicate::str::contains("restore  720p/1080p"));
+    run_ok(&api, &["models", "get", "seedvr2-restore"])
+        .stdout(predicate::str::contains("supports:"))
+        .stdout(predicate::str::contains("restore  720p/1080p"));
 }
 
 #[tokio::test]

@@ -23,9 +23,10 @@ clip length and the target resolution tier (see `nolgia models get \
 seedvr2-restore`). Agents: check the tier rates first and confirm with the \
 user before restoring long footage at 1440p/2160p.")]
 pub struct RestoreVideoArgs {
-    /// Restore model id (see models with `restore: true` in `nolgia models
-    /// list --modality video`). Any id the API accepts is forwarded verbatim
-    /// and validated server-side; the API is the authority on what exists.
+    /// Restore model id (restore-lane models are marked `restore` in
+    /// `nolgia models list --modality video`). Any id the API accepts is
+    /// forwarded verbatim and validated server-side; the API is the
+    /// authority on what exists.
     #[arg(long, default_value = "seedvr2-restore")]
     pub model: String,
     /// The footage to restore: the UUID of one of your video assets, a local
@@ -71,39 +72,83 @@ pub async fn run(command: RestoreCommand, ctx: &CommandContext) -> Result<()> {
     }
 }
 
-/// How `--input` resolves: a raw URL is forwarded as `source_url`, anything
-/// else becomes a `source_asset_id` (an existing asset's UUID, or the asset
-/// created by uploading a local file).
+/// What `--input` names, decided without touching the network: classifying
+/// first is what lets every client-side check run *before* a local file is
+/// uploaded, so a rejected option cannot leave an unused asset behind.
+enum RestoreInput {
+    Url(String),
+    Asset(uuid::Uuid),
+    File(PathBuf),
+}
+
+/// How the request carries the source: a raw URL is forwarded as
+/// `source_url`, anything else becomes a `source_asset_id` (an existing
+/// asset's UUID, or the asset created by uploading a local file).
 enum RestoreSource {
     Url(String),
     Asset(uuid::Uuid),
 }
 
-async fn resolve_source(input: &str, ctx: &CommandContext) -> Result<RestoreSource> {
+fn classify_input(input: &str) -> Result<RestoreInput> {
     if input.starts_with("https://") || input.starts_with("http://") {
-        return Ok(RestoreSource::Url(input.to_string()));
+        return Ok(RestoreInput::Url(input.to_string()));
     }
-    if !Path::new(input).exists() {
-        let id = uuid::Uuid::parse_str(input).with_context(|| {
-            format!("--input: {input:?} is not an https URL, an asset UUID, or an existing file")
-        })?;
-        return Ok(RestoreSource::Asset(id));
+    if Path::new(input).exists() {
+        return Ok(RestoreInput::File(PathBuf::from(input)));
     }
-    let asset = upload_asset_file(&PathBuf::from(input), ctx, None).await?;
-    Ok(RestoreSource::Asset(asset.id))
+    let id = uuid::Uuid::parse_str(input).with_context(|| {
+        format!("--input: {input:?} is not an https URL, an asset UUID, or an existing file")
+    })?;
+    Ok(RestoreInput::Asset(id))
+}
+
+fn build_body(
+    args: &RestoreVideoArgs,
+    quality: Option<&RestoreVideoRequestQuality>,
+    source: &RestoreSource,
+) -> Result<RestoreVideoRequest> {
+    let (source_asset_id, source_url) = match source {
+        RestoreSource::Asset(id) => (Some(*id), None),
+        RestoreSource::Url(url) => (None, Some(url.clone())),
+    };
+    RestoreVideoRequest::builder()
+        .model(args.model.clone())
+        .source_asset_id(source_asset_id)
+        .source_url(source_url)
+        .quality(quality.cloned())
+        .noise_scale(args.noise_scale)
+        .duration_seconds(args.duration_seconds)
+        .seed(args.seed)
+        .project_id(args.project_id)
+        .try_into()
+        .context("building restore request")
 }
 
 async fn video(args: RestoreVideoArgs, ctx: &CommandContext) -> Result<()> {
-    let source = resolve_source(&args.input, ctx).await?;
-    // A raw URL cannot be measured server-side, so the API requires the
-    // declared clip length; fail here before spending the round trip.
-    if matches!(source, RestoreSource::Url(_)) {
-        anyhow::ensure!(
+    let input = classify_input(&args.input)?;
+    // Both of these sources have to be priced from a declared clip length,
+    // and both refusals have to happen before any bytes move: a URL cannot be
+    // measured server-side at all, and a freshly uploaded asset's duration is
+    // probed asynchronously (`Asset.duration_seconds` is null until the probe
+    // lands), so the submission that follows the upload would be rejected for
+    // a missing duration after the whole file was on the wire. An existing
+    // asset needs nothing: when its stored duration is known the server bills
+    // from that and ignores whatever we send.
+    match &input {
+        RestoreInput::Url(_) => anyhow::ensure!(
             args.duration_seconds.is_some(),
             "--duration-seconds is required with a URL source: the server cannot \
              measure external media, and the clip length prices the job. Round \
              the source duration up to whole seconds."
-        );
+        ),
+        RestoreInput::File(_) => anyhow::ensure!(
+            args.duration_seconds.is_some(),
+            "--duration-seconds is required when --input is a local file: the \
+             upload's duration is probed asynchronously and is not known yet \
+             when the restore is submitted, and the clip length prices the job. \
+             Round the source duration up to whole seconds."
+        ),
+        RestoreInput::Asset(_) => {}
     }
     let quality = args
         .quality
@@ -111,24 +156,33 @@ async fn video(args: RestoreVideoArgs, ctx: &CommandContext) -> Result<()> {
         .map(RestoreVideoRequestQuality::try_from)
         .transpose()
         .map_err(|e| anyhow::anyhow!("--quality: {e}"))?;
-    let (source_asset_id, source_url) = match source {
-        RestoreSource::Asset(id) => (Some(id), None),
-        RestoreSource::Url(url) => (None, Some(url)),
+    // Run the generated request's own bounds checks (noise_scale,
+    // duration_seconds, ...) against a placeholder source before uploading,
+    // for the same reason: a rejected option must not cost an upload and an
+    // orphaned asset. The built value is discarded; the real one is built
+    // below once the source id exists.
+    if matches!(input, RestoreInput::File(_)) {
+        build_body(
+            &args,
+            quality.as_ref(),
+            &RestoreSource::Asset(uuid::Uuid::nil()),
+        )?;
+    }
+    let source = match input {
+        RestoreInput::Url(url) => RestoreSource::Url(url),
+        RestoreInput::Asset(id) => RestoreSource::Asset(id),
+        RestoreInput::File(path) => {
+            RestoreSource::Asset(upload_asset_file(&path, ctx, None).await?.id)
+        }
     };
-    let body: RestoreVideoRequest = RestoreVideoRequest::builder()
-        .model(args.model)
-        .source_asset_id(source_asset_id)
-        .source_url(source_url)
-        .quality(quality)
-        .noise_scale(args.noise_scale)
-        .duration_seconds(args.duration_seconds)
-        .seed(args.seed)
-        .project_id(args.project_id)
-        .try_into()
-        .context("building restore request")?;
+    let body = build_body(&args, quality.as_ref(), &source)?;
     let job = match ctx.client().restore_video().body(body).send().await {
         Ok(response) => response.into_inner(),
-        Err(err) => return Err(super::submit_error(err, "submitting restore job").await),
+        Err(err) => {
+            return Err(
+                super::submit_error(err, "submitting restore job", "nolgia restore video").await,
+            );
+        }
     };
     if args.no_wait || !args.wait {
         return print_json(&AsyncJob {

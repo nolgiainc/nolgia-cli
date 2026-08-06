@@ -72,7 +72,15 @@ pub(crate) async fn api_error(err: nolgia_client::ApiError<()>, action: &str) ->
 ///
 /// If the id cannot be found in the prose, this degrades to exactly the
 /// previous behavior: the server's `detail`, verbatim.
-pub(crate) async fn submit_error(err: nolgia_client::ApiError<()>, action: &str) -> anyhow::Error {
+///
+/// `retry_command` is the invocation that submitted (`nolgia gen video`,
+/// `nolgia restore video`, ...); the duplicate rendering echoes it so its
+/// "run it again deliberately" hint is a command the caller can actually run.
+pub(crate) async fn submit_error(
+    err: nolgia_client::ApiError<()>,
+    action: &str,
+    retry_command: &str,
+) -> anyhow::Error {
     if let nolgia_client::ApiError::UnexpectedResponse(response) = err {
         let status = response.status();
         let message = problem_message(response).await;
@@ -83,6 +91,7 @@ pub(crate) async fn submit_error(err: nolgia_client::ApiError<()>, action: &str)
             return LiveJob::Duplicate {
                 job_id,
                 detail: detail.to_string(),
+                retry_command: retry_command.to_string(),
             }
             .into();
         }
