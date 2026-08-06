@@ -7,6 +7,28 @@ on:
       - '**/*.md'
       - 'docs/**'
       - 'LICENSE'
+  # NOL-479: `Test, Lint & Format` and `OpenAPI spec drift` are both required
+  # contexts on main and both come from this workflow, so while it was
+  # `pull_request`-only a throttled webhook left PRs here BLOCKED with no way to
+  # produce either check. `workflow_dispatch` is a REST call, not a webhook, so
+  # it stays available during exactly the outage that breaks the PR trigger.
+  #
+  # Safe and non-vacuous by inspection: both jobs check out the dispatched ref
+  # and act on that tree — `test` runs cargo test/clippy/fmt plus the install.sh
+  # sandbox, and `spec-check` diffs the checked-out crates/client/openapi.yaml
+  # against the canonical published spec over HTTPS. Neither reads
+  # `github.event.pull_request`, so a dispatched run does the identical work and
+  # cannot pass without having actually inspected the tree. (Contrast
+  # commit-attribution-check.yml, whose commit range came from the PR payload
+  # and which needed a base-ref fallback added before its dispatch path did any
+  # work at all.)
+  #
+  # No deploy or publish surface: releasing is release.yml, which is triggered
+  # only by `push: tags: ['v*']` and additionally gates every publishing job on
+  # `startsWith(github.ref, 'refs/tags/v')`. It has no `workflow_dispatch`, so
+  # nothing here becomes shippable by making CI dispatchable (NOL-472's rule:
+  # a workflow may be dispatchable, or it may publish, not both unguarded).
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
