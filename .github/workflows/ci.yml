@@ -7,6 +7,48 @@ on:
       - '**/*.md'
       - 'docs/**'
       - 'LICENSE'
+  # NOL-479: `Test, Lint & Format` and `OpenAPI spec drift` are both required
+  # contexts on main and both come from this workflow, so while it was
+  # `pull_request`-only a throttled webhook left PRs here BLOCKED with no way to
+  # produce either check. `workflow_dispatch` is a REST call, not a webhook, so
+  # it stays available during exactly the outage that breaks the PR trigger.
+  #
+  # Safe and non-vacuous by inspection: both jobs act on the checked-out tree.
+  # `test` runs cargo test/clippy/fmt plus the install.sh sandbox, and
+  # `spec-check` diffs the checked-out crates/client/openapi.yaml against the
+  # canonical published spec over HTTPS. Neither reads
+  # `github.event.pull_request`, so neither can pass without having actually
+  # inspected the tree. (Contrast commit-attribution-check.yml, whose commit
+  # range came from the PR payload and which needed a base-ref fallback added
+  # before its dispatch path did any work at all.)
+  #
+  # But the tree is not the same tree by default, and that gap mattered:
+  # `pull_request` sets GITHUB_SHA to the synthetic merge commit of the PR head
+  # with its base, while `workflow_dispatch` gives the tip of the selected
+  # branch. A branch that is green on its own tip but broken once merged into a
+  # moved `main` would therefore produce both required contexts from a dispatch
+  # while the real merge fails. The `Build the PR merge tree` step below closes
+  # that: on dispatch each job merges the default branch into the checked-out
+  # ref before doing any work, and refuses to report a result if that merge
+  # conflicts. Dispatch is then a substitute for the PR trigger, not a weaker
+  # variant of it. (The run must still be dispatched on the PR's head branch,
+  # not on a merge ref: the check run attaches to the dispatched ref's tip, and
+  # only a check on the PR head SHA satisfies branch protection.)
+  #
+  # No deploy or publish surface: releasing is release.yml, which is triggered
+  # only by `push: tags: ['v*']` and additionally gates every publishing job on
+  # `startsWith(github.ref, 'refs/tags/v')`. It has no `workflow_dispatch`, so
+  # nothing here becomes shippable by making CI dispatchable (NOL-472's rule:
+  # a workflow may be dispatchable, or it may publish, not both unguarded).
+  #
+  # Deliberately takes NO inputs, for the same reason
+  # commit-attribution-check.yml takes none: a caller-supplied merge base is a
+  # bypass, not a convenience. Pointing it at the dispatched branch itself makes
+  # the merge a no-op, which is exactly the branch-tip-only run this step exists
+  # to prevent. The base is always the repository's default branch, which is
+  # protected and not dispatcher-controlled, and is also the only branch this
+  # workflow's `pull_request` trigger fires for.
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -21,6 +63,35 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          # A dispatched run has to merge the base branch in below, which needs
+          # real history; the PR trigger already gets the merge commit.
+          fetch-depth: ${{ github.event_name == 'pull_request' && 1 || 0 }}
+
+      - name: Build the PR merge tree
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          # Not configurable: see the note on the trigger above. Read from the
+          # payload rather than hardcoded so the step stays correct in repos
+          # whose default branch is `main` or `master`.
+          BASE_REF: ${{ github.event.repository.default_branch }}
+        run: |
+          set -uo pipefail
+          if ! git fetch --no-tags --quiet origin \
+            "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"; then
+            echo "::error::Could not fetch base branch '$BASE_REF', so the merge tree cannot be built. Refusing to report a result."
+            exit 1
+          fi
+          # Throwaway identity: runners have none configured and `git merge`
+          # demands one even with --no-commit. Nothing is committed here: the
+          # merge only lands in the worktree the steps below inspect.
+          if ! git -c user.name=ci -c user.email=ci@local \
+            merge --no-commit --no-ff "origin/$BASE_REF"; then
+            git merge --abort || true
+            echo "::error::Merging origin/$BASE_REF into the dispatched ref conflicts, so the merge tree the PR would produce does not exist. Update the branch and dispatch again."
+            exit 1
+          fi
+          echo "Testing $(git rev-parse --short HEAD) merged with origin/$BASE_REF ($(git rev-parse --short "origin/$BASE_REF"))."
 
       - name: Install Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
@@ -61,6 +132,37 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: ${{ github.event_name == 'pull_request' && 1 || 0 }}
+
+      # Same reason as the `test` job: without this, a dispatch would diff the
+      # branch tip's vendored spec while the PR merge would diff a different
+      # file, so the required context could go green on a tree that does not
+      # match what merging produces.
+      - name: Build the PR merge tree
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          # Not configurable: see the note on the trigger above. Read from the
+          # payload rather than hardcoded so the step stays correct in repos
+          # whose default branch is `main` or `master`.
+          BASE_REF: ${{ github.event.repository.default_branch }}
+        run: |
+          set -uo pipefail
+          if ! git fetch --no-tags --quiet origin \
+            "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"; then
+            echo "::error::Could not fetch base branch '$BASE_REF', so the merge tree cannot be built. Refusing to report a result."
+            exit 1
+          fi
+          # Throwaway identity: runners have none configured and `git merge`
+          # demands one even with --no-commit. Nothing is committed here: the
+          # merge only lands in the worktree the steps below inspect.
+          if ! git -c user.name=ci -c user.email=ci@local \
+            merge --no-commit --no-ff "origin/$BASE_REF"; then
+            git merge --abort || true
+            echo "::error::Merging origin/$BASE_REF into the dispatched ref conflicts, so the merge tree the PR would produce does not exist. Update the branch and dispatch again."
+            exit 1
+          fi
+          echo "Diffing $(git rev-parse --short HEAD) merged with origin/$BASE_REF ($(git rev-parse --short "origin/$BASE_REF"))."
 
       # The Rust client is generated at build time from the vendored spec at
       # crates/client/openapi.yaml. That copy must never drift from the

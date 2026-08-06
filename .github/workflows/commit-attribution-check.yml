@@ -24,6 +24,31 @@ name: Commit Attribution Check
 
 on:
   pull_request:
+  # NOL-479: `No third-party attribution trailers` is a required context on the
+  # default branch of every repo carrying this file. As a `pull_request`-only
+  # workflow the ONLY way to produce it was a webhook, so during the 2026-08-06
+  # Actions outage (webhooks throttled to ~15%, delayed ~1h) a single missing
+  # delivery held a PR at BLOCKED with no lever to unstick it — including the PR
+  # that carried NOL-472's deploy ref guard, i.e. the fix for the incident was
+  # itself unmergeable during the incident. `workflow_dispatch` is a REST call,
+  # not a webhook, so it is not throttled.
+  #
+  # Safe to dispatch: this workflow is a pure reader. `contents: read`, no cloud
+  # credentials, nothing to deploy or publish, so it carries none of the NOL-472
+  # risk that came from `ci.yml` being dispatchable AND able to ship.
+  #
+  # The non-obvious half of the fix is in the step below: dispatchability alone
+  # would have made this check pass vacuously. See the note on BASE_REF.
+  #
+  # Deliberately takes NO inputs. An earlier revision accepted a `base_ref` to
+  # diff against, which let anyone with dispatch access truncate the range they
+  # were about to be judged on: pointing it at the dispatched branch itself (or
+  # any branch already containing the offending commit) collapses the merge base
+  # onto HEAD, and the empty-range fallback below then inspects only the clean
+  # tip. That is the vacuous pass again, wearing a different hat. The base is
+  # therefore always the repository's default branch, which is protected and not
+  # attacker-controlled.
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -45,21 +70,65 @@ jobs:
 
       - name: Reject Claude/Anthropic Co-authored-by trailers
         env:
-          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          # NOL-479: on `workflow_dispatch` there is no pull_request payload, so
+          # both of these are EMPTY. Left unchanged, the script below fell
+          # through to RANGE_START="", `git log "..HEAD"` resolved to the empty
+          # range HEAD..HEAD, and the check exited 0 having read zero commit
+          # messages — a required context reporting green without ever doing its
+          # job. That is strictly WORSE than a check that cannot be dispatched,
+          # so adding the trigger without this fallback chain would have been a
+          # net loss. The chain is: PR base ref (webhook, trusted payload) ->
+          # the repository's default branch (which is why this file is portable
+          # across repos whose default branch is `main` or `master`).
+          #
+          # The dispatch base is NOT configurable on purpose: a caller-supplied
+          # base can only ever narrow the range, and narrowing it to the
+          # dispatched branch is exactly how you smuggle a trailer past a
+          # required check. Diffing against the default branch can over-collect
+          # on a dispatch for a PR that targets some other branch, which fails
+          # loudly and is the direction to err in.
+          BASE_REF: ${{ github.event.pull_request.base.ref || github.event.repository.default_branch }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -uo pipefail
 
-          if git rev-parse --verify --quiet "origin/$BASE_REF" >/dev/null; then
+          if [ -z "$BASE_REF" ] && [ -z "$BASE_SHA" ]; then
+            echo "::error::No base ref and no base SHA — cannot determine a commit range. Refusing to report a result."
+            exit 1
+          fi
+
+          # A dispatched run has never fetched the base branch. Resolve it
+          # explicitly rather than letting rev-parse miss and degrade to an
+          # empty range, which is the vacuous-pass path described above.
+          if [ -n "$BASE_REF" ]; then
+            git fetch --no-tags --quiet origin \
+              "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF" || true
+          fi
+
+          if [ -n "$BASE_REF" ] && git rev-parse --verify --quiet "origin/$BASE_REF" >/dev/null; then
             RANGE_START=$(git merge-base "origin/$BASE_REF" HEAD)
           else
             RANGE_START="$BASE_SHA"
           fi
 
+          if [ -z "$RANGE_START" ]; then
+            echo "::error::Could not resolve a range start (base ref '$BASE_REF' not found and no base SHA). Refusing to report a result."
+            exit 1
+          fi
+
           COMMITS=$(git log --no-merges --format=%H "$RANGE_START..HEAD")
           if [ -z "$COMMITS" ]; then
-            echo "No non-merge commits in range — nothing to check."
-            exit 0
+            if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+              # Dispatched at (or behind) the base ref, so there is no branch
+              # range to walk. Inspect the tip commit instead of reporting green
+              # without reading a single commit message. Guarantees the dispatch
+              # path always judges at least one commit.
+              COMMITS=$(git log --no-merges -1 --format=%H HEAD)
+              echo "No commits ahead of origin/$BASE_REF — checking the tip commit only."
+            else
+              echo "No non-merge commits in range — nothing to check."
+              exit 0
+            fi
           fi
 
           FAILED=0
@@ -82,4 +151,8 @@ jobs:
             exit 1
           fi
 
-          echo "OK — no Claude/Anthropic Co-authored-by trailers in $(git log --no-merges --oneline "$RANGE_START..HEAD" | wc -l | tr -d ' ') commit(s)."
+          # Count the commits actually inspected, not the range: in the dispatch
+          # tip-commit fallback above the range is empty but one commit was
+          # judged, and reporting "0 commit(s)" there reads exactly like the
+          # vacuous pass this change exists to eliminate.
+          echo "OK — no Claude/Anthropic Co-authored-by trailers in $(echo "$COMMITS" | wc -l | tr -d ' ') commit(s)."
