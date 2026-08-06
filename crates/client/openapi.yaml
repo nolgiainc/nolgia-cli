@@ -420,6 +420,52 @@ paths:
         default:
           $ref: '#/components/responses/ProblemResponse'
 
+  /restore/video:
+    post:
+      tags: [Generate]
+      operationId: restoreVideo
+      summary: Submit a video restoration/upscale job (asynchronous).
+      description: |
+        The AI footage-restorer lane: re-renders existing footage (a video
+        asset you generated or uploaded, or a URL you host) at a target
+        resolution tier with de-noise, de-haze and detail recovery. Restore
+        models take NO prompt — the source clip is the whole input. Returns
+        immediately with a job (modality `video`); use `GET /jobs/{id}` or
+        `GET /jobs/{id}/wait` to retrieve the restored asset.
+
+        Credits scale with the source clip length at the selected quality
+        tier's per-5-second rate — see the model's `quality.options` on
+        `GET /models`. Restore-lane models carry `restore: true` in the
+        model catalog.
+
+        **Duplicate submissions are refused, not billed.** Same idempotency
+        contract as `POST /generate/video`: an identical request within five
+        minutes returns `409` naming the existing job; send a distinct
+        `Idempotency-Key` header to declare a deliberate new run.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RestoreVideoRequest'
+      responses:
+        '202':
+          description: Job accepted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '402':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        '422':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
   /jobs:
     get:
       tags: [Jobs]
@@ -4757,6 +4803,12 @@ components:
           $ref: '#/components/schemas/QualityCapabilities'
         references:
           $ref: '#/components/schemas/ReferenceCapabilities'
+        restore:
+          type: boolean
+          description: >-
+            True for video-restoration lane models: they are submitted via
+            `POST /restore/video` with a source clip and NO prompt, not via
+            `POST /generate/video`. Absent for generation models.
 
     ReferenceCapabilities:
       type: object
@@ -4995,6 +5047,16 @@ components:
             * `optional`: the model honors `generate_audio`. Omitting it
               resolves to `true`.
           examples: ['optional']
+        regeneration:
+          type: boolean
+          description: >-
+            Whether the model can re-render one of your completed videos at
+            its top resolution tier via the provider's native regeneration
+            flow (`source_video_asset_id` on `POST /generate/video`; MiniMax
+            Hailuo 3's 768P→2K Video Regeneration). The charge covers the
+            re-rendered 2K output seconds plus the source clip's own input
+            seconds, both at the model's 2k tier rate. Omitted means
+            unsupported.
 
     ImageCapabilities:
       type: object
@@ -5014,6 +5076,16 @@ components:
           description: Selectable `aspect_ratio` values for this model.
           items:
             $ref: '#/components/schemas/ImageAspectRatio'
+        aura_compatible:
+          type: boolean
+          description: |-
+            Whether the model can carry the Aura photoreal character engine
+            layer (NOL-461): realism core, eye clause, negative tail, and
+            optional face-reference conditioning. True for photoreal person
+            renders; false for vector/anime/illustration surfaces. Drives
+            whether the Create Image page shows the Aura toggle and defaults it
+            ON for person prompts.
+          examples: [true]
         reference_images_max:
           type: integer
           description: |
@@ -5289,6 +5361,18 @@ components:
         - minimax-hailuo-2.3-fast
         - flux-3-video
 
+    RestoreVideoModel:
+      type: string
+      description: |
+        Video-restoration lane model, submitted via `POST /restore/video`.
+        `seedvr2-restore` is the AI footage restorer (SeedVR2): de-noise,
+        de-haze, detail recovery and up-res of existing footage to a target
+        resolution tier (720p/1080p/1440p/2160p). The lane is built to take
+        further restorers as additional enum members (a master-upscale
+        driver is planned).
+      enum:
+        - seedvr2-restore
+
     ImageSize:
       type: string
       enum: [square, square_hd, portrait_4_3, portrait_16_9, landscape_4_3, landscape_16_9]
@@ -5401,6 +5485,40 @@ components:
             format: uri
             maxLength: 2048
           examples: [['https://assets.nolgia.ai/ref-character.png', 'https://assets.nolgia.ai/ref-outfit.png']]
+        aura:
+          type: boolean
+          nullable: true
+          description: >-
+            Enable the Aura photoreal character engine layer (NOL-461). When
+            true on an aura_compatible model with a person subject, the server
+            composes the beauty floor, realism core, and eye clause into the
+            prompt and appends the negative tail to negative_prompt (where
+            supported). Default ON (true) for photoreal person renders on
+            aura_compatible models; OFF and ignored on non-photoreal models.
+            Job params echo this flag for audit and gallery badging.
+          examples: [true]
+        face_reference_asset_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: >-
+            Asset id of a face reference to condition identity on when Aura is
+            enabled. Rides as image conditioning plus the Identity Lock prompt
+            block. Output is ArcFace-gated (cosine >= 0.60) with one automatic
+            re roll before delivery. Ignored when aura is false or the model
+            cannot carry a reference (route to a lane that can; never silently
+            drop the reference).
+        sheet_type:
+          type: string
+          nullable: true
+          enum: [split, turnaround, expression]
+          description: >-
+            One-tap character sheet scaffold (NOL-461). When set with Aura, the
+            server composes the verbatim sheet composition (split screen, four
+            view turnaround, or expression sheet) plus its hard framing tail and
+            the Aura realism stack, with the face/primary reference attached.
+            The scaffold text is server-side IP and is never sent by clients.
+          examples: ['turnaround']
         quality:
           type: string
           nullable: true
@@ -5840,6 +5958,27 @@ components:
             verbatim and NOT validated against the preset catalog (a preset may
             be deleted later).
           examples: ['cinematic-portrait']
+        source_video_asset_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: >-
+            Regenerate one of your completed videos at the model's top
+            resolution: the referenced video asset is re-rendered at 2K via
+            the provider's native regeneration flow (models with
+            `video.regeneration` on `GET /models` — MiniMax Hailuo 3's
+            768P→2K Video Regeneration). The source asset must have been
+            generated by the same model and have a recorded duration; the
+            output re-renders the full clip, so `duration_seconds`, `shots`,
+            and `aspect_ratio` must be omitted (length and geometry follow
+            the source) and `quality` must be omitted or `2k`. Reference
+            videos (`video_asset_ids`/`video_urls`) cannot be combined with
+            it. `prompt` should re-state the source generation's prompt (see
+            the asset's `prompt` field). Billing covers the 2K output seconds
+            PLUS the source clip's own input seconds at the 2k tier rate —
+            e.g. a 5s source charges 130 credits (65cr/5s × 10 billed
+            seconds).
+          examples: ['b2fbb51e-3c33-4a54-b87b-9c2b1e4f9a11']
 
     VideoShot:
       type: object
@@ -5859,6 +5998,105 @@ components:
           nullable: true
           maxLength: 500
           description: Sound-design direction for this shot (written into the composed prompt).
+
+    RestoreVideoRequest:
+      type: object
+      additionalProperties: false
+      required: [model]
+      properties:
+        model:
+          $ref: '#/components/schemas/RestoreVideoModel'
+        source_asset_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: >-
+            One of your video assets to restore (the server resolves it to a
+            signed URL). Exactly one of `source_asset_id` and `source_url`
+            is required. When the asset's stored metadata carries a
+            duration, billing uses it and `duration_seconds` is ignored.
+        source_url:
+          type: string
+          format: uri
+          nullable: true
+          description: >-
+            Raw https URL of the footage to restore, for callers that host
+            media outside Nolgia. Exactly one of `source_asset_id` and
+            `source_url` is required. `duration_seconds` is required with a
+            raw URL (the server cannot measure external media). Prefer
+            `source_asset_id`.
+        quality:
+          type: string
+          nullable: true
+          maxLength: 16
+          description: >-
+            Target output resolution tier (`720p`, `1080p`, `1440p`,
+            `2160p`). Omit for the model's default (`1080p` on
+            `seedvr2-restore`). Allowed values and per-tier credit rates are
+            on the model's `quality.options` on `GET /models`; the charge
+            scales with the source clip length like a generation's does.
+          examples: ['2160p']
+        noise_scale:
+          type: number
+          nullable: true
+          minimum: 0
+          maximum: 1
+          description: >-
+            Detail-injection strength (the provider's `noise_scale`; omit
+            for the provider default, 0.1 on SeedVR2). Higher values recover
+            more texture but hallucinate more; keep low for archival
+            fidelity.
+        duration_seconds:
+          type: integer
+          minimum: 1
+          maximum: 120
+          description: |
+            Source clip length in seconds (round up), used to compute the
+            credit charge before the job runs. Required when the source is a
+            raw `source_url` or an asset without stored duration metadata;
+            when the asset's stored duration is known the server bills from
+            that instead and this field is ignored.
+        source_fps:
+          type: integer
+          nullable: true
+          minimum: 1
+          maximum: 60
+          description: >-
+            Source frame rate. The provider bills per output frame, so the
+            charge scales with the source's frame rate as well as its
+            length: the published per-tier rates price 30 fps, and a higher
+            declared rate scales the charge proportionally (60 fps costs
+            twice a 30 fps clip of the same length). Omit it for footage at
+            or below 30 fps; values at or below 30 are billed at the 30 fps
+            basis. Footage above 60 fps is not supported (400) — downsample
+            it before restoring.
+        seed:
+          type: integer
+          nullable: true
+          minimum: 0
+        tags:
+          type: array
+          maxItems: 10
+          description: Applied to the restored asset; normalized to lowercase.
+          items:
+            type: string
+            minLength: 1
+            maxLength: 40
+          examples: [['restored', 'archive']]
+        project_id:
+          type: string
+          format: uuid
+          description: >-
+            Files the restored asset into this project at creation (the
+            async asset lands in the project when the job completes). The
+            project must exist and belong to the caller (400 otherwise).
+        preset_slug:
+          type: string
+          nullable: true
+          maxLength: 128
+          description: >-
+            Slug of the preset this restoration was launched from, if any.
+            Same semantics as on `POST /generate/video`.
 
     JobStatus:
       type: string
@@ -6181,6 +6419,22 @@ components:
           type: string
           maxLength: 2000
           examples: ['A silver-haired astronaut with a scarred left cheek and a teal flight suit.']
+        canonical_description:
+          type: string
+          maxLength: 4000
+          description: >-
+            The canonical written character bible (face, hair, build, wardrobe,
+            anchor) stored on the character and reused verbatim by every
+            downstream generation (NOL-461). The written description IS the
+            continuity contract.
+        primary_reference_asset_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: >-
+            Asset id of the character's primary identity reference, used as the
+            ArcFace-scored identity anchor (>= 0.60) for new renders and sheet
+            scaffolds (NOL-461).
         reference_assets:
           type: array
           maxItems: 4
@@ -6218,6 +6472,20 @@ components:
           type: string
           nullable: true
           maxLength: 2000
+        canonical_description:
+          type: string
+          nullable: true
+          maxLength: 4000
+          description: >-
+            The canonical written character bible (NOL-461), stored verbatim and
+            reused by every downstream generation.
+        primary_reference_asset_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: >-
+            Asset id of the character's primary identity reference (must be one
+            of reference_asset_ids). ArcFace-scored identity anchor (>= 0.60).
         reference_asset_ids:
           type: array
           minItems: 0
@@ -6240,6 +6508,18 @@ components:
           type: string
           nullable: true
           maxLength: 2000
+        canonical_description:
+          type: string
+          nullable: true
+          maxLength: 4000
+          description: The canonical written character bible (NOL-461).
+        primary_reference_asset_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: >-
+            Asset id of the character's primary identity reference (must be one
+            of reference_asset_ids). Set to null to clear.
         reference_asset_ids:
           type: array
           nullable: true

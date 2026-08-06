@@ -3,6 +3,26 @@
 Release notes for the Nolgia CLI. Each `## vX.Y.Z` section becomes the body of
 the matching GitHub release.
 
+## Unreleased
+
+- **New `nolgia restore video`: the AI footage-restorer lane.** Re-renders
+  existing footage with de-noise, de-haze, detail recovery and up-res to a
+  target resolution tier (`--quality 720p|1080p|1440p|2160p`, default 1080p on
+  `seedvr2-restore`). `--input` takes a video asset UUID, a local file
+  (uploaded first), or a raw https URL; URL and local-file sources need
+  `--duration-seconds` (it prices the job, and a fresh upload's duration is
+  probed asynchronously, so it is not known at submit time; existing assets
+  bill from stored metadata). Every client-side check runs before a local file
+  is uploaded, so a rejected option cannot cost an upload. `--noise-scale`
+  tunes detail injection. Restore models take no prompt, and `--model` forwards
+  any id verbatim (the NOL-439 rule), so future restore drivers work without a
+  CLI re-release.
+- `nolgia models list`/`get` now mark restore-lane models with `restore` in
+  their capability column, so the lane is visible without `--json`.
+- A duplicate-submission (`409`) recovery block now names the command that
+  submitted (`nolgia restore video ... --idempotency-key <new-value>`) instead
+  of always suggesting `nolgia gen ...`.
+
 ## v0.2.19
 
 - **`gen video/image/audio --model` now accepts any model id and lets the API

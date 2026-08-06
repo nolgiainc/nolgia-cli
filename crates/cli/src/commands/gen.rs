@@ -213,8 +213,8 @@ fn parse_image_aspect_ratio(raw: &str) -> Result<ImageAspectRatio, String> {
 }
 
 #[derive(Serialize)]
-struct AsyncJob {
-    job_id: String,
+pub(crate) struct AsyncJob {
+    pub(crate) job_id: String,
 }
 
 const DEFAULT_WAIT_TIMEOUT_SECONDS: u64 = 300;
@@ -250,7 +250,9 @@ async fn image(args: ImageArgs, ctx: &CommandContext) -> Result<()> {
         .context("building image request")?;
     let job = match ctx.client().generate_image().body(body).send().await {
         Ok(response) => response.into_inner(),
-        Err(err) => return Err(super::submit_error(err, "submitting image job").await),
+        Err(err) => {
+            return Err(super::submit_error(err, "submitting image job", "nolgia gen image").await);
+        }
     };
     if args.no_wait {
         return print_json(&AsyncJob {
@@ -391,7 +393,9 @@ async fn video(args: VideoArgs, ctx: &CommandContext) -> Result<()> {
     let body: GenerateVideoRequest = builder.try_into().context("building video request")?;
     let job = match ctx.client().generate_video().body(body).send().await {
         Ok(response) => response.into_inner(),
-        Err(err) => return Err(super::submit_error(err, "submitting video job").await),
+        Err(err) => {
+            return Err(super::submit_error(err, "submitting video job", "nolgia gen video").await);
+        }
     };
     if args.no_wait || !args.wait {
         return print_json(&AsyncJob {
@@ -435,7 +439,9 @@ async fn audio(args: AudioArgs, ctx: &CommandContext) -> Result<()> {
     // out as progenitor's raw `Unexpected Response` debug dump.
     let job = match ctx.client().generate_audio().body(body).send().await {
         Ok(response) => response.into_inner(),
-        Err(err) => return Err(super::submit_error(err, "submitting audio job").await),
+        Err(err) => {
+            return Err(super::submit_error(err, "submitting audio job", "nolgia gen audio").await);
+        }
     };
     if args.no_wait {
         return print_json(&AsyncJob {
@@ -702,7 +708,7 @@ async fn upload_via_signed_url(
         .with_context(|| format!("finalizing upload for {}", path.display()))
 }
 
-async fn wait_for_asset(
+pub(crate) async fn wait_for_asset(
     job_id: uuid::Uuid,
     ctx: &CommandContext,
     timeout_seconds: u64,

@@ -59,8 +59,15 @@ pub enum LiveJob {
     Interrupted { job_id: Uuid },
     /// The submission succeeded and something afterwards did not.
     Detached { job_id: Uuid, cause: String },
-    /// `409` — this exact request is already a job.
-    Duplicate { job_id: Uuid, detail: String },
+    /// `409` — this exact request is already a job. `retry_command` is the
+    /// command that made the submission (`nolgia gen video`, `nolgia restore
+    /// video`, ...), so the "run it again deliberately" hint names the
+    /// invocation the user actually typed instead of guessing at `gen`.
+    Duplicate {
+        job_id: Uuid,
+        detail: String,
+        retry_command: String,
+    },
 }
 
 impl LiveJob {
@@ -144,10 +151,10 @@ impl LiveJob {
             (format!("nolgia wait {id}"), "keep waiting for it"),
             (format!("nolgia status {id}"), "check it once"),
         ];
-        if matches!(self, Self::Duplicate { .. }) {
+        if let Self::Duplicate { retry_command, .. } = self {
             steps.reverse();
             steps.push((
-                "nolgia gen ... --idempotency-key <new-value>".to_string(),
+                format!("{retry_command} ... --idempotency-key <new-value>"),
                 "deliberately run it again as a separate job",
             ));
         }
@@ -373,6 +380,7 @@ mod tests {
             LiveJob::Duplicate {
                 job_id,
                 detail: REAL_409_DETAIL.into(),
+                retry_command: "nolgia gen video".into(),
             },
         ] {
             let text = live.render_text();
@@ -385,15 +393,25 @@ mod tests {
     }
 
     /// A duplicate is the one ending where the user may genuinely have meant
-    /// it, so the escape hatch has to be reachable from the CLI.
+    /// it, so the escape hatch has to be reachable from the CLI — and it has
+    /// to name the command that submitted, not always `gen`: a restore user
+    /// handed `nolgia gen ...` gets guidance they cannot run.
     #[test]
     fn a_duplicate_offers_the_deliberate_second_take() {
-        let text = LiveJob::Duplicate {
-            job_id: Uuid::nil(),
-            detail: REAL_409_DETAIL.into(),
+        for retry_command in ["nolgia gen video", "nolgia restore video"] {
+            let text = LiveJob::Duplicate {
+                job_id: Uuid::nil(),
+                detail: REAL_409_DETAIL.into(),
+                retry_command: retry_command.into(),
+            }
+            .render_text();
+            assert!(
+                text.contains(&format!(
+                    "{retry_command} ... --idempotency-key <new-value>"
+                )),
+                "{text}"
+            );
+            assert!(text.contains("has not been billed twice"), "{text}");
         }
-        .render_text();
-        assert!(text.contains("--idempotency-key"), "{text}");
-        assert!(text.contains("has not been billed twice"), "{text}");
     }
 }

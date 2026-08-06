@@ -191,6 +191,7 @@ const MODEL_SELECTOR_FIELDS: &[(&str, &str)] = &[
     ("GenerateImageRequest", "model"),
     ("GenerateVideoRequest", "model"),
     ("GenerateAudioRequest", "model"),
+    ("RestoreVideoRequest", "model"),
 ];
 
 fn relax_request_model_selectors(value: &mut Value) {
