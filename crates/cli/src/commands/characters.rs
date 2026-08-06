@@ -163,9 +163,19 @@ async fn update(args: UpdateCharacterArgs, ctx: &CommandContext) -> Result<()> {
         name.is_some() || description.is_some() || reference_asset_ids.is_some(),
         "provide at least one of --name, --description, or --reference-asset-id"
     );
+    // `canonical_description` and `primary_reference_asset_id` (NOL-461) are new
+    // on this request and left unset on purpose: the command exposes no flags for
+    // them yet. Both are nullable with no `default:`, so progenitor gives them
+    // `skip_serializing_if` — `None` is omitted from the body rather than sent as
+    // an explicit `null`, which matters because the API reads a literal `null` on
+    // `primary_reference_asset_id` as "clear it". Omitting therefore leaves both
+    // fields untouched server-side and keeps `characters update` byte-identical to
+    // v0.2.19. Surfacing them belongs to the NOL-461 lane, with its own flags.
     let body = UpdateCharacterRequest {
         name,
         description,
+        canonical_description: None,
+        primary_reference_asset_id: None,
         reference_asset_ids,
     };
     let character = ctx
