@@ -39,15 +39,16 @@ on:
   #
   # The non-obvious half of the fix is in the step below: dispatchability alone
   # would have made this check pass vacuously. See the note on BASE_REF.
+  #
+  # Deliberately takes NO inputs. An earlier revision accepted a `base_ref` to
+  # diff against, which let anyone with dispatch access truncate the range they
+  # were about to be judged on: pointing it at the dispatched branch itself (or
+  # any branch already containing the offending commit) collapses the merge base
+  # onto HEAD, and the empty-range fallback below then inspects only the clean
+  # tip. That is the vacuous pass again, wearing a different hat. The base is
+  # therefore always the repository's default branch, which is protected and not
+  # attacker-controlled.
   workflow_dispatch:
-    inputs:
-      base_ref:
-        description: >-
-          Branch to diff the dispatched ref against. Defaults to the
-          repository's default branch, which is what you want when standing in
-          for a PR's checks during a webhook outage.
-        required: false
-        type: string
 
 permissions:
   contents: read
@@ -76,10 +77,17 @@ jobs:
           # messages — a required context reporting green without ever doing its
           # job. That is strictly WORSE than a check that cannot be dispatched,
           # so adding the trigger without this fallback chain would have been a
-          # net loss. The chain is: PR base ref -> explicit dispatch input ->
+          # net loss. The chain is: PR base ref (webhook, trusted payload) ->
           # the repository's default branch (which is why this file is portable
           # across repos whose default branch is `main` or `master`).
-          BASE_REF: ${{ github.event.pull_request.base.ref || github.event.inputs.base_ref || github.event.repository.default_branch }}
+          #
+          # The dispatch base is NOT configurable on purpose: a caller-supplied
+          # base can only ever narrow the range, and narrowing it to the
+          # dispatched branch is exactly how you smuggle a trailer past a
+          # required check. Diffing against the default branch can over-collect
+          # on a dispatch for a PR that targets some other branch, which fails
+          # loudly and is the direction to err in.
+          BASE_REF: ${{ github.event.pull_request.base.ref || github.event.repository.default_branch }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -uo pipefail
