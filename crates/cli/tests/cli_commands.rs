@@ -299,6 +299,85 @@ async fn restore_video_forwards_source_fps_for_topaz_engines() {
     .stdout(predicate::str::contains(JOB_ID));
 }
 
+/// The Topaz engines also REQUIRE the source's pixel geometry whenever it is
+/// not already stored on the asset: they derive the output frame from the
+/// source's aspect ratio, so the API refuses to guess one. Without these flags
+/// a `topaz-*` restore of any asset whose dimensions were never backfilled is
+/// unsubmittable from the CLI, which is exactly how `--source-fps` was missed
+/// one release earlier.
+#[tokio::test]
+async fn restore_video_forwards_source_dimensions_for_topaz_engines() {
+    let api = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/restore/video"))
+        .and(body_partial_json(json!({
+            "model": "topaz-proteus",
+            "source_url": "https://cdn.example/clip.mp4",
+            "duration_seconds": 4,
+            "source_fps": 24,
+            "source_width": 1344,
+            "source_height": 768,
+        })))
+        .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
+        .mount(&api)
+        .await;
+    run_ok(
+        &api,
+        &[
+            "restore",
+            "video",
+            "--model",
+            "topaz-proteus",
+            "--input",
+            "https://cdn.example/clip.mp4",
+            "--duration-seconds",
+            "4",
+            "--source-fps",
+            "24",
+            "--source-width",
+            "1344",
+            "--source-height",
+            "768",
+            "--no-wait",
+        ],
+    )
+    .stdout(predicate::str::contains(JOB_ID));
+}
+
+/// One dimension without the other cannot describe a frame, and the API says so
+/// with a 400. Refusing it in the parser keeps that round trip from happening at
+/// all, and matters more for a local-file source, where the upload would
+/// otherwise precede the refusal.
+#[tokio::test]
+async fn restore_video_requires_both_source_dimensions_together() {
+    let api = MockServer::start().await;
+    cmd()
+        .arg("--api-url")
+        .arg(api.uri())
+        .args([
+            "restore",
+            "video",
+            "--model",
+            "topaz-proteus",
+            "--input",
+            "https://cdn.example/clip.mp4",
+            "--duration-seconds",
+            "4",
+            "--source-fps",
+            "24",
+            "--source-width",
+            "1344",
+            "--no-wait",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--source-height"));
+    assert!(
+        api.received_requests().await.unwrap().is_empty(),
+        "the refusal must happen before any API request"
+    );
+}
+
 /// An asset UUID `--input` is sent as `source_asset_id` with no client-side
 /// duration requirement: the server bills from the asset's stored duration.
 #[tokio::test]
