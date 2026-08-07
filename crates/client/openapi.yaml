@@ -6252,6 +6252,40 @@ components:
             `seedvr2-restore`, whose rates carry the headroom to absorb an
             undeclared faster source; omit it there for footage at or below
             30 fps.
+        source_width:
+          type: integer
+          nullable: true
+          minimum: 1
+          description: >-
+            Source frame width in pixels. Send with `source_height`.
+          examples: [1080]
+        source_height:
+          type: integer
+          nullable: true
+          minimum: 1
+          description: |
+            Source frame height in pixels. Send with `source_width`.
+
+            The restored output KEEPS THE SOURCE'S ASPECT RATIO: the quality
+            tier names a resolution class, and the class is resolved against
+            these dimensions rather than a fixed 16:9 frame, so a 1080x1920
+            vertical clip restored at `2160p` comes back 2160x3840 and a
+            1440x1080 4:3 clip comes back 2880x2160. The output never exceeds
+            the tier's nominal pixel area.
+
+            **Required on the `topaz-*` engines** (400 when omitted) unless the
+            source is an asset whose stored metadata already carries them. The
+            server cannot measure an external clip's geometry, and guessing
+            16:9 would both reshape footage that was never 16:9 and misprice
+            the job — those engines run over the SOURCE's frames, so the charge
+            tracks the source geometry as well as the output tier. Declared
+            values win over an asset's stored metadata.
+
+            Topaz sources are capped at DCI 4K (4096x2160 pixels); a larger
+            master is rejected (400) rather than restored at a rate that does
+            not cover it. Not used by `seedvr2-restore`, which resolves its
+            own output geometry from the footage.
+          examples: [1920]
         seed:
           type: integer
           nullable: true
