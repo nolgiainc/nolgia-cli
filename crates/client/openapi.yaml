@@ -5811,6 +5811,29 @@ components:
             scores and re-rolls a single render, so `num_images` must be 1
             (or omitted) alongside a face reference - a batch is a 400 rather
             than a set of renders where only one was actually scored.
+        character_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: >-
+            One of your characters (`GET /characters`, created on the Create
+            Characters page). The character's `primary_reference_asset_id`
+            becomes this render's face reference and its
+            `canonical_description` rides into the prompt verbatim as the
+            continuity contract, so the same character renders consistently
+            across generations. The character must belong to the caller - an
+            unknown or foreign id is a 400, never silently ignored.
+            Because it supplies the face reference it inherits every
+            `face_reference_asset_id` rule (an `aura_compatible` model with
+            spare `image.reference_images_max` capacity, `num_images` of 1),
+            and each of those is a 400 rather than a dropped reference.
+            Passing `character_id` and `face_reference_asset_id` together is
+            a 400: two competing identities are refused rather than silently
+            resolved in favor of one. A character with no reference image
+            still contributes its description; that render carries no face
+            reference, so its `identity_score` is null. The job's persisted
+            params echo `character_id` alongside `aura` for audit.
+          examples: ['5a2f7c58-9e5a-4f1a-9c7f-2f0b6c3d1e42']
 
     GenerateImageResponse:
       type: object
@@ -6236,6 +6259,26 @@ components:
             e.g. a 5s source charges 130 credits (65cr/5s × 10 billed
             seconds).
           examples: ['b2fbb51e-3c33-4a54-b87b-9c2b1e4f9a11']
+        character_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: >-
+            One of your characters (`GET /characters`). The character's
+            `primary_reference_asset_id` is attached as an element reference
+            (appended after any `element_asset_ids`/`image_urls`, so it takes
+            the next `@Image` slot in the prompt) and its
+            `canonical_description` rides into the prompt verbatim, keeping
+            the character consistent between a still and a clip. The
+            character must belong to the caller - an unknown or foreign id is
+            a 400. Requires a model with room for one more element reference
+            (`references.element_refs_max` on `GET /models`); a model that
+            cannot carry the character reference is a 400, never a silent
+            drop. NOTE: the Aura ArcFace identity gate runs on the image lane
+            only, so a video asset's `identity_score` is null even with a
+            character attached - the reference conditions the render, but no
+            score is measured for it.
+          examples: ['5a2f7c58-9e5a-4f1a-9c7f-2f0b6c3d1e42']
 
     VideoShot:
       type: object
