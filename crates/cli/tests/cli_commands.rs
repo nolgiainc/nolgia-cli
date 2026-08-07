@@ -222,6 +222,143 @@ async fn gen_video_forwards_unknown_future_model_verbatim() {
     .stdout(predicate::str::contains(JOB_ID));
 }
 
+/// `--character-id` binds a clip to a stored character: the id must reach the
+/// wire as `character_id` (NOL-542), where the server attaches the
+/// character's primary reference as an element ref and appends its canonical
+/// description to the prompt.
+#[tokio::test]
+async fn gen_video_forwards_character_id() {
+    let api = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/generate/video"))
+        .and(body_partial_json(json!({
+            "prompt": "the pilot walks away from the wreck",
+            "character_id": CHARACTER_ID,
+        })))
+        .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
+        .mount(&api)
+        .await;
+    run_ok(
+        &api,
+        &[
+            "gen",
+            "video",
+            "--prompt",
+            "the pilot walks away from the wreck",
+            "--character-id",
+            CHARACTER_ID,
+            "--no-wait",
+        ],
+    )
+    .stdout(predicate::str::contains(JOB_ID));
+}
+
+/// The image lane's Aura identity flags must reach the wire under the spec's
+/// exact field names: `face_reference_asset_id` conditions the render on a
+/// face, `aura: true` asks for the character engine explicitly (NOL-542).
+#[tokio::test]
+async fn gen_image_forwards_face_reference_and_aura() {
+    let api = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/generate/image"))
+        .and(body_partial_json(json!({
+            "prompt": "portrait in the rain",
+            "face_reference_asset_id": ASSET_ID,
+            "aura": true,
+        })))
+        .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
+        .mount(&api)
+        .await;
+    run_ok(
+        &api,
+        &[
+            "gen",
+            "image",
+            "--prompt",
+            "portrait in the rain",
+            "--face-reference-asset-id",
+            ASSET_ID,
+            "--aura",
+            "true",
+            "--no-wait",
+        ],
+    )
+    .stdout(predicate::str::contains(JOB_ID));
+}
+
+/// An explicit `--aura false` must serialize `false` rather than be dropped
+/// as "unset": the server's default is dynamic (ON for person-subject
+/// prompts on compatible models), so omission and `false` mean different
+/// renders. `Some(false)` is exactly the value `skip_serializing_if =
+/// "Option::is_none"` keeps.
+#[tokio::test]
+async fn gen_image_sends_explicit_aura_false() {
+    let api = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/generate/image"))
+        .and(body_partial_json(json!({ "aura": false })))
+        .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
+        .mount(&api)
+        .await;
+    run_ok(
+        &api,
+        &[
+            "gen",
+            "image",
+            "--prompt",
+            "a lighthouse",
+            "--aura",
+            "false",
+            "--no-wait",
+        ],
+    )
+    .stdout(predicate::str::contains(JOB_ID));
+}
+
+/// The image lane also accepts `character_id` (same identity pipeline, the
+/// stored character supplies the face reference). Forward it — and refuse
+/// the flag alongside `--face-reference-asset-id` at parse time, exactly as
+/// the API refuses two competing identities with a 400.
+#[tokio::test]
+async fn gen_image_forwards_character_id_and_refuses_competing_face_reference() {
+    let api = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/generate/image"))
+        .and(body_partial_json(json!({ "character_id": CHARACTER_ID })))
+        .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
+        .mount(&api)
+        .await;
+    run_ok(
+        &api,
+        &[
+            "gen",
+            "image",
+            "--prompt",
+            "portrait",
+            "--character-id",
+            CHARACTER_ID,
+            "--no-wait",
+        ],
+    )
+    .stdout(predicate::str::contains(JOB_ID));
+
+    cmd()
+        .args([
+            "gen",
+            "image",
+            "--prompt",
+            "portrait",
+            "--character-id",
+            CHARACTER_ID,
+            "--face-reference-asset-id",
+            ASSET_ID,
+            "--no-wait",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("cannot be used with"));
+}
+
 /// The restore lane (`POST /restore/video`) takes a source clip and no
 /// prompt. A URL source must forward `source_url` plus the restore controls
 /// verbatim; `duration_seconds` prices the job.
@@ -2253,20 +2390,55 @@ async fn ability_list_marks_private_abilities() {
     run_ok(&api, &["ability", "list"]).stdout(predicate::str::contains("[private]"));
 }
 
+/// The install POST must carry an explicit `{}` body and a `Content-Length`
+/// header. The spec declares no request body for the operation, so the
+/// generated builder sent a bodyless POST with no `Content-Length` — which
+/// the production load balancer rejects with `411 Length Required` before
+/// the API ever sees it (NOL-542). The matchers here fail the test if either
+/// the empty-object body or the header ever goes missing again.
 #[tokio::test]
-async fn ability_install_reports_pod_delivery() {
+async fn ability_install_sends_empty_json_body_with_content_length() {
     let api = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path("/v1/agent/abilities/nolgia-cli-basics"))
+        .and(body_json(json!({})))
+        .and(header("content-length", "2"))
+        .and(header("content-type", "application/json"))
         .respond_with(ResponseTemplate::new(201).set_body_json(json!({
             "slug": "nolgia-cli-basics", "name": "NOLGIA CLI Basics", "description": "d",
             "latest_version": "1.0.0", "installed_at": "2026-06-13T00:00:00Z"
         })))
+        .expect(1)
         .mount(&api)
         .await;
     run_ok(&api, &["ability", "install", "nolgia-cli-basics"]).stdout(predicate::str::contains(
         "installed nolgia-cli-basics v1.0.0",
     ));
+}
+
+/// A refused install (not entitled, unknown slug, already installed) must
+/// surface the server's RFC 7807 `detail`, not a raw HTTP error dump — the
+/// raw-request 411 fix must not regress error legibility.
+#[tokio::test]
+async fn ability_install_renders_problem_detail_on_refusal() {
+    let api = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/agent/abilities/pro-only-ability"))
+        .respond_with(ResponseTemplate::new(402).set_body_json(json!({
+            "title": "Payment Required",
+            "detail": "ability pro-only-ability requires the pro plan",
+        })))
+        .mount(&api)
+        .await;
+    cmd()
+        .arg("--api-url")
+        .arg(api.uri())
+        .args(["ability", "install", "pro-only-ability"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "ability pro-only-ability requires the pro plan",
+        ));
 }
 
 #[tokio::test]

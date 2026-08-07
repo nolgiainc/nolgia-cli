@@ -8,6 +8,7 @@ use anyhow::{Context, Result, bail};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use clap::{Args, Subcommand};
+use nolgia_client::ClientExt as _;
 use nolgia_client::types::{
     Ability, AbilityMinTier, AbilityVisibility, PublishAbilityRequest, PublishAbilityRequestName,
     PublishAbilityRequestSlug, PublishAbilityRequestVersion,
@@ -192,14 +193,19 @@ async fn installed(ctx: &CommandContext) -> Result<()> {
 }
 
 async fn install(args: SlugArgs, ctx: &CommandContext) -> Result<()> {
-    let ability = ctx
+    // ClientExt helper rather than the generated builder: the spec declares
+    // no request body for this POST, so the generated call sends no body and
+    // no Content-Length — and the production load balancer answers `411
+    // Length Required` before the API ever sees the request (NOL-542). The
+    // helper sends an explicit `{}` so Content-Length is emitted.
+    let ability = match ctx
         .client()
-        .install_agent_ability()
-        .slug(&args.slug)
-        .send()
+        .install_agent_ability_with_body(&args.slug)
         .await
-        .context("installing ability")?
-        .into_inner();
+    {
+        Ok(ability) => ability,
+        Err(err) => return Err(super::api_error(err, "installing ability").await),
+    };
     match ctx.format() {
         OutputFormat::Json => print_json(&ability),
         OutputFormat::Text => {

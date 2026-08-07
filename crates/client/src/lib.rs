@@ -47,6 +47,25 @@ pub trait ClientExt {
         &self,
         upload_id: Uuid,
     ) -> impl std::future::Future<Output = StdResult<types::Asset, ApiError<()>>> + Send;
+
+    /// POST `/agent/abilities/{slug}` with an explicit `{}` JSON body to
+    /// install a marketplace ability, returning the new
+    /// [`types::AgentInstalledAbility`].
+    ///
+    /// This mirrors the generated `install_agent_ability` builder, which —
+    /// because the spec declares no request body for the operation — sends a
+    /// bodyless POST with no `Content-Length` header. The production load
+    /// balancer rejects that with `411 Length Required` before the request
+    /// ever reaches the API (NOL-542), exactly like the bodyless
+    /// `complete_asset_upload` above. Sending `{}` gives the request a sized
+    /// body, so `Content-Length` is emitted; the API accepts the empty
+    /// object. Non-2xx responses surface as
+    /// [`ApiError::UnexpectedResponse`], same as the generated method, so
+    /// the CLI's RFC 7807 problem rendering still applies.
+    fn install_agent_ability_with_body(
+        &self,
+        slug: &str,
+    ) -> impl std::future::Future<Output = StdResult<types::AgentInstalledAbility, ApiError<()>>> + Send;
 }
 
 impl ClientExt for Client {
@@ -76,6 +95,30 @@ impl ClientExt for Client {
             .await?;
         let response = response.error_for_status()?;
         Ok(response.json::<types::Asset>().await?)
+    }
+
+    async fn install_agent_ability_with_body(
+        &self,
+        slug: &str,
+    ) -> StdResult<types::AgentInstalledAbility, ApiError<()>> {
+        let url = format!(
+            "{}/agent/abilities/{}",
+            self.baseurl(),
+            progenitor_client::encode_path(slug)
+        );
+        let response = self
+            .client()
+            .post(url)
+            // An empty JSON object, not a bodyless POST: `{}` is a sized
+            // body, so the request carries `Content-Length: 2` and the
+            // production LB's 411 never fires.
+            .json(&serde_json::json!({}))
+            .send()
+            .await?;
+        if !response.status().is_success() {
+            return Err(ApiError::UnexpectedResponse(response));
+        }
+        Ok(response.json::<types::AgentInstalledAbility>().await?)
     }
 }
 
