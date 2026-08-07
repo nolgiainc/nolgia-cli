@@ -3,6 +3,35 @@
 Release notes for the Nolgia CLI. Each `## vX.Y.Z` section becomes the body of
 the matching GitHub release.
 
+## v0.2.23
+
+- **`nolgia ability install` works again.** Every install from a released CLI
+  failed with a bare `411 Length Required`: the OpenAPI operation declares no
+  request body, so the generated client sent a bodyless POST with no
+  `Content-Length` header, and the production load balancer rejects that
+  before the API ever sees the request. The CLI now sends an explicit empty
+  JSON object (`{}`) — a sized body, so the header is emitted — and install
+  refusals (not entitled, unknown slug, already installed) now render the
+  server's own explanation instead of an opaque HTTP dump.
+- **New `--character-id` on `nolgia gen video`.** Binds the clip to one of
+  your characters (`nolgia characters list`): the character's primary
+  reference is attached as an element reference (taking the next `@Image`
+  slot after any `--element` images) and its canonical description rides
+  into the prompt verbatim, keeping the character consistent between a still
+  and a clip. Needs a model with room for one more element reference
+  (`nolgia models get <model>`).
+- **New `--face-reference-asset-id`, `--aura`, and `--character-id` on
+  `nolgia gen image`.** A face reference conditions the render on the face
+  in one of your image assets and is subject to the ArcFace identity
+  acceptance gate once the scoring runtime is enabled. `--aura true|false`
+  opts the render in or out of Aura, the character engine; omit the flag for
+  the server's default — ON for prompts that read as a person subject on
+  compatible models, OFF otherwise — and an explicit `false` always wins.
+  `--character-id` renders a stored character (its primary reference becomes
+  the face reference, its canonical description joins the prompt); it cannot
+  be combined with `--face-reference-asset-id`, exactly as the API refuses
+  two competing identities rather than silently picking one.
+
 ## v0.2.22
 
 - **New `--source-width` / `--source-height`, and Topaz restores need them.**
