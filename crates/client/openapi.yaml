@@ -10017,19 +10017,20 @@ components:
             which case fall back to `thumbnail_url`. Content-addressed: the URL
             changes if and only if the source media or the derivation recipe
             changes, which is what makes the immutable cache safe.
-          examples: ['https://nolgia.ai/preset-media/v1/3f/3f9c…/poster.webp']
+          examples: ['https://nolgia.ai/preset-media/v2/3f/3f9c…/poster.webp']
         thumbnail_preview_url:
           type: string
           nullable: true
           description: >-
-            Derived hover preview clip for video presets: 3s, at most 720p,
-            SILENT, capped bitrate, `faststart`, at most 500 KB, same durable
-            CDN-served immutable path as the poster. `null` for image- and
-            audio-sourced presets, and for presets not yet derived. Clients
-            should load this only on hover or intersection with `preload="none"`
-            and the poster as the `poster` attribute, and should not load it at
-            all under `prefers-reduced-motion` or `Save-Data`.
-          examples: ['https://nolgia.ai/preset-media/v1/3f/3f9c…/preview.mp4']
+            Derived hover preview clip for video presets: the FULL source
+            duration, at most 720p, SILENT, capped bitrate, `faststart`, at
+            most 4 MiB, same durable CDN-served immutable path as the poster.
+            `null` for image- and audio-sourced presets, and for presets not
+            yet derived. Clients should load this only on hover or intersection
+            with `preload="none"` and the poster as the `poster` attribute, and
+            should not load it at all under `prefers-reduced-motion` or
+            `Save-Data`.
+          examples: ['https://nolgia.ai/preset-media/v2/3f/3f9c…/preview.mp4']
         preview_asset_id:
           type: string
           format: uuid
