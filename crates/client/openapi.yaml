@@ -429,9 +429,15 @@ paths:
         The AI footage-restorer lane: re-renders existing footage (a video
         asset you generated or uploaded, or a URL you host) at a target
         resolution tier with de-noise, de-haze and detail recovery. Restore
-        models take NO prompt — the source clip is the whole input. Returns
-        immediately with a job (modality `video`); use `GET /jobs/{id}` or
-        `GET /jobs/{id}/wait` to retrieve the restored asset.
+        models take NO prompt — the source clip and the chosen engine are the
+        whole input. Returns immediately with a job (modality `video`); use
+        `GET /jobs/{id}` or `GET /jobs/{id}/wait` to retrieve the restored
+        asset.
+
+        Pick the model to match the footage: `seedvr2-restore` is the general
+        AI restorer, and the `topaz-*` master upscalers expose one Topaz
+        engine each (faces, CG, interlaced, generative, and so on) — see
+        `RestoreVideoModel`.
 
         Credits scale with the source clip length at the selected quality
         tier's per-5-second rate — see the model's `quality.options` on
@@ -4960,7 +4966,10 @@ components:
           description: |
             Whether the model accepts `end_image_url` / `end_image_asset_id`
             alongside `image_url` (start+end frame pinning — Seedance 2.0
-            Pro i2v and Kling v3 i2v variants).
+            Pro i2v, FLUX 3 Video, MiniMax Hailuo 3). Kling v3 i2v does NOT
+            support it: those entries route to the direct Kling provider,
+            which has no end-frame field. Read this flag rather than
+            assuming a family supports it.
         video_refs_max:
           type: integer
           minimum: 0
@@ -5485,13 +5494,48 @@ components:
       type: string
       description: |
         Video-restoration lane model, submitted via `POST /restore/video`.
-        `seedvr2-restore` is the AI footage restorer (SeedVR2): de-noise,
-        de-haze, detail recovery and up-res of existing footage to a target
-        resolution tier (720p/1080p/1440p/2160p). The lane is built to take
-        further restorers as additional enum members (a master-upscale
-        driver is planned).
+        Every member re-renders existing footage — de-noise, de-haze, detail
+        recovery and up-res to a target resolution tier — and takes no prompt.
+
+        `seedvr2-restore` is the AI footage restorer (SeedVR2), tiers
+        720p/1080p/1440p/2160p.
+
+        The `topaz-*` ids are the Topaz master upscalers, one per engine, so
+        you pick the engine that matches the footage:
+
+        - `topaz-proteus` — general live action
+        - `topaz-rhea` — texture-heavy upscales
+        - `topaz-iris` — faces
+        - `topaz-nyx` — denoise plus detail
+        - `topaz-theia` — fine-tuned detail
+        - `topaz-artemis` — high-quality restore
+        - `topaz-gaia` — CG and animation
+        - `topaz-dione` — interlaced footage
+        - `topaz-starlight-fast` — fast generative restore
+        - `topaz-starlight` — precise generative restore
+        - `topaz-wonder` — generative restore
+        - `topaz-hyperion` — generative flagship
+
+        Topaz tiers are 720p/1080p/1440p/2160p, plus 4320p (8K) on the eight
+        engines above `topaz-starlight-fast` and on `topaz-starlight-fast`
+        itself; the generative trio (`topaz-starlight`, `topaz-wonder`,
+        `topaz-hyperion`) tops out at 2160p. Read each model's real tier list
+        and per-tier credit rates from `quality.options` on `GET /models`
+        rather than hard-coding this paragraph.
       enum:
         - seedvr2-restore
+        - topaz-proteus
+        - topaz-rhea
+        - topaz-iris
+        - topaz-nyx
+        - topaz-theia
+        - topaz-artemis
+        - topaz-gaia
+        - topaz-dione
+        - topaz-starlight-fast
+        - topaz-starlight
+        - topaz-wonder
+        - topaz-hyperion
 
     ImageSize:
       type: string
@@ -5515,8 +5559,9 @@ components:
       type: string
       description: >-
         Output bitrate profile for models that support it (see the model's
-        `video.bitrate_modes` on `GET /models`; currently Seedance 2.0 Pro
-        reference-to-video). `standard` is the provider default; `high`
+        `video.bitrate_modes` on `GET /models`, which is authoritative — no
+        currently published model exposes one). `standard` is the provider
+        default; `high`
         trades larger files for higher visual fidelity. Rejected (400) on
         models without bitrate selection.
       enum: [standard, high]
@@ -5868,8 +5913,10 @@ components:
           format: uri
           description: >-
             Final-frame image (https URL) for start+end frame pinning on
-            models that support it (Seedance 2.0 Pro i2v, Kling v3 i2v,
-            MiniMax Hailuo 3 — see `references.end_frame` on `GET /models`).
+            models that support it (Seedance 2.0 Pro i2v, FLUX 3 Video,
+            MiniMax Hailuo 3 — see `references.end_frame` on
+            `GET /models`, which is authoritative; Kling v3 i2v does not
+            take an end frame).
             Requires `image_url` (the start frame). Mutually exclusive with
             `end_image_asset_id`.
         end_image_asset_id:
@@ -5886,8 +5933,8 @@ components:
           maxItems: 3
           description: >-
             Reference videos for models with `references.video_refs_max > 0`
-            on `GET /models` (`fal-ai/bytedance/seedance/v2/pro/reference-to-video`,
-            `minimax-h3`), given as ids of your video assets — the server
+            on `GET /models` (`fal-ai/bytedance/seedance/v2/pro/reference-to-video`;
+            `minimax-h3` takes none), given as ids of your video assets — the server
             resolves each to a signed URL and forwards them as the provider's
             `video_urls`. Address them in the prompt as `@Video1`..`@Video3`
             (optionally with `[0-3s]`-style timeline markers). Provider
@@ -5942,9 +5989,12 @@ components:
           nullable: true
           maxItems: 3
           description: >-
-            Reference audio tracks for reference-to-video models, given as
-            ids of your audio assets — resolved to signed URLs and forwarded
-            as the provider's `audio_urls`. At most 3 combined with
+            Reference audio tracks for models with
+            `references.audio_refs_max > 0` on `GET /models` (`minimax-h3`;
+            Seedance 2.0 Pro r2v takes none, its primary route has no
+            reference-audio slot), given as ids of your audio assets —
+            resolved to signed URLs and forwarded as the provider's
+            `audio_urls`. At most 3 combined with
             `audio_urls`; each track at most 15 seconds (enforced where the
             asset's stored duration allows).
           items:
@@ -6149,10 +6199,13 @@ components:
           maxLength: 16
           description: >-
             Target output resolution tier (`720p`, `1080p`, `1440p`,
-            `2160p`). Omit for the model's default (`1080p` on
-            `seedvr2-restore`). Allowed values and per-tier credit rates are
-            on the model's `quality.options` on `GET /models`; the charge
-            scales with the source clip length like a generation's does.
+            `2160p`, and `4320p` on the Topaz engines that support 8K). Omit
+            for the model's default, which is `1080p` on every restore-lane
+            model. The tiers are per-model: allowed values and per-tier
+            credit rates are on the model's `quality.options` on
+            `GET /models`, and a tier the selected model does not publish is
+            rejected (400). The charge scales with the source clip length
+            like a generation's does.
           examples: ['2160p']
         noise_scale:
           type: number
@@ -6160,10 +6213,13 @@ components:
           minimum: 0
           maximum: 1
           description: >-
-            Detail-injection strength (the provider's `noise_scale`; omit
-            for the provider default, 0.1 on SeedVR2). Higher values recover
-            more texture but hallucinate more; keep low for archival
-            fidelity.
+            Detail-injection strength on `seedvr2-restore` (the provider's
+            `noise_scale`; omit for the provider default, 0.1). Higher values
+            recover more texture but hallucinate more; keep low for archival
+            fidelity. The Topaz engines expose no equivalent control — the
+            engine choice and the resolution tier are the whole input — so
+            sending this field with a `topaz-*` model is rejected (400)
+            rather than accepted and dropped.
         duration_seconds:
           type: integer
           minimum: 1
@@ -6184,10 +6240,18 @@ components:
             charge scales with the source's frame rate as well as its
             length: the published per-tier rates price 30 fps, and a higher
             declared rate scales the charge proportionally (60 fps costs
-            twice a 30 fps clip of the same length). Omit it for footage at
-            or below 30 fps; values at or below 30 are billed at the 30 fps
-            basis. Footage above 60 fps is not supported (400) — downsample
-            it before restoring.
+            twice a 30 fps clip of the same length). Values at or below 30
+            are billed at the 30 fps basis, so declaring a slower rate never
+            buys a discount. Footage above 60 fps is not supported (400) —
+            downsample it before restoring.
+
+            **Required on the `topaz-*` engines** (400 when omitted): their
+            rates price the 30 fps basis exactly, and the server cannot
+            measure a source clip's true frame rate, so the lane refuses to
+            guess rather than under-reserve a 60 fps restore. Optional on
+            `seedvr2-restore`, whose rates carry the headroom to absorb an
+            undeclared faster source; omit it there for footage at or below
+            30 fps.
         seed:
           type: integer
           nullable: true
