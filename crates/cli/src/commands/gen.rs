@@ -48,6 +48,35 @@ pub struct ImageArgs {
     /// `nolgia models get <model>`. Omit for the model's native default.
     #[arg(long, value_parser = parse_image_aspect_ratio)]
     pub aspect_ratio: Option<ImageAspectRatio>,
+    /// Apply Aura, the Nolgia character engine: server-side photoreal
+    /// composition layered onto the prompt (people render as photographs,
+    /// no AI gloss). Honored only on models whose catalog entry publishes
+    /// `aura compatible` (`nolgia models get <model>`); `true` on any other
+    /// model is a no-op, never an error. Omit the flag for the server's
+    /// default: ON for prompts that read as a person subject on compatible
+    /// models, OFF otherwise. An explicit `false` always wins.
+    #[arg(long, action = clap::ArgAction::Set)]
+    pub aura: Option<bool>,
+    /// Image asset (one of yours) whose face conditions the render for
+    /// identity. A face reference IS an Aura identity request: it turns the
+    /// pipeline on (`--aura false` alongside it is refused) and needs a
+    /// model that accepts reference images. The delivered render is subject
+    /// to the ArcFace identity gate (>= 0.60 against this reference, one
+    /// automatic re-roll) once the scoring runtime is enabled.
+    #[arg(long, value_name = "ASSET_UUID")]
+    pub face_reference_asset_id: Option<uuid::Uuid>,
+    /// Render one of your characters (`nolgia characters list`): its primary
+    /// reference becomes this render's face reference and its canonical
+    /// description rides into the prompt verbatim, so the same character
+    /// renders consistently across generations. Inherits every
+    /// --face-reference-asset-id rule; the two flags cannot be combined
+    /// (two competing identities are refused, not resolved).
+    #[arg(
+        long,
+        value_name = "CHARACTER_UUID",
+        conflicts_with = "face_reference_asset_id"
+    )]
+    pub character_id: Option<uuid::Uuid>,
     /// File the generated asset(s) into this project (`nolgia projects
     /// list` for ids). The project must exist and belong to you.
     #[arg(long, value_name = "PROJECT_UUID")]
@@ -145,6 +174,14 @@ pub struct VideoArgs {
     /// Repeat up to 8 times; clip duration = sum, --prompt becomes style/context.
     #[arg(long = "shot")]
     pub shots: Vec<String>,
+    /// Bind the clip to one of your characters (`nolgia characters list`):
+    /// its primary reference is attached as an element reference (taking
+    /// the next @Image slot after any --element images) and its canonical
+    /// description rides into the prompt verbatim, keeping the character
+    /// consistent between a still and a clip. Needs a model with room for
+    /// one more element reference (`nolgia models get <model>`).
+    #[arg(long, value_name = "CHARACTER_UUID")]
+    pub character_id: Option<uuid::Uuid>,
     /// File the generated asset into this project (`nolgia projects list`
     /// for ids). The project must exist and belong to you.
     #[arg(long, value_name = "PROJECT_UUID")]
@@ -245,6 +282,9 @@ async fn image(args: ImageArgs, ctx: &CommandContext) -> Result<()> {
         .prompt(args.prompt)
         .quality(quality)
         .aspect_ratio(args.aspect_ratio)
+        .aura(args.aura)
+        .face_reference_asset_id(args.face_reference_asset_id)
+        .character_id(args.character_id)
         .project_id(args.project_id)
         .try_into()
         .context("building image request")?;
@@ -377,6 +417,7 @@ async fn video(args: VideoArgs, ctx: &CommandContext) -> Result<()> {
         .generate_audio(args.generate_audio)
         .quality(quality)
         .bitrate_mode(args.bitrate)
+        .character_id(args.character_id)
         .project_id(args.project_id)
         .shots(shots)
         // Only ever the duration the caller actually asked for. Left unset the
