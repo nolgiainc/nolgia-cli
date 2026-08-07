@@ -259,6 +259,46 @@ async fn restore_video_submits_url_source_with_restore_controls() {
     .stdout(predicate::str::contains(JOB_ID));
 }
 
+/// The Topaz engines REQUIRE `source_fps`: their rates price the 30 fps basis
+/// exactly, so an undeclared 60 fps source would be reserved at half its cost
+/// and the API 400s when it is missing. The flag therefore has to exist and
+/// reach the wire, or every `topaz-*` restore is unsubmittable from the CLI.
+#[tokio::test]
+async fn restore_video_forwards_source_fps_for_topaz_engines() {
+    let api = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/restore/video"))
+        .and(body_partial_json(json!({
+            "model": "topaz-proteus",
+            "source_url": "https://cdn.example/clip.mp4",
+            "duration_seconds": 10,
+            "quality": "2160p",
+            "source_fps": 60,
+        })))
+        .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
+        .mount(&api)
+        .await;
+    run_ok(
+        &api,
+        &[
+            "restore",
+            "video",
+            "--model",
+            "topaz-proteus",
+            "--input",
+            "https://cdn.example/clip.mp4",
+            "--duration-seconds",
+            "10",
+            "--quality",
+            "2160p",
+            "--source-fps",
+            "60",
+            "--no-wait",
+        ],
+    )
+    .stdout(predicate::str::contains(JOB_ID));
+}
+
 /// An asset UUID `--input` is sent as `source_asset_id` with no client-side
 /// duration requirement: the server bills from the asset's stored duration.
 #[tokio::test]
@@ -378,8 +418,9 @@ async fn a_duplicate_restore_names_the_restore_command() {
 }
 
 /// Restore forwards whatever `--model` the caller names (the NOL-439 rule):
-/// the planned master-upscale driver must work on this binary the day the
-/// API serves it, with no CLI re-release.
+/// the Topaz master upscalers reached released binaries this way, and the
+/// next restore driver must work on this one the day the API serves it, with
+/// no CLI re-release.
 #[tokio::test]
 async fn restore_video_forwards_unknown_future_model_verbatim() {
     let api = MockServer::start().await;
@@ -403,6 +444,89 @@ async fn restore_video_forwards_unknown_future_model_verbatim() {
         ],
     )
     .stdout(predicate::str::contains(JOB_ID));
+}
+
+/// The Topaz master upscalers are siblings of `seedvr2-restore` on the same
+/// command: engine in `--model`, restored output resolution in `--quality`,
+/// and nothing else changes. `4320p` is a real tier on the classic engines,
+/// so a two-character-longer tier string must reach the wire intact.
+#[tokio::test]
+async fn restore_video_submits_a_topaz_engine_at_the_8k_tier() {
+    let api = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/restore/video"))
+        .and(body_partial_json(json!({
+            "model": "topaz-proteus",
+            "source_asset_id": ASSET_ID,
+            "quality": "4320p",
+        })))
+        .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
+        .mount(&api)
+        .await;
+    run_ok(
+        &api,
+        &[
+            "restore",
+            "video",
+            "--model",
+            "topaz-proteus",
+            "--input",
+            ASSET_ID,
+            "--quality",
+            "4320p",
+            "--no-wait",
+        ],
+    )
+    .stdout(predicate::str::contains(JOB_ID));
+}
+
+/// Which tiers an engine publishes is per-model and lives in `GET /models`,
+/// so the tier ladder is the API's to enforce — `topaz-hyperion` stops at
+/// 2160p while its classic siblings go to 4320p. The CLI must forward the
+/// request and let the server's `400` explain, exactly as it does for every
+/// other per-model capability: a client-side ladder would be a second copy of
+/// the catalog, and a stale one would refuse combinations the platform runs.
+#[tokio::test]
+async fn restore_video_leaves_the_per_model_tier_ladder_to_the_api() {
+    let api = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/restore/video"))
+        .and(body_partial_json(json!({
+            "model": "topaz-hyperion",
+            "quality": "4320p",
+        })))
+        .respond_with(ResponseTemplate::new(400).set_body_json(json!({
+            "type": "about:blank", "title": "Bad Request", "status": 400,
+            "detail": "quality \"4320p\" is not available on topaz-hyperion; available tiers: \
+                       720p, 1080p (default), 1440p (premium), 2160p (premium)"
+        })))
+        .mount(&api)
+        .await;
+
+    cmd()
+        .arg("--api-url")
+        .arg(api.uri())
+        .args([
+            "restore",
+            "video",
+            "--model",
+            "topaz-hyperion",
+            "--input",
+            ASSET_ID,
+            "--quality",
+            "4320p",
+            "--no-wait",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "is not available on topaz-hyperion",
+        ))
+        .stderr(predicate::str::contains("available tiers"));
+    assert!(
+        !api.received_requests().await.unwrap().is_empty(),
+        "the tier must be forwarded, not refused client-side against a hard-coded ladder"
+    );
 }
 
 #[tokio::test]
@@ -1458,6 +1582,64 @@ async fn models_catalog_marks_restore_lane_models() {
     run_ok(&api, &["models", "get", "seedvr2-restore"])
         .stdout(predicate::str::contains("supports:"))
         .stdout(predicate::str::contains("restore  720p/1080p"));
+}
+
+/// The restore lane now holds a whole family of engines whose tier ladders
+/// differ, and the catalog is the only honest source for which is which: the
+/// classic Topaz engines publish 4320p, the generative ones stop at 2160p.
+/// `models list`/`get` must render each engine's own tiers (premium marked
+/// `*`) so picking an engine and a tier needs no second lookup.
+#[tokio::test]
+async fn models_catalog_shows_each_topaz_engines_own_tier_ladder() {
+    let api = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/models"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"models": [
+            {
+                "id": "topaz-proteus", "modality": "video", "recommended": false, "restore": true,
+                "cost": {"credits": 12, "unit": "per_clip", "baseline_seconds": 5},
+                "quality": {"default": "1080p", "options": [
+                    {"id": "720p", "credits": 6, "premium": false},
+                    {"id": "1080p", "credits": 12, "premium": false},
+                    {"id": "1440p", "credits": 24, "premium": true},
+                    {"id": "2160p", "credits": 51, "premium": true},
+                    {"id": "4320p", "credits": 174, "premium": true},
+                ]},
+            },
+            {
+                "id": "topaz-hyperion", "modality": "video", "recommended": false, "restore": true,
+                "cost": {"credits": 72, "unit": "per_clip", "baseline_seconds": 5},
+                "quality": {"default": "1080p", "options": [
+                    {"id": "720p", "credits": 72, "premium": false},
+                    {"id": "1080p", "credits": 72, "premium": false},
+                    {"id": "1440p", "credits": 153, "premium": true},
+                    {"id": "2160p", "credits": 153, "premium": true},
+                ]},
+            },
+        ]})))
+        .mount(&api)
+        .await;
+    run_ok(&api, &["models", "list", "--modality", "video"])
+        .stdout(predicate::str::contains(
+            "restore  720p/1080p/1440p*/2160p*/4320p*",
+        ))
+        .stdout(predicate::str::contains(
+            "restore  720p/1080p/1440p*/2160p*",
+        ));
+    run_ok(&api, &["models", "get", "topaz-proteus"])
+        .stdout(predicate::str::contains(
+            "1080p — 12 credits per 5s clip (default)",
+        ))
+        .stdout(predicate::str::contains(
+            "4320p — 174 credits per 5s clip (premium)",
+        ));
+    // The generative engines never publish 8K, so the catalog must not offer
+    // it on them: a tier shown here is a tier the platform will run.
+    run_ok(&api, &["models", "get", "topaz-hyperion"])
+        .stdout(predicate::str::contains(
+            "2160p — 153 credits per 5s clip (premium)",
+        ))
+        .stdout(predicate::str::contains("4320p").not());
 }
 
 #[tokio::test]

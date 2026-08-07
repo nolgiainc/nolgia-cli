@@ -16,17 +16,28 @@ pub enum RestoreCommand {
 
 /// The AI footage-restorer lane: re-renders existing footage at a target
 /// resolution tier with de-noise, de-haze and detail recovery. Restore models
-/// take no prompt; the source clip is the whole input.
+/// take no prompt; the source clip and the chosen engine are the whole input.
 #[derive(Args, Debug)]
 #[command(after_help = "Restore jobs cost credits that scale with the source \
-clip length and the target resolution tier (see `nolgia models get \
-seedvr2-restore`). Agents: check the tier rates first and confirm with the \
-user before restoring long footage at 1440p/2160p.")]
+clip length and the target resolution tier, and the per-tier rates differ per \
+engine (see `nolgia models get <model>`). Agents: check the tier rates first \
+and confirm with the user before restoring long footage at 1440p or above.")]
 pub struct RestoreVideoArgs {
-    /// Restore model id (restore-lane models are marked `restore` in
-    /// `nolgia models list --modality video`). Any id the API accepts is
-    /// forwarded verbatim and validated server-side; the API is the
-    /// authority on what exists.
+    /// Restore engine id (restore-lane models are marked `restore` in
+    /// `nolgia models list --modality video`).
+    ///
+    /// `seedvr2-restore` is the general AI footage restorer. The `topaz-*`
+    /// ids are the Topaz master upscalers, one engine each, so pick the one
+    /// that matches the footage: `topaz-proteus` (general live action),
+    /// `topaz-rhea` (texture-heavy), `topaz-iris` (faces), `topaz-nyx`
+    /// (denoise plus detail), `topaz-theia` (fine detail), `topaz-artemis`
+    /// (high-quality restore), `topaz-gaia` (CG and animation),
+    /// `topaz-dione` (interlaced), and the generative
+    /// `topaz-starlight-fast`, `topaz-starlight`, `topaz-wonder`,
+    /// `topaz-hyperion`.
+    ///
+    /// Any id the API accepts is forwarded verbatim and validated
+    /// server-side; the API is the authority on what exists.
     #[arg(long, default_value = "seedvr2-restore")]
     pub model: String,
     /// The footage to restore: the UUID of one of your video assets, a local
@@ -35,14 +46,26 @@ pub struct RestoreVideoArgs {
     pub input: String,
     #[arg(long)]
     pub out: Option<PathBuf>,
-    /// Target output resolution tier (720p, 1080p, 1440p, 2160p on
-    /// seedvr2-restore; per-tier credits in `nolgia models get <model>`).
-    /// Omit for the model's default tier (1080p).
+    /// Target output resolution tier. Omit for the model's default (1080p on
+    /// every restore-lane model).
+    ///
+    /// 720p, 1080p, 1440p and 2160p exist on every restore model; 4320p (8K)
+    /// is additionally published by the eight classic Topaz engines
+    /// (`topaz-proteus`, `topaz-rhea`, `topaz-iris`, `topaz-nyx`,
+    /// `topaz-theia`, `topaz-artemis`, `topaz-gaia`, `topaz-dione`) and by
+    /// `topaz-starlight-fast`; `topaz-starlight`, `topaz-wonder` and
+    /// `topaz-hyperion` top out at 2160p.
+    ///
+    /// The tiers and their credit rates are per-model: read the real list
+    /// from `nolgia models get <model>`. A tier the selected model does not
+    /// publish is refused by the API before the job is created.
     #[arg(long)]
     pub quality: Option<String>,
-    /// Detail-injection strength 0..1 (the provider's noise_scale; default
-    /// 0.1). Higher values recover more texture but hallucinate more; keep
-    /// low for archival fidelity.
+    /// Detail-injection strength 0..1 on seedvr2-restore (the provider's
+    /// noise_scale; default 0.1). Higher values recover more texture but
+    /// hallucinate more; keep low for archival fidelity. The Topaz engines
+    /// expose no equivalent control — the engine choice and the resolution
+    /// tier are their whole input.
     #[arg(long)]
     pub noise_scale: Option<f64>,
     /// Source clip length in seconds (round up). Required for raw URL
@@ -50,6 +73,17 @@ pub struct RestoreVideoArgs {
     /// job before it runs. Ignored when the asset's stored duration is known.
     #[arg(long)]
     pub duration_seconds: Option<std::num::NonZeroU64>,
+    /// Source clip frame rate. The provider bills per OUTPUT frame, so a
+    /// 60 fps clip costs twice a 30 fps clip of the same length. Values at or
+    /// below 30 are billed at the 30 fps basis, so declaring a slower rate
+    /// never buys a discount; above 60 is refused.
+    ///
+    /// Required on the `topaz-*` engines, whose rates price the 30 fps basis
+    /// exactly and which therefore cannot absorb an undeclared faster source.
+    /// Optional on `seedvr2-restore`. The server cannot measure a clip's true
+    /// rate, so it refuses to guess rather than under-reserve the job.
+    #[arg(long)]
+    pub source_fps: Option<std::num::NonZeroU64>,
     #[arg(long)]
     pub seed: Option<u64>,
     /// File the restored asset into this project (`nolgia projects list`
@@ -118,6 +152,7 @@ fn build_body(
         .quality(quality.cloned())
         .noise_scale(args.noise_scale)
         .duration_seconds(args.duration_seconds)
+        .source_fps(args.source_fps)
         .seed(args.seed)
         .project_id(args.project_id)
         .try_into()
