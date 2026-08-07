@@ -9896,6 +9896,9 @@ components:
         preview_bytes:
           type: integer
           description: Size of the preview clip written by this call; 0 when none was.
+        preview_retained:
+          type: boolean
+          description: The preview clip encode missed its size budget on every quality rung, so `thumbnail_preview_url` is the preset's PREVIOUS clip, kept in service rather than dropped. A `derived` result with this set means the poster is new and the hover clip is not; the clip will not be retried while the source bytes stay the same.
         error:
           type: string
           description: Present only on `failed`.
