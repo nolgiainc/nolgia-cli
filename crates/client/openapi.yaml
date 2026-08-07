@@ -6341,10 +6341,17 @@ components:
             a 400. Requires a model with room for one more element reference
             (`references.element_refs_max` on `GET /models`); a model that
             cannot carry the character reference is a 400, never a silent
-            drop. NOTE: the Aura ArcFace identity gate runs on the image lane
-            only, so a video asset's `identity_score` is null even with a
-            character attached - the reference conditions the render, but no
-            score is measured for it.
+            drop. The delivered clip is subject to the Aura ArcFace identity
+            gate: frames sampled at 2fps are scored against the character's
+            primary reference, the clip's `identity_score` is the best
+            frame's cosine, and a clip under the 0.60 gate re-rolls
+            automatically EXACTLY ONCE with the better attempt delivered
+            either way (`identity_score` / `identity_gate_passed` /
+            `identity_rerolls` on the video asset). When the scoring runtime
+            is unavailable the clip delivers ungated with those fields null -
+            the reference still conditioned the render. A character with no
+            reference image contributes its description only; that clip is
+            unscored.
           examples: ['5a2f7c58-9e5a-4f1a-9c7f-2f0b6c3d1e42']
 
     VideoShot:
@@ -6750,12 +6757,15 @@ components:
           minimum: -1
           maximum: 1
           description: >
-            ArcFace-family cosine similarity of this render's dominant face
-            against the request's face reference (Aura identity gate,
-            NOL-462). Present only on image assets generated with a
-            `face_reference_asset_id`; delivery is gated at >= 0.60 with one
-            automatic re-roll. Absent when no face reference rode the
-            generation or scoring was unavailable.
+            ArcFace-family cosine similarity against the generation's
+            identity reference (Aura identity gate, NOL-462/NOL-542). On
+            image assets generated with a `face_reference_asset_id`, the
+            render's dominant face scored against that reference; on video
+            assets generated with a `character_id`, the best frame sampled
+            at 2fps scored against the character's primary reference. Both
+            lanes gate delivery at >= 0.60 with one automatic re-roll.
+            Absent when no identity reference rode the generation or scoring
+            was unavailable.
           examples: [0.81]
         identity_rerolls:
           type: integer
