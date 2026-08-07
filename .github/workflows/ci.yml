@@ -88,6 +88,16 @@ jobs:
   # skipped contexts reintroduce a softer version of the exact bug this fixes.
   # Erring toward running the full suite costs runner minutes; erring the other
   # way ships untested code or blocks a mergeable PR.
+  #
+  # The script cannot cover every failure open by itself, though: a job-level
+  # failure (a transient checkout error, a runner dying) never reaches the
+  # script, so `detect` fails with NO output at all. `needs:` implies
+  # `success()`, which would then skip the dependents — and branch protection
+  # counts a skipped required context as PASSING, so a code-changing PR would
+  # become mergeable having run no suite whatsoever. Hence the dependents carry
+  # `if: ${{ !cancelled() }}` and test `code != 'false'`: they run whatever
+  # happens to `detect`, and only an explicit `false` (a verdict this script
+  # actually reached) is allowed to skip the expensive steps.
   detect:
     name: Detect changed paths
     runs-on: ubuntu-latest
@@ -131,7 +141,14 @@ jobs:
             emit true; exit 0
           fi
 
-          if ! changed=$(git diff --name-only "${BASE_SHA}" "${GITHUB_SHA}"); then
+          # `--no-renames` is load-bearing. With rename detection on (the
+          # default since git 2.9) a move like crates/cli/src/auth.rs ->
+          # docs/auth.rs is reported as the DESTINATION path only, so the
+          # classifier would see `docs/auth.rs`, call the PR docs-only, and skip
+          # every suite even though executable code was deleted. Disabling
+          # detection lists both sides of the move, and the crates/ side trips
+          # the code branch.
+          if ! changed=$(git diff --no-renames --name-only "${BASE_SHA}" "${GITHUB_SHA}"); then
             echo "::warning::Could not diff against ${BASE_SHA}; running the full suite."
             emit true; exit 0
           fi
@@ -162,6 +179,12 @@ jobs:
 
   test:
     name: Test, Lint & Format
+    # `!cancelled()` rather than the implicit `success()` from `needs:`: this
+    # context is REQUIRED, and a skipped required context counts as passing, so
+    # a `detect` that dies before emitting an output must not be able to wave
+    # this job through. It runs regardless and treats a missing verdict as code
+    # (see the note on `detect`); only a real cancellation stops it.
+    if: ${{ !cancelled() }}
     needs: [detect]
     runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
@@ -200,7 +223,7 @@ jobs:
           echo "Testing $(git rev-parse --short HEAD) merged with origin/$BASE_REF ($(git rev-parse --short "origin/$BASE_REF"))."
 
       - name: Install Rust toolchain
-        if: needs.detect.outputs.code == 'true'
+        if: needs.detect.outputs.code != 'false'
         uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
         with:
           toolchain: stable
@@ -208,37 +231,43 @@ jobs:
           cache: true
 
       - name: Install libdbus (keyring crate dependency)
-        if: needs.detect.outputs.code == 'true'
+        if: needs.detect.outputs.code != 'false'
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libdbus-1-dev pkg-config
 
       - name: Run tests
-        if: needs.detect.outputs.code == 'true'
+        if: needs.detect.outputs.code != 'false'
         # The e2e feature gates live-API tests (real generations, needs a token); compile-check it via clippy instead.
         run: cargo test --workspace --locked
 
       - name: Run clippy
-        if: needs.detect.outputs.code == 'true'
+        if: needs.detect.outputs.code != 'false'
         run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 
       - name: Check formatting
-        if: needs.detect.outputs.code == 'true'
+        if: needs.detect.outputs.code != 'false'
         run: cargo fmt --all -- --check
 
       - name: Test install.sh (hermetic sandbox, no network)
-        if: needs.detect.outputs.code == 'true'
+        if: needs.detect.outputs.code != 'false'
         run: bash tests/install_sh_test.sh
 
       # Runs on every PR, not just at tag time: a manifest left behind by a
       # partial bump reddens here, days before someone tries to tag it. The
       # release workflow re-runs this same script with --tag as a hard gate.
       - name: Test the release version guard (offline)
-        if: needs.detect.outputs.code == 'true'
+        if: needs.detect.outputs.code != 'false'
         run: |
           bash -n scripts/check-version-consistency.sh
           bash tests/check-version-consistency_test.sh
 
   spec-check:
     name: OpenAPI spec drift
+    # `!cancelled()` rather than the implicit `success()` from `needs:`: this
+    # context is REQUIRED, and a skipped required context counts as passing, so
+    # a `detect` that dies before emitting an output must not be able to wave
+    # this job through. It runs regardless and treats a missing verdict as code
+    # (see the note on `detect`); only a real cancellation stops it.
+    if: ${{ !cancelled() }}
     needs: [detect]
     runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
@@ -294,7 +323,7 @@ jobs:
       # api merge). Retrying rides out that window; a genuine drift still fails
       # after all attempts.
       - name: Verify vendored spec matches canonical
-        if: needs.detect.outputs.code == 'true'
+        if: needs.detect.outputs.code != 'false'
         env:
           SPEC_URL: ${{ vars.NOLGIA_CANONICAL_SPEC_URL || 'https://docs.nolgia.ai/api/openapi.yaml' }}
         run: |
