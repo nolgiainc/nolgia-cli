@@ -3391,6 +3391,65 @@ paths:
         default:
           $ref: '#/components/responses/ProblemResponse'
 
+  /admin/presets/derive-media:
+    post:
+      tags: [Presets]
+      operationId: derivePresetMedia
+      summary: Derive optimized card media for presets that need it (admin).
+      description: |
+        Runs the preset card media derivation sweep and returns what it did.
+
+        Derivation is normally automatic: a preset write kicks it, and a
+        background reconciler re-runs it. This endpoint exists because both of
+        those run OUTSIDE a request, and Cloud Run allocates CPU only while a
+        request is in flight (`cpu-throttling`), so a multi-megabyte transcode
+        started from a background goroutine makes almost no progress. Running
+        the same sweep inside a request is what actually gives it CPU, which
+        makes this the operable path for a backfill, for draining the catalog
+        after a `DERIVATION_VERSION` bump, and for re-running after a failure.
+
+        Idempotent and safe to call repeatedly: a preset already optimized at
+        the current derivation version costs one GCS metadata request and is
+        reported as `skipped`. `limit` bounds only the presets that need REAL
+        work, so every call still sweeps the whole catalog; the remainder is
+        reported as `deferred`. Call again until `derived`, `reused`, `failed`
+        and `deferred` are all zero.
+
+        Writes ONLY the derived-media columns. It cannot change visibility,
+        featured or sort_order, and it never triggers a catalog sync.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 20
+            default: 4
+          description: |
+            Maximum number of presets to actually transcode in this call.
+            Skips do not count. Keep it low enough that the call fits inside the
+            Cloud Run request timeout: a preset can mean a 15 MiB download plus
+            two ffmpeg encodes.
+      responses:
+        '200':
+          description: The sweep result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PresetMediaSweep'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '503':
+          description: Derivation is not configured in this environment (no preset media bucket).
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
   /admin/catalog-audit:
     get:
       tags: [Admin]
@@ -9697,6 +9756,72 @@ components:
           items:
             $ref: '#/components/schemas/ColorPreset'
           description: Presets in manifest order.
+
+    PresetMediaOutcome:
+      type: string
+      enum: [derived, reused, skipped, failed, deferred]
+      x-enum-varnames: [PresetMediaOutcomeDerived, PresetMediaOutcomeReused, PresetMediaOutcomeSkipped, PresetMediaOutcomeFailed, PresetMediaOutcomeDeferred]
+      description: |
+        What the derivation sweep did to one preset. `derived` transcoded and
+        uploaded new variants; `reused` found the content-addressed objects
+        already present and only recorded provenance; `skipped` means already
+        optimized at the current version (or nothing derivable, e.g. an audio
+        preset); `failed` errored and will be retried; `deferred` was not
+        examined because the call's limit was already spent.
+
+    PresetMediaResult:
+      type: object
+      additionalProperties: false
+      required: [slug, outcome]
+      description: One preset's derivation result.
+      properties:
+        slug:
+          type: string
+        outcome:
+          $ref: '#/components/schemas/PresetMediaOutcome'
+        reason:
+          type: string
+          description: Why this outcome was reached, in words.
+        thumbnail_poster_url:
+          type: string
+          nullable: true
+        thumbnail_preview_url:
+          type: string
+          nullable: true
+        poster_bytes:
+          type: integer
+          description: Size of the poster written by this call; 0 when nothing was transcoded.
+        preview_bytes:
+          type: integer
+          description: Size of the preview clip written by this call; 0 when none was.
+        error:
+          type: string
+          description: Present only on `failed`.
+
+    PresetMediaSweep:
+      type: object
+      additionalProperties: false
+      required: [presets, derived, reused, skipped, failed, deferred, results]
+      description: Aggregate result of a preset card media derivation sweep.
+      properties:
+        presets:
+          type: integer
+          description: Presets examined (the whole catalog, public and private).
+        derived:
+          type: integer
+        reused:
+          type: integer
+        skipped:
+          type: integer
+        failed:
+          type: integer
+        deferred:
+          type: integer
+          description: Not examined because the call's limit was spent. Call again while this is non-zero.
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/PresetMediaResult'
 
     PresetVisibility:
       type: string
