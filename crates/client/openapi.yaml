@@ -3959,9 +3959,15 @@ paths:
     post:
       tags: [Abilities]
       operationId: installAgentAbility
-      summary: Install a published ability for the current user's agent (applied on the next ability sync). Requires the ability's entitlement (`min_tier`).
+      summary: Install a published ability for the current user's agent (applied on the next ability sync). Requires the ability's entitlement (`min_tier`). Optionally pins the install to an exact published version; without a pin the install tracks the latest published version (the default).
       parameters:
         - $ref: '#/components/parameters/AbilitySlug'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InstallAgentAbilityRequest'
       responses:
         '201':
           description: Ability installed for the agent.
@@ -4025,7 +4031,9 @@ paths:
         Event names equal the envelope's `type` — `ability_published`
         (`data` carries `slug`, `version`, `at` and `seq`; fetch the content
         via `GET /abilities/{slug}/content`). The stream only carries
-        abilities the agent has installed. The envelope is forward-compatible:
+        abilities the agent has installed tracking latest — version-pinned
+        installs are excluded (their desired version never moves on publish).
+        The envelope is forward-compatible:
         new `type` values may appear and consumers must ignore event types
         they do not recognize.
 
@@ -4214,12 +4222,19 @@ paths:
     get:
       tags: [Abilities]
       operationId: getAbilityContent
-      summary: Download the latest published version's package content (base64 tar.gz). Entitlement-gated — the caller's subscription must satisfy the ability's `min_tier`.
+      summary: Download a published version's package content (base64 tar.gz) — the latest version by default, or the exact version named by `version` (how a pod materializes a pinned install). Entitlement-gated — the caller's subscription must satisfy the ability's `min_tier`.
       parameters:
         - $ref: '#/components/parameters/AbilitySlug'
+        - name: version
+          in: query
+          required: false
+          description: Exact published version to download instead of the latest — the fetch half of install version pins (an agent's manifest names the pinned version; this is how its content is retrieved). `404` when the version does not exist for the ability. Same entitlement gate as the latest-version read.
+          schema:
+            type: string
+            examples: ['1.0.0']
       responses:
         '200':
-          description: Latest version content.
+          description: The requested version's content (latest when no `version` was named).
           content:
             application/json:
               schema:
@@ -4260,12 +4275,12 @@ paths:
     get:
       tags: [Abilities]
       operationId: listAbilityVersions
-      summary: List every published version of an ability, newest first (admin only). Read companion to `deleteAbilityVersion` — the admin version-delete UI uses this to show a picker of deletable versions instead of asking the operator to type a semver. Each entry flags `is_latest` (the latest version cannot be deleted).
+      summary: List every published version of an ability, highest first by semver ordering (admin only). Read companion to `deleteAbilityVersion` — the admin version-delete UI uses this to show a picker of deletable versions instead of asking the operator to type a semver. Each entry flags `is_latest` (the latest version cannot be deleted).
       parameters:
         - $ref: '#/components/parameters/AbilitySlug'
       responses:
         '200':
-          description: Published versions, newest first (by `created_at`).
+          description: Published versions in the same semver-first ordering that resolves `latest_version` (highest semver first; non-semver strings after, newest publish first), so the top entry is always the latest.
           content:
             application/json:
               schema:
@@ -4316,7 +4331,7 @@ paths:
     delete:
       tags: [Abilities]
       operationId: deleteAbilityVersion
-      summary: Delete a single non-latest version of an ability (admin only). Deleting the latest version is refused with 409 — it would silently change what installed agents receive; publish a new version or delete the whole ability instead. Deleting the only version is likewise refused.
+      summary: Delete a single non-latest version of an ability (admin only). Deleting the latest version is refused with 409 — it would silently change what installed agents receive; publish a new version or delete the whole ability instead. Deleting the only version is likewise refused, as is deleting a version any agent install has pinned.
       parameters:
         - $ref: '#/components/parameters/AbilitySlug'
         - name: version
@@ -4337,6 +4352,36 @@ paths:
         '404':
           $ref: '#/components/responses/ProblemResponse'
         '409':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /abilities/{slug}/versions/{version}/files:
+    get:
+      tags: [Abilities]
+      operationId: getAbilityVersionFiles
+      summary: Inspect the unpacked contents of one specific published version (admin only). The by-version companion of `getAbilityFiles` (which always serves the latest version) — server-side unpacks that version's package tar.gz and returns each file's path, size, and (for text files) its decoded body. Not a customer feature — this is the admin abilities inspector reading version history.
+      parameters:
+        - $ref: '#/components/parameters/AbilitySlug'
+        - name: version
+          in: path
+          required: true
+          description: Exact version string to inspect, as returned by `listAbilityVersions`. Deliberately not pattern-restricted — inspection must work for any stored version row, including ones written outside the strict-semver publish paths.
+          schema:
+            type: string
+            examples: ['1.0.0']
+      responses:
+        '200':
+          description: Unpacked ability files for that version.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AbilityFiles'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
           $ref: '#/components/responses/ProblemResponse'
         default:
           $ref: '#/components/responses/ProblemResponse'
@@ -9494,7 +9539,12 @@ components:
             (instructions-only) kind badge.
         latest_version:
           type: string
-          description: Latest published semver version.
+          description: >-
+            Latest published version by SEMVER ordering (highest
+            major.minor.patch wins), not by publish time — a 1.0.1 published
+            after a 1.2.0 does not become latest. Version strings that are not
+            plain numeric triples (each field at most 18 digits) sort below
+            every well-formed one, ordered among themselves by publish time.
           examples: ['1.0.0']
         created_at:
           type: string
@@ -9512,7 +9562,7 @@ components:
           type: string
         version:
           type: string
-          description: The version this content belongs to (the latest published version).
+          description: The version this content belongs to — the latest published version, or the exact version the request named.
         manifest:
           type: object
           description: The `ability.json` manifest captured at publish time.
@@ -9524,7 +9574,7 @@ components:
       type: object
       additionalProperties: false
       required: [version, is_latest, created_at]
-      description: One published version of an ability, for the admin version-delete picker. Versions are immutable and ordered newest-first; `is_latest` marks the version installs follow (which `deleteAbilityVersion` refuses to delete).
+      description: One published version of an ability, for the admin version-delete picker. Versions are immutable and ordered by the semver `latest_version` rule (highest first); `is_latest` marks the version unpinned installs follow (which `deleteAbilityVersion` refuses to delete).
       properties:
         version:
           type: string
@@ -9593,14 +9643,18 @@ components:
           type: string
         latest_version:
           type: string
-          description: Latest published version; installs always follow latest (no pinning in v1).
+          description: Latest published version (semver ordering). Unpinned installs follow it; a pinned install holds `pinned_version` instead.
         installed_at:
           type: string
           format: date-time
+        pinned_version:
+          type: string
+          nullable: true
+          description: The exact version this install is pinned to, when the install named one. Null means the install tracks the latest published version (the default). A pinned install is not rolled or notified when new versions publish.
         installed_version:
           type: string
           nullable: true
-          description: The version the agent pod itself reported as materialized (POST /agent/heartbeat). Null until a pod reports; drift is visible as installed_version differing from latest_version.
+          description: The version the agent pod itself reported as materialized (POST /agent/heartbeat). Null until a pod reports; drift is visible as installed_version differing from the tracked version (`pinned_version` when set, otherwise `latest_version`).
         version_reported_at:
           type: string
           format: date-time
@@ -9630,6 +9684,16 @@ components:
           items:
             $ref: '#/components/schemas/AgentHeartbeatAbility'
 
+    InstallAgentAbilityRequest:
+      type: object
+      additionalProperties: false
+      description: Optional install options. Omitting the body (or the `version` field) installs the default way — tracking the latest published version.
+      properties:
+        version:
+          type: string
+          description: Pin the install to this exact published version. It must exist for the ability (`404` otherwise). Pinned installs keep serving this version when newer ones publish; leave unset to track latest (the default).
+          examples: ['1.0.0']
+
     AgentManifestAbility:
       type: object
       additionalProperties: false
@@ -9640,7 +9704,7 @@ components:
           type: string
         version:
           type: string
-          description: Version to materialize. Today this is the ability's latest published version (installs follow latest); the field exists so a future increment can pin per-install versions without a schema change.
+          description: Version to materialize — the install's pinned version when it has one, otherwise the ability's latest published version. Fetch this exact version's content via `GET /abilities/{slug}/content?version=...`.
 
     AgentManifest:
       type: object
@@ -9686,8 +9750,8 @@ components:
           maxLength: 128
         version:
           type: string
-          description: Semver version; must be new for this slug (versions are immutable).
-          pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+          description: Semver version; must be new for this slug (versions are immutable). Each numeric field is capped at 18 digits so the version always orders numerically against the published set.
+          pattern: '^[0-9]{1,18}(\.[0-9]{1,18}){2}$'
           examples: ['1.0.0']
         description:
           type: string
@@ -9818,8 +9882,8 @@ components:
       properties:
         version:
           type: string
-          description: New semver version; must not already exist for this slug (versions are immutable).
-          pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+          description: New semver version; must not already exist for this slug (versions are immutable). Each numeric field is capped at 18 digits so the version always orders numerically against the published set.
+          pattern: '^[0-9]{1,18}(\.[0-9]{1,18}){2}$'
           examples: ['1.1.0']
         files:
           type: array
