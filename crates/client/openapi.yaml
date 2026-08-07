@@ -6435,7 +6435,14 @@ components:
             "provider_down" marks a queued job parked because its model
             provider is temporarily unavailable; the job resumes
             automatically when the provider recovers.
-          examples: ['provider_down']
+            "upstream_at_capacity" marks a queued job waiting for a free slot
+            because the provider is at its ceiling for simultaneous
+            generations; the provider is healthy and the job submits
+            automatically as in-flight renders finish. Both are non-terminal
+            and neither is an error: the job is still going to run, and the
+            credit hold is not settled while it waits. Treat any unrecognized
+            value as a plain queued job.
+          examples: ['provider_down', 'upstream_at_capacity']
         status_message:
           type: string
           nullable: true
