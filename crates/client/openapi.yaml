@@ -5233,6 +5233,36 @@ components:
             * `optional`: the model honors `generate_audio`. Omitting it
               resolves to `true`.
           examples: ['optional']
+        speech:
+          type: string
+          enum: [none, native]
+          description: |
+            Whether this model renders SPEECH — the words of a dialogue or
+            voice-over line, spoken in the same pass that renders the picture,
+            so a visible mouth matches them.
+
+            A strictly narrower claim than `audio`, and the one to route
+            on-camera dialogue by. `audio` answers "does a track come back";
+            plenty of models return a real soundtrack that is ambience only.
+            Grok Imagine is `audio: always` and `speech: none` — it returns a
+            measured aac track with no words in it — so choosing a lip-work
+            model by `audio != none` picks a model that cannot say the line.
+
+            * `none`: the model does not render spoken words, or has not been
+              measured doing so. Dialogue for these clips comes from a separate
+              `POST /generate/audio` pass mixed in afterwards, which is fine for
+              off-camera narration and wrong for a talking head — nothing binds
+              the muxed voice to the rendered mouth.
+            * `native`: the model speaks the line itself, synchronized to the
+              picture. Declared only from measurement, never from a provider's
+              marketing claim.
+
+            `speech: native` always implies `audio` is `always` or `optional`;
+            a silent model cannot speak. Note this flag says nothing about
+            WHO the model will render: Seedance speaks but its provider refuses
+            photoreal human likenesses, so its speech is product-only and never
+            a talking head. Check the human-subject constraints too.
+          examples: ['native']
         regeneration:
           type: boolean
           description: >-
