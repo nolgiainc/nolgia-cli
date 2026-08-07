@@ -3,6 +3,30 @@
 Release notes for the Nolgia CLI. Each `## vX.Y.Z` section becomes the body of
 the matching GitHub release.
 
+## v0.2.21
+
+- **The twelve Topaz master upscalers join `nolgia restore video`.** Same
+  command, same flags: `--model topaz-proteus` (general live action),
+  `topaz-rhea` (texture), `topaz-iris` (faces), `topaz-nyx` (denoise plus
+  detail), `topaz-theia` (fine detail), `topaz-artemis` (high-quality
+  restore), `topaz-gaia` (CG and animation), `topaz-dione` (interlaced), or
+  the generative `topaz-starlight-fast`, `topaz-starlight`, `topaz-wonder`,
+  `topaz-hyperion`. `--quality` gains a `4320p` (8K) rung on the eight classic
+  engines and on `topaz-starlight-fast`; the generative trio tops out at
+  2160p. Tiers and per-tier credit rates are per-model — read them from
+  `nolgia models get <model>` — and the API is the one that refuses a tier a
+  model does not publish, so the CLI never rejects a combination the platform
+  would have run. `--noise-scale` remains a `seedvr2-restore` control; the
+  Topaz engines take the engine choice and the tier as their whole input.
+- **New `--source-fps`, and it is required on every `topaz-*` engine.** Those
+  engines bill per output frame, so a 60 fps clip costs twice a 30 fps clip of
+  the same length, and their rates price the 30 fps basis exactly with no
+  headroom to absorb an undeclared faster source. The server refuses to guess a
+  rate it cannot measure, so a `topaz-*` restore without this flag is rejected
+  rather than under-reserved. Values at or below 30 bill at the 30 fps basis,
+  so declaring a slower rate never buys a discount; above 60 is refused.
+  Optional on `seedvr2-restore`.
+
 ## v0.2.20
 
 - **New `nolgia restore video`: the AI footage-restorer lane.** Re-renders
@@ -17,19 +41,6 @@ the matching GitHub release.
   tunes detail injection. Restore models take no prompt, and `--model` forwards
   any id verbatim (the NOL-439 rule), so future restore drivers work without a
   CLI re-release.
-- **The twelve Topaz master upscalers join `nolgia restore video`.** Same
-  command, same flags: `--model topaz-proteus` (general live action),
-  `topaz-rhea` (texture), `topaz-iris` (faces), `topaz-nyx` (denoise plus
-  detail), `topaz-theia` (fine detail), `topaz-artemis` (high-quality
-  restore), `topaz-gaia` (CG and animation), `topaz-dione` (interlaced), or
-  the generative `topaz-starlight-fast`, `topaz-starlight`, `topaz-wonder`,
-  `topaz-hyperion`. `--quality` gains a `4320p` (8K) rung on the eight classic
-  engines and on `topaz-starlight-fast`; the generative trio tops out at
-  2160p. Tiers and per-tier credit rates are per-model — read them from
-  `nolgia models get <model>` — and the API is the one that refuses a tier a
-  model does not publish, so the CLI never rejects a combination the platform
-  would have run. `--noise-scale` remains a `seedvr2-restore` control; the
-  Topaz engines take the engine choice and the tier as their whole input.
 - `nolgia models list`/`get` now mark restore-lane models with `restore` in
   their capability column, so the lane is visible without `--json`.
 - A duplicate-submission (`409`) recovery block now names the command that
