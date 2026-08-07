@@ -5273,6 +5273,21 @@ components:
             re-rendered 2K output seconds plus the source clip's own input
             seconds, both at the model's 2k tier rate. Omitted means
             unsupported.
+        seed:
+          type: boolean
+          description: >-
+            Whether this model's provider honors the request's `seed`.
+
+            `false` means the provider's API has no seed field at all, so a
+            seed could only ever be discarded — sending one is refused with a
+            400 rather than accepted and ignored, because a discarded seed
+            returns a DIFFERENT video than the reproducible one you asked for
+            and still bills you for it.
+
+            Omitted means nobody has verified this model's provider yet, and
+            the field is accepted with no promise that it does anything.
+            Absence is deliberately not the same as `false`: refusing on an
+            unchecked assumption would delete a capability that may work.
 
     ImageCapabilities:
       type: object
@@ -6165,6 +6180,13 @@ components:
           type: integer
           nullable: true
           minimum: 0
+          description: >-
+            Reproducibility seed. Only meaningful on models whose provider
+            actually takes one: check `video.seed` on `GET /models`, where
+            `false` means the provider has no seed field and sending one is
+            refused with a 400, and an omitted value means unverified. It is
+            NOT a universal video option — most providers here have no seed
+            in their API at all.
         generate_audio:
           type: boolean
           nullable: true
