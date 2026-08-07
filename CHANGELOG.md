@@ -3,6 +3,21 @@
 Release notes for the Nolgia CLI. Each `## vX.Y.Z` section becomes the body of
 the matching GitHub release.
 
+## v0.2.22
+
+- **New `--source-width` / `--source-height`, and Topaz restores need them.**
+  The `topaz-*` engines derive the output frame from the source's own aspect
+  ratio, so the API refuses to guess a 16:9 frame — guessing would both reshape
+  the footage and misprice the job. It reads the geometry from the asset's
+  stored metadata when it is there, but many assets do not carry it, and until
+  now the CLI had no way to supply it: `nolgia restore video --model topaz-*`
+  on such an asset failed with `source_width and source_height are required`
+  and no flag to answer it. A declared pair also WINS over stored metadata, so
+  this is how to correct an asset whose dimensions were never backfilled.
+  Optional on `seedvr2-restore`. The two must be given together — one without
+  the other cannot describe a frame, and the parser refuses it before any
+  request or upload happens.
+
 ## v0.2.21
 
 - **The twelve Topaz master upscalers join `nolgia restore video`.** Same

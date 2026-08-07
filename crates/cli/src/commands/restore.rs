@@ -84,6 +84,19 @@ pub struct RestoreVideoArgs {
     /// rate, so it refuses to guess rather than under-reserve the job.
     #[arg(long)]
     pub source_fps: Option<std::num::NonZeroU64>,
+    /// Source frame width in pixels. Send with `--source-height`.
+    ///
+    /// Required on the `topaz-*` engines whenever the source's geometry is not
+    /// already stored: they derive the output frame from the source's own
+    /// aspect ratio, and the server refuses to guess a 16:9 frame rather than
+    /// reshape the footage and misprice the job. A declared value also WINS
+    /// over an asset's stored metadata, so it is the way to correct an asset
+    /// whose dimensions were never backfilled. Optional on `seedvr2-restore`.
+    #[arg(long, requires = "source_height")]
+    pub source_width: Option<std::num::NonZeroU64>,
+    /// Source frame height in pixels. Send with `--source-width`.
+    #[arg(long, requires = "source_width")]
+    pub source_height: Option<std::num::NonZeroU64>,
     #[arg(long)]
     pub seed: Option<u64>,
     /// File the restored asset into this project (`nolgia projects list`
@@ -153,6 +166,8 @@ fn build_body(
         .noise_scale(args.noise_scale)
         .duration_seconds(args.duration_seconds)
         .source_fps(args.source_fps)
+        .source_width(args.source_width)
+        .source_height(args.source_height)
         .seed(args.seed)
         .project_id(args.project_id)
         .try_into()
