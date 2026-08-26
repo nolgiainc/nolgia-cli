@@ -5618,7 +5618,11 @@ components:
         Video model identifier. Priority models are Kling v3.0, Seedance 2.0 Pro,
         and MiniMax Hailuo 3 (`minimax-h3`, the 2K multimodal flagship). BFL
         FLUX 3 (`flux-3-video`) is the native-audio t2v/i2v flagship with hd/fhd
-        resolution tiers. Default is `fal-ai/kling-video/v3/text-to-video`.
+        resolution tiers. Alibaba Wan 3.0 (`wan-3.0`) renders 2-30 second
+        clips at 480p/720p/1080p from text, a start image, or reference
+        images. MiniMax H3 Max (`minimax/h3-max/text-to-video` and
+        `minimax/h3-max/image-to-video`) is the post-trained H3 variant with
+        480p/768p tiers. Default is `fal-ai/kling-video/v3/text-to-video`.
       enum:
         - fal-ai/kling-video/v3/text-to-video
         - fal-ai/kling-video/v3/master/text-to-video
@@ -5638,6 +5642,9 @@ components:
         - minimax-hailuo-2.3
         - minimax-hailuo-2.3-fast
         - flux-3-video
+        - wan-3.0
+        - minimax/h3-max/text-to-video
+        - minimax/h3-max/image-to-video
 
     RestoreVideoModel:
       type: string
@@ -6086,8 +6093,8 @@ components:
           description: >-
             Final-frame image (https URL) for start+end frame pinning on
             models that support it (Seedance 2.0 Pro i2v, FLUX 3 Video,
-            MiniMax Hailuo 3 — see `references.end_frame` on
-            `GET /models`, which is authoritative; Kling v3 i2v does not
+            MiniMax Hailuo 3, MiniMax H3 Max i2v — see `references.end_frame`
+            on `GET /models`, which is authoritative; Kling v3 i2v does not
             take an end frame).
             Requires `image_url` (the start frame). Mutually exclusive with
             `end_image_asset_id`.
