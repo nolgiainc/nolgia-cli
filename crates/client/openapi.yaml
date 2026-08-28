@@ -3780,6 +3780,86 @@ paths:
         default:
           $ref: '#/components/responses/ProblemResponse'
 
+  /admin/users:
+    get:
+      tags: [Admin]
+      operationId: listAdminUsers
+      summary: List/search user accounts for the admin panel (admin only).
+      description: >
+        ADMIN-ONLY: every user account, newest first, with the identifying
+        facets the admin panel's Users directory renders per row - current
+        subscription tier/status (or null when free), agent status (or null
+        when the user has no agent), and lifetime job count. `query` filters
+        case-insensitively on email or name substring. Non-admin callers get
+        `404` so the surface is invisible, exactly like the other `/admin`
+        reads. Browser (JWT) sessions only; PATs are rejected. Every read is
+        audit-logged with the calling admin's email.
+      parameters:
+        - name: query
+          in: query
+          required: false
+          description: Case-insensitive substring filter on email or name. Empty or absent means no filter.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          description: Page size. Values outside 1..200 are rejected with `400`.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+        - name: offset
+          in: query
+          required: false
+          description: Rows to skip (offset pagination, newest first). Negative values are rejected with `400`.
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: Users matching the filter, newest first, with the total match count.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUserList'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /admin/agents:
+    get:
+      tags: [Admin]
+      operationId: listAdminAgents
+      summary: List every customer agent with owner and status (admin only).
+      description: >
+        ADMIN-ONLY: the whole agent fleet - every `agents` row joined to its
+        owner's email - for the admin panel's fleet-health card. The
+        projection deliberately EXCLUDES the row's credential columns
+        (`chat_api_key`, `dashboard_password`); nothing secret leaves the
+        database. Non-admin callers get `404` so the surface is invisible,
+        exactly like the other `/admin` reads. Browser (JWT) sessions only;
+        PATs are rejected. Every read is audit-logged with the calling
+        admin's email.
+      responses:
+        '200':
+          description: Every agent, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminAgentList'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
   /admin/litellm/spend:
     get:
       tags: [Admin]
@@ -9075,6 +9155,28 @@ components:
           description: The customer's current subscription, or `null` when free / no active subscription.
         consumption:
           $ref: '#/components/schemas/CustomerConsumption'
+        balance:
+          $ref: '#/components/schemas/CustomerBalance'
+        jobs:
+          $ref: '#/components/schemas/CustomerJobsSummary'
+        assets:
+          $ref: '#/components/schemas/CustomerAssetsSummary'
+        recent_failures:
+          type: array
+          items:
+            $ref: '#/components/schemas/CustomerFailure'
+          description: >
+            The customer's most recent FAILED generation jobs (up to 10, newest
+            first), from `jobs.status = 'failed'` with the stored error text.
+            This covers generation failures only - pre-flight rejections
+            (capability refusals, plan gates, empty-wallet 402s) never become
+            job rows and are deliberately NOT represented here rather than
+            fabricated.
+        agent:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/CustomerAgent'
+          description: The customer's platform agent; absent or `null` when they have none. Optional so its addition never breaks pre-existing consumers.
     CustomerAccount:
       type: object
       additionalProperties: false
@@ -9093,6 +9195,14 @@ components:
           type: string
           format: date-time
           description: When the user account was created.
+        name:
+          type: string
+          nullable: true
+          description: The account's display name, or `null` when the user row carries none.
+        image:
+          type: string
+          nullable: true
+          description: The account's avatar URL, or `null` when the user row carries none.
     CustomerSubscription:
       type: object
       additionalProperties: false
@@ -9125,6 +9235,27 @@ components:
           format: date-time
           nullable: true
           description: End of the current billing period (UTC), or `null` when the subscription row carries none.
+        current_period_start:
+          type: string
+          format: date-time
+          nullable: true
+          description: Start of the current billing period (UTC), or `null` when the subscription row carries none.
+        trial_end:
+          type: string
+          format: date-time
+          nullable: true
+          description: End of the trial (UTC), or `null` when the subscription has no trial.
+        cancel_at_period_end:
+          type: boolean
+          description: Whether the subscription is set to cancel at the end of the current period. Optional for compatibility; new reads always include it.
+        stripe_customer_id:
+          type: string
+          nullable: true
+          description: The Stripe customer id backing this subscription, or `null` when the row carries none. Admin-only surface; used to deep-link the Stripe dashboard.
+        stripe_subscription_id:
+          type: string
+          nullable: true
+          description: The Stripe subscription id, or `null` when the row carries none. Admin-only surface; used to deep-link the Stripe dashboard.
     CustomerConsumption:
       type: object
       additionalProperties: false
@@ -9164,6 +9295,227 @@ components:
           items:
             $ref: '#/components/schemas/EconomicsSurfaceStat'
           description: This customer's consumption split by launching surface, credits descending. NULL/historical surfaces bucket as `unknown`.
+    CustomerBalance:
+      type: object
+      additionalProperties: false
+      required: [app_subscription, shared_topup, total]
+      description: >
+        The customer's live credit balance by wallet type, summed from the
+        ledger over non-expired wallets - the same wallet-expiry semantics as
+        the customer-facing GET /credits read.
+      properties:
+        app_subscription:
+          type: integer
+          description: Credits available in the app_subscription pool.
+        shared_topup:
+          type: integer
+          description: Credits available in the shared_topup pool.
+        total:
+          type: integer
+          description: Sum of both pools.
+    CustomerJobsSummary:
+      type: object
+      additionalProperties: false
+      required: [total, succeeded, failed, canceled, running, queued, last_job_at]
+      description: Lifetime generation-job counts by status for this customer, plus the newest job's creation time.
+      properties:
+        total:
+          type: integer
+        succeeded:
+          type: integer
+        failed:
+          type: integer
+        canceled:
+          type: integer
+        running:
+          type: integer
+        queued:
+          type: integer
+        last_job_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Creation time of the customer's newest job, or `null` when they have none.
+    CustomerAssetsSummary:
+      type: object
+      additionalProperties: false
+      required: [count, total_bytes]
+      description: The customer's live (non-deleted) library size.
+      properties:
+        count:
+          type: integer
+          description: Number of non-deleted assets.
+        total_bytes:
+          type: integer
+          format: int64
+          description: Sum of the non-deleted assets' size_bytes; 0 when sizes are unrecorded.
+    CustomerFailure:
+      type: object
+      additionalProperties: false
+      required: [job_id, type, model, surface, error, created_at]
+      description: One failed generation job, as stored - the raw error text the poller recorded.
+      properties:
+        job_id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          description: Job modality (image/video/audio/...).
+        model:
+          type: string
+          nullable: true
+          description: The model the job ran, or `null` when unrecorded.
+        surface:
+          type: string
+          nullable: true
+          description: The launching surface (X-Nolgia-Surface), or `null` when unrecorded.
+        error:
+          type: string
+          description: The stored failure text; empty string when the row carries none.
+        created_at:
+          type: string
+          format: date-time
+    CustomerAgent:
+      type: object
+      additionalProperties: false
+      required: [agent_id, status, release_name, namespace, auto_provisioned, created_at, updated_at, model, deprovisioned_at]
+      description: >
+        The customer's platform agent as stored in the agents row, with the
+        credential columns (chat_api_key, dashboard_password) deliberately
+        projected out - nothing secret leaves the database on this surface.
+      properties:
+        agent_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          description: The raw agents.status value (pending_deploy, running, deprovisioned).
+        release_name:
+          type: string
+        namespace:
+          type: string
+        auto_provisioned:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        model:
+          type: string
+          nullable: true
+          description: The customer's chat-model pin (agents.model), or `null` for the fleet default.
+        deprovisioned_at:
+          type: string
+          format: date-time
+          nullable: true
+    AdminUserList:
+      type: object
+      additionalProperties: false
+      required: [users, total, fetched_at]
+      description: One page of the admin Users directory, newest account first.
+      properties:
+        users:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminUserSummary'
+        total:
+          type: integer
+          description: Total accounts matching the filter (before limit/offset), for pagination.
+        fetched_at:
+          type: string
+          format: date-time
+    AdminUserSummary:
+      type: object
+      additionalProperties: false
+      required: [user_id, email, name, is_admin, created_at, tier, subscription_status, agent_status, jobs_total]
+      description: One user row of the admin Users directory.
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          description: Account email; empty string when the user row has no email.
+        name:
+          type: string
+          nullable: true
+        is_admin:
+          type: boolean
+          description: Whether this account's email is in the ADMIN_EMAILS allowlist.
+        created_at:
+          type: string
+          format: date-time
+        tier:
+          type: string
+          nullable: true
+          description: Current subscription tier (subscriptions.plan), or `null` when free / no active subscription.
+        subscription_status:
+          type: string
+          nullable: true
+          description: Current subscription status, or `null` when free / no active subscription.
+        agent_status:
+          type: string
+          nullable: true
+          description: The user's agent status (pending_deploy/running/deprovisioned), or `null` when they have no agent.
+        jobs_total:
+          type: integer
+          description: Lifetime generation-job count.
+    AdminAgentList:
+      type: object
+      additionalProperties: false
+      required: [agents, fetched_at]
+      description: The whole agent fleet, newest first, for the admin fleet-health card.
+      properties:
+        agents:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminAgentSummary'
+        fetched_at:
+          type: string
+          format: date-time
+    AdminAgentSummary:
+      type: object
+      additionalProperties: false
+      required: [agent_id, user_id, email, name, status, release_name, namespace, auto_provisioned, created_at, updated_at, model, deprovisioned_at]
+      description: One agent row with its owner's email; credential columns are never included.
+      properties:
+        agent_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          description: The owning account's email; empty string when the user row has no email.
+        name:
+          type: string
+          description: The agent's display name (agents.name).
+        status:
+          type: string
+          description: The raw agents.status value (pending_deploy, running, deprovisioned).
+        release_name:
+          type: string
+        namespace:
+          type: string
+        auto_provisioned:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        model:
+          type: string
+          nullable: true
+          description: The customer's chat-model pin, or `null` for the fleet default.
+        deprovisioned_at:
+          type: string
+          format: date-time
+          nullable: true
     AdminUsageSummary:
       type: object
       additionalProperties: false
