@@ -34,7 +34,8 @@ fn help_lists_full_command_surface() {
         .stdout(predicate::str::contains("billing"))
         .stdout(predicate::str::contains("pat"))
         .stdout(predicate::str::contains("restore"))
-        .stdout(predicate::str::contains("color-presets"));
+        .stdout(predicate::str::contains("color-presets"))
+        .stdout(predicate::str::contains("masks"));
 }
 
 /// NOL-317: `--help` must name the env vars it reads but never render their
@@ -2742,6 +2743,307 @@ async fn color_presets_cube_404_surfaces_server_detail_verbatim() {
         .stderr(predicate::str::contains(
             "no color preset with slug \"nope\"",
         ));
+}
+
+/// The sanitizer's verdict on the ellipse starter with two authoring slips:
+/// an out-of-range `x` (clamped) and a key the contract does not know
+/// (dropped). `mask` is the canonical sparse result, not the input.
+fn mask_verdict_json() -> serde_json::Value {
+    json!({
+        "mask": {"shape": "ellipse", "x": 200, "y": 40, "width": 60, "height": 45, "feather": 30},
+        "identity": false,
+        "problems": [
+            {"path": "x", "message": "clamped from 250 to 200 (range -100..200)"},
+            {"path": "softness", "message": "unknown field dropped"}
+        ]
+    })
+}
+
+fn mount_validate_mask(
+    api: &MockServer,
+    expected_body: serde_json::Value,
+    verdict: serde_json::Value,
+) -> impl std::future::Future<Output = ()> + '_ {
+    Mock::given(method("POST"))
+        .and(path("/v1/masks:validate"))
+        .and(body_json(expected_body))
+        .respond_with(ResponseTemplate::new(200).set_body_json(verdict))
+        .mount(api)
+}
+
+#[tokio::test]
+async fn masks_validate_prints_canonical_mask_then_problems() {
+    let api = MockServer::start().await;
+    let candidate = json!({"shape": "ellipse", "x": 250, "y": 40, "width": 60, "height": 45,
+                           "feather": 30, "softness": 3});
+    mount_validate_mask(&api, json!({"mask": candidate}), mask_verdict_json()).await;
+    let assert = run_ok(&api, &["masks", "validate", &candidate.to_string()]);
+    let stdout = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    // The canonical mask, in contract order, with whole numbers as integers.
+    let mask_end = stdout.find("\n}\n").expect("pretty mask object") + 3;
+    let mask: serde_json::Value = serde_json::from_str(&stdout[..mask_end]).unwrap();
+    assert_eq!(
+        mask,
+        json!({"shape": "ellipse", "x": 200, "y": 40, "width": 60, "height": 45, "feather": 30})
+    );
+    assert!(
+        stdout.contains("\"shape\": \"ellipse\",\n  \"x\": 200,"),
+        "{stdout}"
+    );
+    assert_eq!(
+        &stdout[mask_end..],
+        "  x: clamped from 250 to 200 (range -100..200)\n  softness: unknown field dropped\n"
+    );
+}
+
+#[tokio::test]
+async fn masks_validate_without_strict_exits_zero_despite_problems() {
+    let api = MockServer::start().await;
+    mount_validate_mask(&api, json!({"mask": {"x": 250}}), mask_verdict_json()).await;
+    run_ok(&api, &["masks", "validate", r#"{"x": 250}"#])
+        .stdout(predicate::str::contains("softness: unknown field dropped"));
+}
+
+#[tokio::test]
+async fn masks_validate_strict_exits_one_on_problems() {
+    let api = MockServer::start().await;
+    mount_validate_mask(&api, json!({"mask": {"x": 250}}), mask_verdict_json()).await;
+    cmd()
+        .arg("--api-url")
+        .arg(api.uri())
+        .args(["masks", "validate", "--strict", r#"{"x": 250}"#])
+        .assert()
+        .code(1)
+        // The verdict is still printed in full before the gate trips.
+        .stdout(predicate::str::contains("\"shape\": \"ellipse\""))
+        .stdout(predicate::str::contains("x: clamped from 250 to 200"))
+        .stderr(predicate::str::contains("mask has 2 problems (--strict)"));
+}
+
+#[tokio::test]
+async fn masks_validate_strict_passes_a_clean_mask() {
+    let api = MockServer::start().await;
+    let mask = json!({"shape": "ellipse", "width": 60});
+    mount_validate_mask(
+        &api,
+        json!({"mask": mask}),
+        json!({"mask": mask, "identity": false, "problems": []}),
+    )
+    .await;
+    run_ok(&api, &["masks", "validate", "--strict", &mask.to_string()]).stdout(predicate::eq(
+        "{\n  \"shape\": \"ellipse\",\n  \"width\": 60\n}\n",
+    ));
+}
+
+#[tokio::test]
+async fn masks_validate_identity_renders_null_as_a_clear() {
+    let api = MockServer::start().await;
+    mount_validate_mask(
+        &api,
+        json!({"mask": {}}),
+        json!({"mask": null, "identity": true, "problems": []}),
+    )
+    .await;
+    run_ok(&api, &["masks", "validate", "{}"])
+        .stdout(predicate::eq("null (identity — clears an authored mask)\n"));
+}
+
+#[tokio::test]
+async fn masks_validate_undrawable_renders_null_and_names_the_mask() {
+    let api = MockServer::start().await;
+    mount_validate_mask(
+        &api,
+        json!({"mask": {"shape": "star"}}),
+        json!({"mask": null, "identity": false, "problems": [
+            {"path": "shape", "message": "unknown shape \"star\" — the mask will not be drawn"},
+            {"path": "", "message": "not a drawable mask"}
+        ]}),
+    )
+    .await;
+    run_ok(&api, &["masks", "validate", r#"{"shape": "star"}"#])
+        .stdout(predicate::str::starts_with("null (not a drawable mask)\n"))
+        .stdout(predicate::str::contains("  shape: unknown shape \"star\""))
+        .stdout(predicate::str::contains("  (mask): not a drawable mask\n"));
+}
+
+#[tokio::test]
+async fn masks_validate_reads_the_mask_from_an_at_file() {
+    let api = MockServer::start().await;
+    let candidate =
+        json!({"shape": "polygon", "points": [[0, 0], [100, 0], [50, 100]], "feather": 8});
+    let verdict = json!({"mask": candidate, "identity": false, "problems": []});
+    mount_validate_mask(&api, json!({"mask": candidate}), verdict).await;
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("mask.json");
+    std::fs::write(&file, serde_json::to_string_pretty(&candidate).unwrap()).unwrap();
+    run_ok(
+        &api,
+        &["masks", "validate", &format!("@{}", file.display())],
+    )
+    .stdout(predicate::str::contains(
+        "\"points\": [\n    [\n      0,\n      0\n    ],",
+    ));
+}
+
+#[tokio::test]
+async fn masks_validate_reads_the_mask_from_stdin() {
+    let api = MockServer::start().await;
+    let candidate = json!({"shape": "ellipse", "feather": 12.5});
+    let verdict = json!({"mask": candidate, "identity": false, "problems": []});
+    mount_validate_mask(&api, json!({"mask": candidate}), verdict).await;
+    cmd()
+        .arg("--api-url")
+        .arg(api.uri())
+        .args(["masks", "validate", "-"])
+        .write_stdin(candidate.to_string())
+        .assert()
+        .success()
+        .stdout(predicate::eq(
+            "{\n  \"shape\": \"ellipse\",\n  \"feather\": 12.5\n}\n",
+        ));
+}
+
+#[tokio::test]
+async fn masks_validate_forwards_non_object_junk_for_diagnosis() {
+    let api = MockServer::start().await;
+    mount_validate_mask(
+        &api,
+        json!({"mask": "ellipse"}),
+        json!({"mask": null, "identity": false, "problems": [
+            {"path": "", "message": "not a mask: expected an object, got a string"}
+        ]}),
+    )
+    .await;
+    run_ok(&api, &["masks", "validate", "\"ellipse\""]).stdout(predicate::str::contains(
+        "(mask): not a mask: expected an object, got a string",
+    ));
+}
+
+#[tokio::test]
+async fn masks_validate_json_prints_the_verdict() {
+    let api = MockServer::start().await;
+    mount_validate_mask(&api, json!({"mask": {"x": 250}}), mask_verdict_json()).await;
+    let assert = run_ok(&api, &["--json", "masks", "validate", r#"{"x": 250}"#]);
+    let verdict: serde_json::Value =
+        serde_json::from_slice(&assert.get_output().stdout).expect("stdout is one JSON document");
+    assert_eq!(verdict, mask_verdict_json());
+}
+
+#[tokio::test]
+async fn masks_validate_json_strict_still_prints_the_verdict_before_failing() {
+    let api = MockServer::start().await;
+    mount_validate_mask(&api, json!({"mask": {"x": 250}}), mask_verdict_json()).await;
+    let assert = cmd()
+        .arg("--api-url")
+        .arg(api.uri())
+        .args(["--json", "masks", "validate", "--strict", r#"{"x": 250}"#])
+        .assert()
+        .code(1);
+    let verdict: serde_json::Value = serde_json::from_slice(&assert.get_output().stdout).unwrap();
+    assert_eq!(verdict["problems"].as_array().unwrap().len(), 2);
+}
+
+#[test]
+fn masks_validate_rejects_unparseable_json_before_any_request() {
+    cmd()
+        .args([
+            "--api-url",
+            "http://127.0.0.1:9",
+            "masks",
+            "validate",
+            "{not json",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("parsing mask JSON from <MASK>"));
+}
+
+#[tokio::test]
+async fn masks_validate_surfaces_server_problem_detail_verbatim() {
+    let api = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/masks:validate"))
+        .respond_with(ResponseTemplate::new(400).set_body_json(json!({
+            "type": "https://nolgia.ai/errors/bad-request",
+            "title": "Bad request",
+            "status": 400,
+            "detail": "body must be an object with a \"mask\" key"
+        })))
+        .mount(&api)
+        .await;
+    cmd()
+        .arg("--api-url")
+        .arg(api.uri())
+        .args(["masks", "validate", "{}"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("validating mask: 400"))
+        .stderr(predicate::str::contains(
+            "body must be an object with a \"mask\" key",
+        ));
+}
+
+/// `masks example` is offline: no login, no request. The API URL points at a
+/// closed port so any attempt to build a request would fail loudly.
+#[test]
+fn masks_example_prints_contract_true_starters_offline() {
+    for (shape, expected) in [
+        (
+            "rectangle",
+            json!({"x": 75, "y": 22, "width": 40, "height": 24,
+                   "cornerRadius": 24, "feather": 2}),
+        ),
+        (
+            "ellipse",
+            json!({"shape": "ellipse", "y": 40, "width": 60, "height": 45, "feather": 30}),
+        ),
+        (
+            "polygon",
+            json!({"shape": "polygon", "points": [[0, 0], [100, 0], [50, 100]], "feather": 8}),
+        ),
+    ] {
+        let assert = cmd()
+            .args(["--api-url", "http://127.0.0.1:9", "masks", "example", shape])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("nolgia masks validate"));
+        let stdout = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+        let (mask_text, _hint) = stdout.split_once("\n\n").expect("mask, blank line, hint");
+        let mask: serde_json::Value = serde_json::from_str(mask_text).unwrap();
+        assert_eq!(mask, expected, "`nolgia masks example {shape}`");
+        if shape != "rectangle" {
+            assert!(
+                mask_text.starts_with(&format!("{{\n  \"shape\": \"{shape}\",")),
+                "{mask_text}"
+            );
+        }
+
+        // `--json` is the bare starter, with no hint to strip.
+        let assert = cmd()
+            .args([
+                "--json",
+                "--api-url",
+                "http://127.0.0.1:9",
+                "masks",
+                "example",
+                shape,
+            ])
+            .assert()
+            .success();
+        let mask: serde_json::Value = serde_json::from_slice(&assert.get_output().stdout).unwrap();
+        assert_eq!(mask, expected);
+    }
+}
+
+#[test]
+fn masks_example_rejects_unknown_shapes() {
+    cmd()
+        .args(["masks", "example", "star"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("rectangle"))
+        .stderr(predicate::str::contains("ellipse"))
+        .stderr(predicate::str::contains("polygon"));
 }
 
 fn cmd() -> Command {

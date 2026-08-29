@@ -114,10 +114,37 @@ fn load_spec(
 /// emit `Option<T>` with `skip_serializing_if`, so an unset field is genuinely
 /// omitted and the server applies its own default — static or dynamic.
 ///
+/// The same rule covers a SPARSE contract object even when it only ever comes
+/// *back*. `Mask` (the timeline-mask contract) is "every field optional, an
+/// absent field is the default, and a field equal to its default is dropped
+/// by the sanitizer" — so the sparse shape is the canonical one, and
+/// materializing `x: 50, rotation: 0, inverted: false, …` onto a value that
+/// was `{ "shape": "polygon", "points": […] }` on the wire both hides which
+/// fields the server actually kept and, once re-serialized into a
+/// `data-mask` attribute or an overlay `mask` field, turns a canonical mask
+/// into one that carries shape-irrelevant junk (`x` on a polygon) the lint
+/// flags as an error. Every defaulted `Mask` field is therefore listed here
+/// so the generated type is `Option<T>` + `skip_serializing_if`, i.e. exactly
+/// as sparse as the contract. (Its `shape` needs no entry: it is a
+/// response-only enum, and [`relax_response_only_enums`] already rewrites it
+/// to a plain optional string.)
+///
 /// This rewrites the in-memory spec at codegen time only; the vendored
 /// `openapi.yaml` stays byte-identical to the published canonical spec, which
 /// is what the `spec-check` CI job diffs.
-const SERVER_SIDE_DEFAULT_FIELDS: &[(&str, &str)] = &[("GenerateVideoRequest", "duration_seconds")];
+const SERVER_SIDE_DEFAULT_FIELDS: &[(&str, &str)] = &[
+    ("GenerateVideoRequest", "duration_seconds"),
+    ("Mask", "x"),
+    ("Mask", "y"),
+    ("Mask", "width"),
+    ("Mask", "height"),
+    ("Mask", "rotation"),
+    ("Mask", "cornerRadius"),
+    ("Mask", "feather"),
+    ("Mask", "expansion"),
+    ("Mask", "opacity"),
+    ("Mask", "inverted"),
+];
 
 fn unmaterialize_server_side_defaults(value: &mut Value) {
     let Some(schemas) = value

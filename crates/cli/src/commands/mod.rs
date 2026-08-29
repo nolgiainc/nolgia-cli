@@ -5,6 +5,7 @@ pub mod billing;
 pub mod characters;
 pub mod color_presets;
 pub mod r#gen;
+pub mod masks;
 pub mod models;
 pub mod pat;
 pub mod projects;

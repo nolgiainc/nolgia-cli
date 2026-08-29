@@ -9,8 +9,8 @@ use std::process::ExitCode;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use commands::{
-    CommandContext, ability, account, assets, billing, characters, color_presets, r#gen, models,
-    pat, projects, restore, skills, status, wait,
+    CommandContext, ability, account, assets, billing, characters, color_presets, r#gen, masks,
+    models, pat, projects, restore, skills, status, wait,
 };
 use nolgia_client::{Client, ClientBuilder};
 use output::OutputFormat;
@@ -112,6 +112,11 @@ pub enum Commands {
         about = "Built-in color-grade preset looks for Studio compositions (list, cube)"
     )]
     ColorPresets(color_presets::ColorPresetsCommand),
+    #[command(
+        subcommand,
+        about = "Timeline masks for Studio compositions (validate, example)"
+    )]
+    Masks(masks::MasksCommand),
     #[command(about = "Generate shell completions (bash, zsh, fish, powershell)")]
     Completion(CompletionArgs),
 }
@@ -191,6 +196,11 @@ pub async fn run_cli(cli: Cli) -> Result<()> {
         clap_complete::generate(args.shell, &mut cmd, "nolgia", &mut std::io::stdout());
         return Ok(());
     }
+    // `masks example` is a starter-JSON printer with no request to make, so
+    // it must not depend on a stored login (or probe the keyring for one).
+    if let Commands::Masks(masks::MasksCommand::Example(args)) = cli.command {
+        return masks::example(args, format);
+    }
 
     let token = cli.token.or_else(auth::load_token).unwrap_or_default();
     let client = build_client(&cli.api_url, token, cli.idempotency_key)?;
@@ -213,6 +223,7 @@ pub async fn run_cli(cli: Cli) -> Result<()> {
         Commands::Completion(_) => unreachable!("completion handled before client construction"),
         Commands::Models(command) => models::run(command, &ctx).await,
         Commands::ColorPresets(command) => color_presets::run(command, &ctx).await,
+        Commands::Masks(command) => masks::run(command, &ctx).await,
     }
 }
 
