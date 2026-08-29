@@ -95,6 +95,18 @@ tags:
       attributes — per timed element, and on the canvas element for the whole
       frame — and as `colorGrade` fields in the `nolgia-edits.json` overlay;
       the render job bakes them into the exported MP4.
+  - name: Masks
+    description: |
+      Per-clip timeline masks (Adobe Premiere's Opacity masks): a `rectangle`,
+      `ellipse`, or `polygon` shape with `feather`, `expansion`, `opacity`, and
+      `inverted` controls that hides part of one visual clip so the layers
+      beneath show through. Masks attach to compositions as `data-mask`
+      attributes on timed elements and as `mask` fields in the
+      `nolgia-edits.json` overlay (`elements.<key>.mask`, `additions[].mask`,
+      object-level replacement — `{}` clears); the Studio preview applies
+      them live and the render job bakes them into the exported MP4. The
+      sanitizer (`POST /masks:validate`) is public and stateless: it reports
+      exactly what the renderer will draw.
   - name: Admin
     description: >
       Internal admin-only debugging surfaces. Invisible to non-admin callers
@@ -2263,6 +2275,12 @@ paths:
           the mix. Hidden/muted items still reserve their timeline extent, so
           the exported duration is unchanged. The overlay's `unlinked` field
           is editor-only and ignored by the renderer.
+        - Color grades (`data-color-grade` / overlay `colorGrade`, see the
+          ColorPresets tag) and per-clip masks (`data-mask` / overlay
+          `mask`, see the Masks tag and the `Mask` schema) are baked in:
+          grades per clip then on the composited canvas; masks as the
+          clip's alpha (video and image clips — a mask on a text clip is
+          preview-only and recorded as a warning, on audio it is ignored).
         - Pure text elements (an element whose content is plain text with no
           child elements) and text additions — rendered as animated titles
           with basic styling (white text on a dark pill, safe-zone margin).
@@ -4632,6 +4650,53 @@ paths:
               schema:
                 type: string
         '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /masks:validate:
+    post:
+      tags: [Masks]
+      operationId: validateMask
+      summary: Sanitize a timeline mask and report what was clamped or dropped. Public and stateless — the same sanitizer the render job and the Studio preview apply.
+      description: |
+        Runs the platform's mask sanitizer over an arbitrary JSON value and
+        returns the canonical sparse `Mask` the renderer would draw (or
+        `null` when the value is not a drawable mask, or is the identity —
+        a full-frame default rectangle), plus one `problems` entry per
+        clamped, dropped, or undrawable field. Use it to lint authored
+        `data-mask` attributes and overlay `mask` fields before a push: an
+        authored value that produces problems renders differently from the
+        author's intent.
+
+        Sanitizer contract (identical in the Studio preview and the agent
+        pipeline lint): unknown keys and non-numeric / non-finite numbers
+        are dropped; numbers are clamped to range and rounded to 2 decimals;
+        an unknown `shape`, or a `polygon` with fewer than 3 valid vertices,
+        makes the whole mask absent; shape-irrelevant fields are dropped
+        (`x`/`y`/`width`/`height`/`rotation`/`cornerRadius` on a polygon,
+        `points` on a rectangle/ellipse, `cornerRadius` on an ellipse);
+        fields equal to their default are dropped; a default full-frame
+        rectangle (with or without `opacity`) is the identity and is
+        reported absent (`mask: null`, `identity: true`).
+      security:
+        - {}
+        - bearerAuth: []
+        - patAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MaskValidateRequest'
+      responses:
+        '200':
+          description: The sanitized mask and its diagnostics.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MaskValidation'
+        '400':
           $ref: '#/components/responses/ProblemResponse'
         default:
           $ref: '#/components/responses/ProblemResponse'
@@ -10291,6 +10356,170 @@ components:
           items:
             $ref: '#/components/schemas/ColorPreset'
           description: Presets in manifest order.
+
+    MaskShape:
+      type: string
+      enum: [rectangle, ellipse, polygon]
+      x-enum-varnames: [MaskShapeRectangle, MaskShapeEllipse, MaskShapePolygon]
+      description: The mask's shape kind. `rectangle` (Premiere's 4-point mask, optionally rounded), `ellipse`, or a `polygon` pen path.
+
+    MaskPoint:
+      type: array
+      minItems: 2
+      maxItems: 2
+      items:
+        type: number
+        format: double
+        minimum: -100
+        maximum: 200
+      description: One polygon vertex as `[x, y]`, each a percentage of the clip box (x of its width, y of its height; 0 = left/top edge, 100 = right/bottom edge).
+      examples: [[50, 0]]
+
+    Mask:
+      type: object
+      additionalProperties: false
+      description: |
+        One per-clip timeline mask — a SPARSE object: every field is
+        optional and an absent field is the default. `{}` is the identity
+        mask (its one job is the explicit CLEAR in the `nolgia-edits.json`
+        overlay). Coordinates are percentages of the CLIP BOX — the timed
+        element's CSS box in the Studio preview, the clip's fitted frame on
+        export. `feather`, `expansion`, and `cornerRadius` are px at the
+        composition's native canvas resolution.
+
+        Alpha per pixel: `shape = inverted ? 1 - inside : inside`,
+        `alpha = 1 - (opacity / 100) * (1 - shape)`, where `inside` is the
+        coverage after expansion and feathering; the clip's own alpha is
+        multiplied by it. Exactly one mask per clip; masks apply to video
+        and image clips (text clips: Studio preview only; audio: ignored).
+      properties:
+        shape:
+          $ref: '#/components/schemas/MaskShape'
+          default: rectangle
+        x:
+          type: number
+          format: double
+          minimum: -100
+          maximum: 200
+          default: 50
+          description: Shape CENTER, % of the clip box width. Rectangle and ellipse only.
+        y:
+          type: number
+          format: double
+          minimum: -100
+          maximum: 200
+          default: 50
+          description: Shape center, % of the clip box height. Rectangle and ellipse only.
+        width:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 200
+          default: 100
+          description: Shape width, % of the clip box width. Rectangle and ellipse only.
+        height:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 200
+          default: 100
+          description: Shape height, % of the clip box height. Rectangle and ellipse only.
+        rotation:
+          type: number
+          format: double
+          minimum: -180
+          maximum: 180
+          default: 0
+          description: Degrees, clockwise (screen coordinates) about the shape center. Rectangle and ellipse only.
+        cornerRadius:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 500
+          default: 0
+          description: Corner rounding in native canvas px. Rectangle only.
+        points:
+          type: array
+          minItems: 3
+          maxItems: 64
+          items:
+            $ref: '#/components/schemas/MaskPoint'
+          description: Polygon vertices in draw order (the path closes itself; nonzero winding fill). Required for — and only meaningful on — `polygon`.
+        feather:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 500
+          default: 0
+          description: Edge softness in native canvas px — the alpha ramp spans about `feather` px (Gaussian, σ = feather / 3).
+        expansion:
+          type: number
+          format: double
+          minimum: -500
+          maximum: 500
+          default: 0
+          description: Grows (positive) or shrinks (negative) the outline by that many native canvas px before feathering.
+        opacity:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 100
+          default: 100
+          description: How strongly the mask hides the outside — 100 hides it fully, 0 makes the mask a no-op.
+        inverted:
+          type: boolean
+          default: false
+          description: Reveal the OUTSIDE and hide the INSIDE instead.
+      examples:
+        - { shape: ellipse, x: 50, y: 40, width: 60, height: 45, feather: 30 }
+        - { x: 25, width: 50 }
+        - { shape: rectangle, x: 75, y: 22, width: 40, height: 24, cornerRadius: 24 }
+        - { shape: polygon, points: [[0, 0], [100, 0], [50, 100]], inverted: true }
+
+    MaskValidateRequest:
+      type: object
+      additionalProperties: false
+      required: [mask]
+      description: A candidate mask — any JSON value; non-objects are reported as "not a mask".
+      properties:
+        mask:
+          description: The value to sanitize (normally an object shaped like `Mask`, but any JSON is accepted so junk can be diagnosed).
+          nullable: true
+
+    MaskProblem:
+      type: object
+      additionalProperties: false
+      required: [path, message]
+      description: One sanitizer diagnostic — a field that was clamped, dropped, or that made the mask undrawable.
+      properties:
+        path:
+          type: string
+          description: JSON path of the offending value relative to the mask (`""` for the mask itself, `"x"`, `"points[2]"`, …).
+          examples: ['points[2]']
+        message:
+          type: string
+          description: What happened and why, in one sentence.
+          examples: ['clamped from 250 to 200 (range -100..200)']
+
+    MaskValidation:
+      type: object
+      additionalProperties: false
+      required: [mask, identity, problems]
+      description: The sanitizer's verdict on a candidate mask.
+      properties:
+        mask:
+          allOf:
+            - $ref: '#/components/schemas/Mask'
+          nullable: true
+          description: The canonical sparse mask the renderer would draw, or `null` when the input is absent — not an object, undrawable (unknown shape, polygon with fewer than 3 valid vertices), or the identity.
+        identity:
+          type: boolean
+          description: True when the input sanitized to the identity mask (a full-frame default rectangle) — in the overlay that is the explicit CLEAR of an authored mask.
+        problems:
+          type: array
+          items:
+            $ref: '#/components/schemas/MaskProblem'
+          description: Every clamp/drop/undrawable diagnostic, in field order; empty when the input was already canonical.
 
     PresetMediaOutcome:
       type: string
