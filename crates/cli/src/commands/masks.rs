@@ -224,7 +224,6 @@ fn number(value: f64) -> serde_json::Number {
 
 /// A rounded picture-in-picture window in the top-right corner.
 const RECTANGLE_EXAMPLE: &str = r#"{
-  "shape": "rectangle",
   "x": 75,
   "y": 22,
   "width": 40,
@@ -236,7 +235,6 @@ const RECTANGLE_EXAMPLE: &str = r#"{
 /// A soft oval — the classic vignette / spotlight reveal.
 const ELLIPSE_EXAMPLE: &str = r#"{
   "shape": "ellipse",
-  "x": 50,
   "y": 40,
   "width": 60,
   "height": 45,
@@ -276,15 +274,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn examples_are_valid_json_naming_their_shape() {
-        for (shape, text) in [
-            ("rectangle", RECTANGLE_EXAMPLE),
-            ("ellipse", ELLIPSE_EXAMPLE),
-            ("polygon", POLYGON_EXAMPLE),
-        ] {
-            let value: serde_json::Value = serde_json::from_str(text).expect("valid JSON");
-            assert_eq!(value["shape"], shape);
+    fn examples_are_valid_canonical_json() {
+        for text in [RECTANGLE_EXAMPLE, ELLIPSE_EXAMPLE, POLYGON_EXAMPLE] {
+            serde_json::from_str::<serde_json::Value>(text).expect("valid JSON");
         }
+
+        let rectangle: serde_json::Value =
+            serde_json::from_str(RECTANGLE_EXAMPLE).expect("valid JSON");
+        let ellipse: serde_json::Value = serde_json::from_str(ELLIPSE_EXAMPLE).expect("valid JSON");
+        assert!(rectangle.get("shape").is_none());
+        assert!(ellipse.get("x").is_none());
     }
 
     #[test]
