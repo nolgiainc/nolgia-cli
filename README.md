@@ -251,6 +251,7 @@ Replace every `<PLACEHOLDER>` below with a real value; angle-bracket placeholder
 | `ability` | `list`, `show`, `installed`, `install`, `uninstall`, `sync`, `init`, `pack`, `publish` marketplace Abilities |
 | `models` | `list`, `get` live catalog |
 | `color-presets` | `list` the built-in color-grade preset looks for Studio compositions; `cube <slug> [-o FILE]` downloads the `.cube` LUT |
+| `masks` | `validate <MASK>` runs the timeline-mask sanitizer on inline JSON, `@file`, or `-` (stdin) and prints the canonical mask plus every clamp/drop diagnostic (`--strict` exits 1 on any problem); `example rectangle`, `ellipse`, or `polygon` prints a contract-true starter mask offline |
 | `completion` | `bash`, `zsh`, `fish`, `elvish`, or `powershell` completion script |
 
 ## Global flags and environment

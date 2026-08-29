@@ -3,6 +3,24 @@
 Release notes for the Nolgia CLI. Each `## vX.Y.Z` section becomes the body of
 the matching GitHub release.
 
+## Unreleased
+
+- **`nolgia masks`** — per-clip timeline masks (Premiere-style Opacity masks)
+  for Studio compositions. `validate <MASK>` runs the platform's mask
+  sanitizer over inline JSON, `@path/to/mask.json`, or `-` (stdin) via the
+  public `POST /masks:validate` and prints the canonical sparse mask the
+  renderer would draw — or `null`, saying whether that is the identity (the
+  overlay's explicit CLEAR) or an undrawable mask — followed by one
+  `<path>: <message>` line per clamped, dropped, or undrawable field;
+  `--strict` exits 1 when there is any problem, so agents can use it as a
+  lint gate before a composition push. `--json` prints the raw
+  `MaskValidation`. `example rectangle|ellipse|polygon` prints a
+  contract-true starter mask offline (no login, no request) to paste into a
+  `data-mask` attribute or an overlay `mask` field.
+- Re-vendored the OpenAPI spec with the nolgia-api timeline-mask contract
+  (`/masks:validate`, `Mask`, `MaskShape`, `MaskPoint`, `MaskProblem`,
+  `MaskValidateRequest`, `MaskValidation` schemas, `Masks` tag).
+
 ## v0.2.23
 
 - **`nolgia ability install` works again.** Every install from a released CLI
