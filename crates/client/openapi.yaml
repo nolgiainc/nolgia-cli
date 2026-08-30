@@ -5952,6 +5952,26 @@ components:
             format: uri
             maxLength: 2048
           examples: [['https://assets.nolgia.ai/ref-character.png', 'https://assets.nolgia.ai/ref-outfit.png']]
+        reference_asset_ids:
+          type: array
+          nullable: true
+          maxItems: 4
+          description: >-
+            Reference images given as ids of your own image assets — the
+            server resolves each to a signed URL and it rides the same
+            multi-reference path as `image_urls` (the image lane's sibling of
+            the video lane's `element_asset_ids`). Counted against the same
+            per-model cap as `image_url` + `image_urls` combined
+            (`image.reference_images_max` on `GET /models` — 4 on gpt-image-2
+            and Kling Image 3.0, 1 on single-reference models, 0 on models
+            with no reference input, where any reference is rejected with a
+            400 rather than silently dropped). Prefer this over `image_urls`
+            for assets already in your Library: the server re-signs the
+            underlying objects at execution time, so a queued job never runs
+            with an expired URL.
+          items:
+            type: string
+            format: uuid
         quality:
           type: string
           nullable: true
@@ -7088,7 +7108,7 @@ components:
             runs against it. Defaults to the first reference asset when unset.
         reference_assets:
           type: array
-          maxItems: 4
+          maxItems: 8
           description: Reference images (image assets) in display order, each with a fresh signed URL.
           items:
             $ref: '#/components/schemas/Asset'
@@ -7141,7 +7161,7 @@ components:
         reference_asset_ids:
           type: array
           minItems: 0
-          maxItems: 4
+          maxItems: 8
           description: IDs of existing image assets owned by the caller, in display order.
           items:
             type: string
@@ -7178,7 +7198,7 @@ components:
           type: array
           nullable: true
           minItems: 0
-          maxItems: 4
+          maxItems: 8
           description: Replaces the full set of reference images when provided.
           items:
             type: string
@@ -10343,6 +10363,20 @@ components:
         description:
           type: string
           description: One-line description of the look.
+        category:
+          type: string
+          description: >-
+            Editorial category within its group. Film-stock presets use
+            motion | stills | mono | finish | camera; the legacy looks use
+            look. Empty on presets recorded before the field existed.
+          examples: ['motion']
+        group:
+          type: string
+          description: >-
+            Catalog group. `film` is the primary set (real film stock
+            emulations, round 39); `looks` is the legacy stylized set kept as
+            a secondary group. Clients should present `film` first.
+          examples: ['film']
 
     ColorPresetList:
       type: object
@@ -10609,6 +10643,35 @@ components:
       x-enum-varnames: [PresetTargetKindCreateImage, PresetTargetKindCreateVideo, PresetTargetKindCreateAudio, PresetTargetKindStudioIntent]
       description: How a preset card links out. `create_*` deep-links into a one-shot creation endpoint; `studio_intent` hands off to the Studio agent lane.
 
+    PresetPageCategory:
+      type: string
+      enum: ['', 'video', 'image', 'assets']
+      description: >-
+        The /presets page section a preset files under (round 39, TASK 7):
+        the page groups into VIDEO, IMAGE, and ASSETS. Empty means
+        uncategorized — clients group those by output_type as a fallback.
+
+    PresetOption:
+      type: object
+      additionalProperties: false
+      required: [label, description]
+      description: >-
+        One customer-visible option chip on a preset (round 39, TASK 7) — a
+        named choice from the preset's guardrail option menus, rendered as a
+        pick-one chip that pre-fills the run intake.
+      properties:
+        label:
+          type: string
+          minLength: 1
+          maxLength: 80
+          description: Short chip label, e.g. a named style or format.
+          examples: ['Chrome']
+        description:
+          type: string
+          maxLength: 300
+          description: Plain-language line describing what picking this option produces.
+          examples: ['Mirror-polished metal letters with hard specular hits.']
+
     PresetTarget:
       type: object
       additionalProperties: false
@@ -10725,6 +10788,16 @@ components:
             schema so pre-existing client fixtures stay valid.
         target:
           $ref: '#/components/schemas/PresetTarget'
+        page_category:
+          $ref: '#/components/schemas/PresetPageCategory'
+        options:
+          type: array
+          items:
+            $ref: '#/components/schemas/PresetOption'
+          description: >-
+            Customer-visible pick-one chips surfacing the option menus the
+            preset's guardrails carry (named styles, archetypes, effects,
+            casting, formats). Empty when the preset has no options surface.
         sort_order:
           type: integer
           description: Ascending display order on the /presets page.
@@ -10813,6 +10886,24 @@ components:
             preset. Defaults to empty when omitted.
         target:
           $ref: '#/components/schemas/PresetTarget'
+        page_category:
+          allOf:
+            - $ref: '#/components/schemas/PresetPageCategory'
+          description: >-
+            The /presets page section (round 39, TASK 7). Omit to keep an
+            existing preset's current category (defaults to empty on first
+            create); send '' explicitly to clear it.
+        options:
+          type: array
+          nullable: true
+          maxItems: 24
+          items:
+            $ref: '#/components/schemas/PresetOption'
+          description: >-
+            Customer-visible pick-one chips. Omit to keep an existing
+            preset's current options (defaults to none on first create);
+            send [] explicitly to clear them. Option copy is customer-facing
+            — the no-em-dash rule applies.
         sort_order:
           type: integer
           description: >-
