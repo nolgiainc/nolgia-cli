@@ -5781,6 +5781,7 @@ components:
         - veo-3.1
         - veo-3.1-fast
         - omni-flash
+        - omni-1.1-flash
         - grok-imagine-video
         - grok-imagine-video-1.5
         - minimax-h3
