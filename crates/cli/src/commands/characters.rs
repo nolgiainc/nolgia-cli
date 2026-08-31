@@ -10,7 +10,9 @@ use crate::output::{OutputFormat, print_json};
 
 use super::CommandContext;
 
-const MAX_REFERENCE_ASSETS: usize = 4;
+// Raised 4 -> 8 in round 39 (TASK 8): the eight-photo character flow uploads
+// the prescribed eight frames as one character's references.
+const MAX_REFERENCE_ASSETS: usize = 8;
 
 #[derive(Subcommand, Debug)]
 pub enum CharactersCommand {
@@ -37,7 +39,7 @@ pub struct CreateCharacterArgs {
     pub name: String,
     #[arg(long)]
     pub description: Option<String>,
-    /// Existing image asset id to use as a reference (repeat up to 4 times, in display order)
+    /// Existing image asset id to use as a reference (repeat up to 8 times, in display order)
     #[arg(long = "reference-asset-id", value_name = "UUID")]
     pub reference_asset_ids: Vec<Uuid>,
 }
@@ -49,7 +51,7 @@ pub struct UpdateCharacterArgs {
     pub name: Option<String>,
     #[arg(long)]
     pub description: Option<String>,
-    /// Replaces the full reference set when provided (repeat up to 4 times, in display order)
+    /// Replaces the full reference set when provided (repeat up to 8 times, in display order)
     #[arg(long = "reference-asset-id", value_name = "UUID")]
     pub reference_asset_ids: Vec<Uuid>,
 }

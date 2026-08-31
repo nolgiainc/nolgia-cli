@@ -1969,12 +1969,20 @@ fn characters_create_rejects_more_than_four_references() {
             a,
             "--reference-asset-id",
             a,
+            "--reference-asset-id",
+            a,
+            "--reference-asset-id",
+            a,
+            "--reference-asset-id",
+            a,
+            "--reference-asset-id",
+            a,
             "--api-url",
             "http://127.0.0.1:9",
         ])
         .assert()
         .failure()
-        .stderr(predicate::str::contains("at most 4"));
+        .stderr(predicate::str::contains("at most 8"));
 }
 
 #[tokio::test]
