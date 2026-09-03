@@ -7484,11 +7484,11 @@ components:
           type: boolean
           description: |
             Whether the model accepts `end_image_url` / `end_image_asset_id`
-            alongside `image_url` (start+end frame pinning — Seedance 2.0
-            Pro i2v, FLUX 3 Video, MiniMax Hailuo 3). Kling v3 i2v does NOT
-            support it: those entries route to the direct Kling provider,
-            which has no end-frame field. Read this flag rather than
-            assuming a family supports it.
+            alongside `image_url` (start+end frame pinning: Seedance 2.0
+            Pro i2v, Seedance 2.5, FLUX 3 Video, MiniMax Hailuo 3). Kling v3
+            i2v does NOT support it: those entries route to the direct Kling
+            provider, which has no end-frame field. Read this flag rather
+            than assuming a family supports it.
         video_refs_max:
           type: integer
           minimum: 0
@@ -8037,7 +8037,10 @@ components:
         clips at 480p/720p/1080p from text, a start image, or reference
         images. MiniMax H3 Max (`minimax/h3-max/text-to-video` and
         `minimax/h3-max/image-to-video`) is the post-trained H3 variant with
-        480p/768p tiers. Default is `fal-ai/kling-video/v3/text-to-video`.
+        480p/768p tiers. Seedance 2.5 (`seedance-2.5`): 4 to 30 second clips
+        at 480p/720p from text, a start and/or end image, or up to 9
+        reference images, optional audio. Default is
+        `fal-ai/kling-video/v3/text-to-video`.
       enum:
         - fal-ai/kling-video/v3/text-to-video
         - fal-ai/kling-video/v3/master/text-to-video
@@ -8059,6 +8062,7 @@ components:
         - minimax-hailuo-2.3-fast
         - flux-3-video
         - wan-3.0
+        - seedance-2.5
         - minimax/h3-max/text-to-video
         - minimax/h3-max/image-to-video
 
@@ -8528,10 +8532,10 @@ components:
           format: uri
           description: >-
             Final-frame image (https URL) for start+end frame pinning on
-            models that support it (Seedance 2.0 Pro i2v, FLUX 3 Video,
-            MiniMax Hailuo 3, MiniMax H3 Max i2v — see `references.end_frame`
-            on `GET /models`, which is authoritative; Kling v3 i2v does not
-            take an end frame).
+            models that support it (Seedance 2.0 Pro i2v, Seedance 2.5,
+            FLUX 3 Video, MiniMax Hailuo 3, MiniMax H3 Max i2v). See
+            `references.end_frame` on `GET /models`, which is authoritative;
+            Kling v3 i2v does not take an end frame.
             Requires `image_url` (the start frame). Mutually exclusive with
             `end_image_asset_id`.
         end_image_asset_id:
