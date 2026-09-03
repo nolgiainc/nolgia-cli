@@ -81,3 +81,13 @@ feel aggressive and unmotivated.
 
 The classic failure: regenerating everything each round because feedback
 touched some shots. Approved clips are assets — edit around them.
+
+## Assemble the finished cut
+
+Individual clips are not a film. Once the shots are approved, sequence them
+into one rendered video with a Studio composition (see the `nolgia-platform`
+skill): `nolgia compositions create --name <n> --clip <shot1> --clip <shot2>
+… --render --wait`. Clips play in the order given, each clip's audio is kept
+(`--mute` to drop it). Do not report the production done until that render
+succeeds and you can name the finished asset — a project folder full of
+clips is not the deliverable.

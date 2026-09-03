@@ -132,6 +132,39 @@ projects. Prefer `--project-id` on `gen`/`assets upload` over
 after-the-fact `projects add-assets` when the destination project is known
 up front.
 
+## Assemble clips into ONE finished video (timeline + render)
+
+A project is a FOLDER of assets, not a video. To turn several clips into a
+single finished cut you build a Studio **composition** (a timeline) and
+**render** it. `projects add-assets` groups files; it does NOT produce a
+video.
+
+```bash
+# Build the timeline from clips IN ORDER, render it, wait for the finished file.
+nolgia compositions create --name "launch-trailer" \
+  --clip <shot1_uuid> --clip <shot2_uuid> --clip <shot3_uuid> \
+  --project <project_uuid> \
+  --render --wait --json        # -> {"asset_id","url",...} of the finished MP4
+
+# Or in two steps / to re-check a slow render:
+nolgia compositions render <composition_id> --wait     # render an existing timeline
+nolgia compositions status <render_id>                 # one-shot render status
+```
+
+- Clips play back to back in the given order; each clip's own audio is mixed
+  in (pass `--mute` for a silent cut). Canvas defaults to `1920x1080`; set
+  `--width`/`--height` (e.g. `--width 1080 --height 1920` for vertical).
+- `--render --wait` is the whole job: create → author the `index.html`
+  timeline → render → resolve the produced asset. Renders take a few minutes
+  and are capped at 15. Without `--wait` you get a `render_id` to poll with
+  `compositions status`.
+
+**Never** report a "final video", "final cut", or "timeline assembled" until a
+render has **succeeded** and you can name the produced asset id/URL. Dropping
+clips into a project folder and calling it done is exactly the failure this
+command exists to prevent — the customer gets a folder, not the video they
+asked for. If you only ran `gen`/`projects`, you have NOT delivered a video.
+
 ## Failure recovery
 
 - `content_policy_violation` / `partner_validation_failed`: the upstream

@@ -9,8 +9,8 @@ use std::process::ExitCode;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use commands::{
-    CommandContext, ability, account, assets, billing, characters, color_presets, r#gen, masks,
-    models, pat, projects, restore, skills, status, wait,
+    CommandContext, ability, account, assets, billing, characters, color_presets, compositions,
+    r#gen, masks, models, pat, projects, restore, skills, status, wait,
 };
 use nolgia_client::{Client, ClientBuilder};
 use output::OutputFormat;
@@ -92,6 +92,11 @@ pub enum Commands {
     Characters(characters::CharactersCommand),
     #[command(subcommand, about = "Group assets into projects")]
     Projects(projects::ProjectsCommand),
+    #[command(
+        subcommand,
+        about = "Assemble clips into a Studio timeline and render one finished video"
+    )]
+    Compositions(compositions::CompositionsCommand),
     #[command(subcommand, about = "Inspect account details and usage")]
     Account(account::AccountCommand),
     #[command(subcommand, about = "Inspect billing state and portal links")]
@@ -215,6 +220,7 @@ pub async fn run_cli(cli: Cli) -> Result<()> {
         Commands::Assets(command) => assets::run(command, &ctx).await,
         Commands::Characters(command) => characters::run(command, &ctx).await,
         Commands::Projects(command) => projects::run(command, &ctx).await,
+        Commands::Compositions(command) => compositions::run(command, &ctx).await,
         Commands::Account(command) => account::run(command, &ctx).await,
         Commands::Billing(command) => billing::run(command, &ctx).await,
         Commands::Pat(command) => pat::run(command, &ctx).await,

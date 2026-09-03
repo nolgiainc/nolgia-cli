@@ -56,6 +56,12 @@ B-roll inserts (1–1.5s, slight push-in zoom, fade in/out) + the voiceover
 driving problem → solution → CTA. A single 15s clip with text on top is
 NOT a UGC ad.
 
+Assemble the ordered clips into one rendered cut with a composition — see
+the `nolgia-platform` skill's "Assemble clips into ONE finished video":
+`nolgia compositions create --clip … --clip … --render --wait` (vertical:
+`--width 1080 --height 1920`). A project folder is not the ad; you have not
+delivered until a render succeeds and you can name the finished asset.
+
 ## 5. Text overlay: face-safe zones (hard rule)
 
 - **Top 16%** of frame: hook only ("I WAS LOSING $3K A MONTH")
