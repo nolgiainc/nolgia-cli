@@ -10196,12 +10196,23 @@ components:
 
     SubscriptionTier:
       type: string
+      description: >
+        Subscription plan. Personal accounts can subscribe to `starter`, `pro`
+        or a Studio stop (`studio_min`, `studio_mid`, `studio_max`; `studio` is
+        the legacy alias for `studio_mid`). A team organization can subscribe
+        only to `pro` or a Studio stop and has no separate price: it buys that
+        existing plan per seat, so its organization subscription carries the
+        seat plan with `seats` = the number of
+        seats, members inherit the tier while working inside the
+        organization, and the organization's monthly credit grant is the plan
+        amount multiplied by `seats`. `team` is RESERVED — no subscription is
+        created with it today. `enterprise` is the contract-managed
+        organization plan; its credits come from the contract, not a plan
+        table.
       enum: [starter, pro, studio, studio_min, studio_mid, studio_max, team, enterprise]
       # Pin generated Go constant names; without this, adding sibling enums
       # (e.g. the ability min_tier enum) shifts oapi-codegen's collision-based
-      # prefixing and renames these. `team` and `enterprise` are the
-      # ORGANIZATION plans: an organization's subscription carries them, and
-      # members inherit the tier while working inside the organization.
+      # prefixing and renames these.
       x-enum-varnames: [Starter, Pro, Studio, StudioMin, StudioMid, StudioMax, Team, Enterprise]
 
     SubscriptionStatus:
