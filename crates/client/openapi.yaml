@@ -9070,6 +9070,11 @@ components:
         user_id:
           type: string
           format: uuid
+        organization_id:
+          type: string
+          format: uuid
+          description: >
+            The organization whose shared library this asset belongs to. Omitted for a personal asset. In organization context every teammate sees the asset; `user_id` still names who created it.
         modality:
           $ref: '#/components/schemas/Modality'
         model:
@@ -9357,6 +9362,11 @@ components:
         user_id:
           type: string
           format: uuid
+        organization_id:
+          type: string
+          format: uuid
+          description: >
+            The organization whose shared library this character belongs to. Omitted for a personal character.
         name:
           type: string
           minLength: 1
@@ -9565,6 +9575,11 @@ components:
         user_id:
           type: string
           format: uuid
+        organization_id:
+          type: string
+          format: uuid
+          description: >
+            The organization whose shared library this project belongs to. Omitted for a personal project.
         name:
           type: string
           minLength: 1
@@ -9723,6 +9738,11 @@ components:
         user_id:
           type: string
           format: uuid
+        organization_id:
+          type: string
+          format: uuid
+          description: >
+            The organization whose shared library this collection belongs to. Omitted for a personal collection.
         name:
           type: string
           minLength: 1
@@ -9791,6 +9811,11 @@ components:
         user_id:
           type: string
           format: uuid
+        organization_id:
+          type: string
+          format: uuid
+          description: >
+            The organization whose shared library this composition belongs to. Omitted for a personal composition.
         name:
           type: string
           minLength: 1
