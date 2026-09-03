@@ -5,6 +5,27 @@ the matching GitHub release.
 
 ## Unreleased
 
+- **`nolgia org` (alias `nolgia workspace`)**: organization workspace commands
+  for Team and Enterprise plans. `list` shows every organization you belong
+  to with your role and the active one marked; `status` shows the active
+  context (or "Personal space") plus the effective plan, with seats and seat
+  limit in an organization; `switch <slug|id|personal>` moves the server-side
+  active context (`PUT /me/active-organization`), so the web app, MCP and
+  every PAT follow it, and refuses an organization you are not a member of;
+  `create <name> [--slug]` starts a team organization you own; `members`,
+  `invite <email> --role <admin|billing|member|viewer>` and `credits` address
+  the active organization or the one named by `--org <slug|id>` /
+  `NOLGIA_ORG` without switching context. `invite` prints the accept link
+  exactly once and never writes the invite token anywhere else. Every
+  subcommand supports `--json`. Help text states the credit rule: in an
+  organization context generations spend the organization's shared pool
+  (device login and PATs alike); in the personal space a PAT still draws only
+  from the API top-up pool.
+- **`nolgia auth status`** gains an `Organization:` line (active organization
+  and role, or "Personal space") and an `organization` field in `--json`.
+  With `--json` the command now emits a single JSON document; it used to
+  print a text line before it.
+
 - **`nolgia masks`** — per-clip timeline masks (Premiere-style Opacity masks)
   for Studio compositions. `validate <MASK>` runs the platform's mask
   sanitizer over inline JSON, `@path/to/mask.json`, or `-` (stdin) via the
