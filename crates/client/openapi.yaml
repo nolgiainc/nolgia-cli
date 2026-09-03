@@ -2173,6 +2173,47 @@ paths:
         default:
           $ref: '#/components/responses/ProblemResponse'
 
+  /assets/{id}/element:
+    post:
+      tags: [Elements]
+      operationId: lockAssetAsElement
+      summary: Lock an image asset as a prop or environment element.
+      description: >-
+        The lightweight "lock as element" action: creates a registry element
+        with this asset as its sole reference image, ready to ride
+        generations via `element_ids`. Prop and environment categories only -
+        character elements come from the characters flow (`POST /characters`)
+        or an explicit `POST /elements`. The asset must be one of the
+        caller's image assets.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LockAssetElementRequest'
+      responses:
+        '201':
+          description: Element created from the asset.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Element'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
   /assets/uploads:
     post:
       tags: [Assets]
@@ -2541,6 +2582,147 @@ paths:
         '401':
           $ref: '#/components/responses/ProblemResponse'
         '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /elements:
+    get:
+      tags: [Elements]
+      operationId: listElements
+      summary: List the current user's registry elements, newest first.
+      description: >-
+        The element registry (characters, props, environments) behind
+        `element_ids` on the generate endpoints. Your characters surface here
+        as read-only character-category elements (same id as on
+        `GET /characters`), merged with the native element records.
+      responses:
+        '200':
+          description: Elements owned by the current user, characters included.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ElementList'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+    post:
+      tags: [Elements]
+      operationId: createElement
+      summary: Create a registry element from existing image assets.
+      description: >-
+        Creates a durable element record: reference images plus the canonical
+        description generations fold in verbatim. `parent_element_id` links a
+        state variant to its base element (lineage metadata only - a variant
+        always resolves its own references and description).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateElementRequest'
+      responses:
+        '201':
+          description: Element created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Element'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /elements/{id}:
+    get:
+      tags: [Elements]
+      operationId: getElement
+      summary: Fetch one element (or one of your characters as an element) with fresh signed reference URLs.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Element found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Element'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+    patch:
+      tags: [Elements]
+      operationId: updateElement
+      summary: Update an element's name, description, or reference images.
+      description: >-
+        Partial update; only provided fields change. Providing
+        `reference_asset_ids` replaces the full reference set. Character-backed
+        elements are read-only here - editing one answers 409 pointing at
+        `PATCH /characters/{id}` (changes there reflect here immediately).
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateElementRequest'
+      responses:
+        '200':
+          description: Element updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Element'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+    delete:
+      tags: [Elements]
+      operationId: deleteElement
+      summary: Delete an element.
+      description: >-
+        Deleting a base element keeps its variants (their parent link clears);
+        character-backed elements answer 409 pointing at
+        `DELETE /characters/{id}`.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Element deleted.
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
           $ref: '#/components/responses/ProblemResponse'
         default:
           $ref: '#/components/responses/ProblemResponse'
@@ -8340,6 +8522,29 @@ components:
             still contributes its description; that render carries no face
             reference, so its `identity_score` is null. The job's persisted
             params echo `character_id` alongside `aura` for audit.
+        element_ids:
+          type: array
+          nullable: true
+          maxItems: 4
+          description: >-
+            Registry elements (`GET /elements`) to condition this render:
+            each element's reference images are attached as image references
+            (after any `image_url`/`image_urls` and any face/character
+            reference, which keeps its slot) and its `canonical_description`
+            rides into the prompt verbatim with the binding clause
+            ("100% matches the reference") - the belt-and-braces continuity
+            stack. A character id is accepted here too and injects exactly
+            what `character_id` would (primary reference + description);
+            naming the SAME character in both fields is a 400. All the
+            injected references count against the model's
+            `image.reference_images_max` budget (gpt-image-2: 4) - an
+            overflow is a 400 NAMING which elements to drop, raised before
+            any credits are held, never a silent truncation. Elements must be
+            visible in the caller's library (their own, or the active
+            organization's); an unknown or out-of-scope id is a 400.
+          items:
+            type: string
+            format: uuid
           examples: ['5a2f7c58-9e5a-4f1a-9c7f-2f0b6c3d1e42']
 
     GenerateImageResponse:
@@ -8800,6 +9005,37 @@ components:
             reference image contributes its description only; that clip is
             unscored.
           examples: ['5a2f7c58-9e5a-4f1a-9c7f-2f0b6c3d1e42']
+        element_ids:
+          type: array
+          nullable: true
+          maxItems: 9
+          description: >-
+            Registry elements (`GET /elements`) to condition this clip: each
+            element's reference images are appended to the element-reference
+            slots (before any `character_id` reference, which stays appended
+            last) and its `canonical_description` rides into the prompt
+            verbatim with the binding clause ("100% matches the reference") -
+            the belt-and-braces continuity stack. A character id is accepted
+            here too and injects exactly what `character_id` would; naming
+            the SAME character in both fields is a 400. All injected
+            references count against `references.element_refs_max` on
+            `GET /models` (minimax-h3: 9, Seedance: 9) - an overflow is a
+            400 NAMING which elements to drop, raised before any credits are
+            held, never a silent truncation. On the Seedance 2.0
+            text-to-video and image-to-video entries an element-carrying
+            request silently dispatches on the reference-to-video route's
+            reference twin (the only Seedance 2.0 route that executes image
+            references); a start/end frame is passed through with it (if the
+            provider rejects that combination, the error surfaces as the
+            usual provider 400). `seedance-2.5` takes up to 9 element images
+            on its own direct route. Elements must be visible in the caller's
+            library (their own, or the active organization's); an unknown or
+            out-of-scope id is a 400. Cannot be combined with `source_video_asset_id` (a
+            regeneration re-renders existing footage; there is nothing for
+            an element to condition).
+          items:
+            type: string
+            format: uuid
 
     VideoShot:
       type: object
@@ -9566,6 +9802,182 @@ components:
             hair_color, build, hair_style, eye_color, wardrobe, anchor).
             Consecutive rolls are guaranteed to differ on at least 2 of the 4
             core axes (heritage, age_band, hair_color, build).
+
+    ElementCategory:
+      type: string
+      enum: [character, prop, environment]
+      description: >-
+        What kind of subject an element pins: a character (a person, creature,
+        or persona), a prop (an object rendered exactly as shown), or an
+        environment (a location/setting).
+
+    ElementSource:
+      type: string
+      enum: [element, character]
+      description: >-
+        Where the record lives: `element` is a native registry row (editable
+        here); `character` is the read-time projection of one of your
+        characters (read-only here - manage it via `/characters`, same id).
+
+    Element:
+      type: object
+      additionalProperties: false
+      required: [id, user_id, name, category, canonical_description, reference_assets, source, created_at, updated_at]
+      description: >-
+        Library registry record for generation continuity (the element
+        registry): reference images plus the canonical description that
+        generations inject when the element rides `element_ids`. Scoped like
+        characters: personal, or shared with the active organization.
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        organization_id:
+          type: string
+          format: uuid
+          description: >
+            The organization whose shared library this element belongs to. Omitted for a personal element.
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+          examples: ['ROCO']
+        category:
+          $ref: '#/components/schemas/ElementCategory'
+        canonical_description:
+          type: string
+          maxLength: 2000
+          description: >-
+            The element's canonical written description - the continuity
+            contract folded VERBATIM (with the binding clause) into every
+            generation the element rides. For character-backed elements this
+            is the character's effective canonical description.
+        parent_element_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: >-
+            Links a state variant to its base element (ROCO_COLD to ROCO).
+            Lineage metadata only: a variant always resolves its OWN
+            references and description, never its parent's. Null for base
+            elements, and cleared automatically when the base is deleted.
+        reference_assets:
+          type: array
+          maxItems: 4
+          description: >-
+            Reference images (image assets) in injection order, each with a
+            fresh signed URL. For character-backed elements this is the
+            character's primary reference - exactly what `character_id`
+            injects.
+          items:
+            $ref: '#/components/schemas/Asset'
+        source:
+          $ref: '#/components/schemas/ElementSource'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    ElementList:
+      type: object
+      additionalProperties: false
+      required: [elements]
+      properties:
+        elements:
+          type: array
+          items:
+            $ref: '#/components/schemas/Element'
+
+    CreateElementRequest:
+      type: object
+      additionalProperties: false
+      required: [name, category, reference_asset_ids]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+          examples: ['ROCO_COLD']
+        category:
+          $ref: '#/components/schemas/ElementCategory'
+        canonical_description:
+          type: string
+          nullable: true
+          maxLength: 2000
+          description: >-
+            The canonical written description generations fold in verbatim
+            with the binding clause. Strongly recommended - it is the textual
+            half of the continuity stack.
+        parent_element_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: >-
+            Links this element as a state variant of one of your BASE
+            elements (an element that itself has no parent). Character
+            records cannot be parents - lock the character-derived look as an
+            element first.
+        reference_asset_ids:
+          type: array
+          minItems: 1
+          maxItems: 4
+          description: >-
+            IDs of existing image assets owned by the caller, in injection
+            order. At least one - an element's references are what
+            generations inject.
+          items:
+            type: string
+            format: uuid
+
+    UpdateElementRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          nullable: true
+          minLength: 1
+          maxLength: 80
+        canonical_description:
+          type: string
+          nullable: true
+          maxLength: 2000
+          description: Replaces the canonical written description when provided.
+        reference_asset_ids:
+          type: array
+          nullable: true
+          minItems: 1
+          maxItems: 4
+          description: Replaces the full set of reference images when provided.
+          items:
+            type: string
+            format: uuid
+
+    LockAssetElementRequest:
+      type: object
+      additionalProperties: false
+      required: [name, category]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+          examples: ['Neon Alley']
+        category:
+          $ref: '#/components/schemas/ElementCategory'
+        canonical_description:
+          type: string
+          nullable: true
+          maxLength: 2000
+          description: >-
+            The canonical written description generations fold in verbatim.
+            Defaults to empty - the locked asset alone then carries the
+            continuity.
 
     Project:
       type: object
