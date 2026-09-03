@@ -963,6 +963,85 @@ paths:
         default:
           $ref: '#/components/responses/ProblemResponse'
 
+  /organizations/{id}/credits:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationId'
+    get:
+      tags: [Organizations]
+      operationId: getOrganizationCredits
+      summary: Get an organization's shared credit pool and per-member budgets.
+      description: >
+        The organization's wallets (`app_subscription`, then `shared_topup`),
+        the current subscription period and seats, and every member's monthly
+        credit budget with what they have spent this UTC calendar month (held
+        plus consumed reservations against the organization's wallets). Owner,
+        admin and billing roles see every member; member and viewer roles see
+        only their own row. Non-members get `404`.
+      responses:
+        '200':
+          description: The organization's credit pool.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrganizationCredits'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /organizations/{id}/usage:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationId'
+    get:
+      tags: [Organizations]
+      operationId: getOrganizationUsage
+      summary: Roll up an organization's consumed credits by member, model or day.
+      description: >
+        Credits the organization actually paid for delivered work: CONSUMED
+        reservations against the organization's wallets created in
+        `[from, to)`, grouped by `group_by` (default `member`). Held and
+        released holds are excluded. Defaults to the current UTC calendar
+        month; the window may span at most 366 days. Owner, admin and
+        billing roles see the whole organization; member and viewer roles
+        see only their own spend. Non-members get `404`.
+      parameters:
+        - name: from
+          in: query
+          required: false
+          description: Inclusive window start (RFC 3339). Defaults to the first instant of the current UTC month.
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          required: false
+          description: Exclusive window end (RFC 3339). Defaults to the first instant of the next UTC month.
+          schema:
+            type: string
+            format: date-time
+        - name: group_by
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/OrganizationUsageGroupBy'
+      responses:
+        '200':
+          description: Usage roll-up.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrganizationUsage'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
   /auth/device:
     post:
       tags: [Auth]
@@ -4677,6 +4756,47 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AdminOrganization'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /admin/organizations/{id}/credits/grant:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationId'
+    post:
+      tags: [Admin]
+      operationId: grantAdminOrganizationCredits
+      summary: Grant shared top-up credits to an organization (admin only).
+      description: >
+        ADMIN-ONLY. Grants `amount` credits into the organization's
+        `shared_topup` wallet through the same idempotent ledger primitive the
+        Stripe top-up path uses (ledger type `topup_grant`, source
+        `admin_grant`, idempotency key `admin_grant:{idempotency_key}`), with
+        the calling admin as the ledger actor, and records a
+        `billing.admin_grant` audit event carrying the reason. A repeated
+        `idempotency_key` grants nothing (`granted: 0`) and returns the
+        current balance; the same key with a different amount is `409`.
+        Non-admin callers get `404` so the surface is invisible. Browser
+        (JWT) sessions only; PATs are rejected.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminOrganizationCreditGrantRequest'
+      responses:
+        '200':
+          description: Grant result and the organization's resulting balance.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminOrganizationCreditGrantResult'
         '400':
           $ref: '#/components/responses/ProblemResponse'
         '401':
@@ -9397,6 +9517,21 @@ components:
           type: string
           nullable: true
           examples: ['sub_1OABCDxyz']
+        scope:
+          $ref: '#/components/schemas/BillingScope'
+        organization_id:
+          type: string
+          format: uuid
+          description: >
+            Set when `scope` is `organization`: the organization whose
+            subscription this is.
+        seats:
+          type: integer
+          description: Seats on an organization subscription (`subscriptions.seats`); absent for personal plans.
+        seat_limit:
+          type: integer
+          nullable: true
+          description: The organization's seat cap (`null` = unlimited); absent for personal plans.
 
     PortalLinkRequest:
       type: object
@@ -9594,6 +9729,194 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/CreditBalanceBucket'
+        scope:
+          $ref: '#/components/schemas/BillingScope'
+        organization_id:
+          type: string
+          format: uuid
+          description: >
+            Set when `scope` is `organization`: the balances above are the
+            ORGANIZATION's shared pool (the caller's personal wallets are not
+            consulted inside an organization) and `user_id` is the caller.
+        seats:
+          type: integer
+          description: Seats on the organization's subscription; organization scope only.
+        seat_limit:
+          type: integer
+          nullable: true
+          description: The organization's seat cap (`null` = unlimited); organization scope only.
+        member_budget:
+          type: integer
+          nullable: true
+          description: The caller's monthly credit budget in the organization (`null` = unlimited); organization scope only.
+        member_spent_this_month:
+          type: integer
+          description: >
+            What the caller has spent from the organization's pool this UTC
+            calendar month (held plus consumed reservations); organization
+            scope only.
+
+    BillingScope:
+      type: string
+      description: >
+        Whose wallets a billing read describes: the caller's personal space,
+        or the organization they are working in.
+      enum: [personal, organization]
+      x-enum-varnames: [BillingScopePersonal, BillingScopeOrganization]
+
+    OrganizationCreditBalance:
+      type: object
+      additionalProperties: false
+      required: [app_subscription, shared_topup, total]
+      properties:
+        app_subscription:
+          type: integer
+          description: Spendable subscription credits (per-type aggregate, clamped at zero).
+        shared_topup:
+          type: integer
+          description: Spendable shared top-up credits.
+        total:
+          type: integer
+
+    OrganizationMemberSpend:
+      type: object
+      additionalProperties: false
+      required: [user_id, email, name, role, monthly_credit_budget, spent_this_month]
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        email:
+          type: string
+        name:
+          type: string
+          nullable: true
+        role:
+          $ref: '#/components/schemas/OrganizationRole'
+        monthly_credit_budget:
+          type: integer
+          nullable: true
+          description: Per-member monthly cap; `null` = unlimited.
+        spent_this_month:
+          type: integer
+          description: Held plus consumed reservations by this member against the organization's wallets this UTC calendar month.
+        remaining:
+          type: integer
+          nullable: true
+          description: Budget headroom left this month; `null` when unlimited.
+
+    OrganizationCredits:
+      type: object
+      additionalProperties: false
+      required: [organization_id, buckets, balance, period_start, period_end, members]
+      properties:
+        organization_id:
+          type: string
+          format: uuid
+        buckets:
+          type: array
+          items:
+            $ref: '#/components/schemas/CreditBalanceBucket'
+        balance:
+          $ref: '#/components/schemas/OrganizationCreditBalance'
+        period_start:
+          type: string
+          format: date-time
+          nullable: true
+          description: Current subscription period start; `null` when the organization has no subscription.
+        period_end:
+          type: string
+          format: date-time
+          nullable: true
+        seats:
+          type: integer
+          description: Seats on the organization's subscription; absent without one.
+        seat_limit:
+          type: integer
+          nullable: true
+          description: The organization's seat cap (`null` = unlimited).
+        members:
+          type: array
+          description: Every member for owner/admin/billing callers; only the caller's own row otherwise.
+          items:
+            $ref: '#/components/schemas/OrganizationMemberSpend'
+
+    OrganizationUsageGroupBy:
+      type: string
+      enum: [member, model, day]
+      x-enum-varnames: [OrganizationUsageGroupByMember, OrganizationUsageGroupByModel, OrganizationUsageGroupByDay]
+
+    OrganizationUsageItem:
+      type: object
+      additionalProperties: false
+      required: [key, credits, jobs]
+      properties:
+        key:
+          type: string
+          description: The member's user id, the model id (`agent_turn` for agent chat turns), or the UTC day as `YYYY-MM-DD`.
+        label:
+          type: string
+          description: The member's email for the `member` grouping; absent otherwise.
+        credits:
+          type: integer
+          description: Consumed credits in this bucket.
+        jobs:
+          type: integer
+          description: Consumed reservations in this bucket (one per generation or agent turn).
+
+    OrganizationUsage:
+      type: object
+      additionalProperties: false
+      required: [organization_id, from, to, group_by, total_credits, items]
+      properties:
+        organization_id:
+          type: string
+          format: uuid
+        from:
+          type: string
+          format: date-time
+        to:
+          type: string
+          format: date-time
+        group_by:
+          $ref: '#/components/schemas/OrganizationUsageGroupBy'
+        total_credits:
+          type: integer
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrganizationUsageItem'
+
+    AdminOrganizationCreditGrantRequest:
+      type: object
+      additionalProperties: false
+      required: [amount, reason, idempotency_key]
+      properties:
+        amount:
+          type: integer
+          minimum: 1
+          description: Credits to add to the organization's shared top-up wallet.
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: Why the credits are granted (contract month, make-good, pilot); recorded on the audit event.
+        idempotency_key:
+          type: string
+          minLength: 1
+          maxLength: 180
+          description: Caller-chosen key; the ledger key is `admin_grant:{idempotency_key}`. Repeating it grants nothing.
+
+    AdminOrganizationCreditGrantResult:
+      type: object
+      additionalProperties: false
+      required: [granted, balance]
+      properties:
+        granted:
+          type: integer
+          description: Credits this call actually added (0 for a repeated idempotency key).
+        balance:
+          $ref: '#/components/schemas/CreditBalance'
 
     UserSettings:
       type: object
