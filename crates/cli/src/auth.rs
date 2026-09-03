@@ -99,12 +99,11 @@ impl<S: TokenStore> AuthManager<S> {
             .fetch_subscription_tier(access_token)
             .await
             .unwrap_or_else(|_| "unknown".to_string());
-        let status = AuthStatus {
+        Ok(AuthStatus {
             email: user.email,
             tier,
-        };
-        println!("{} ({})", status.email, status.tier);
-        Ok(status)
+            organization: user.active_organization,
+        })
     }
 
     pub async fn status(&self) -> std::result::Result<AuthStatus, AuthError> {
@@ -129,12 +128,11 @@ impl<S: TokenStore> AuthManager<S> {
             Err(_) => "unknown".to_string(),
         };
 
-        let status = AuthStatus {
+        Ok(AuthStatus {
             email: user.email,
             tier,
-        };
-        println!("{} ({})", status.email, status.tier);
-        Ok(status)
+            organization: user.active_organization,
+        })
     }
 
     pub fn logout(&self) -> std::result::Result<(), AuthError> {
@@ -559,6 +557,19 @@ pub struct LoginOutcome {
 pub struct AuthStatus {
     pub email: String,
     pub tier: String,
+    /// The organization the token is working in, or `None` in the personal
+    /// space. In an organization context `tier` is the organization's plan.
+    pub organization: Option<AuthOrganization>,
+}
+
+/// The active organization as `GET /me` reports it (`active_organization`).
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+pub struct AuthOrganization {
+    pub id: String,
+    pub name: String,
+    pub slug: String,
+    pub kind: String,
+    pub role: String,
 }
 
 #[derive(Debug, Error)]
@@ -619,6 +630,8 @@ struct DeviceTokenResponse {
 #[derive(Deserialize)]
 struct User {
     email: String,
+    #[serde(default)]
+    active_organization: Option<AuthOrganization>,
 }
 
 #[derive(Deserialize)]
@@ -683,7 +696,20 @@ fn emit_login(format: OutputFormat, outcome: &LoginOutcome) -> Result<()> {
 fn emit_status(format: OutputFormat, status: &AuthStatus) -> Result<()> {
     match format {
         OutputFormat::Json => print_json(status),
-        OutputFormat::Text => Ok(()),
+        OutputFormat::Text => {
+            println!("{} ({})", status.email, status.tier);
+            println!("{}", organization_line(status.organization.as_ref()));
+            Ok(())
+        }
+    }
+}
+
+/// The "Organization:" line of `auth status`: where this token's requests
+/// land, and therefore which credit pool a generation spends.
+fn organization_line(organization: Option<&AuthOrganization>) -> String {
+    match organization {
+        Some(org) => format!("Organization: {} ({}) as {}", org.name, org.slug, org.role),
+        None => "Organization: Personal space".to_string(),
     }
 }
 
@@ -1113,6 +1139,55 @@ mod tests {
 
         assert_eq!(status.email, "ada@nolgia.ai");
         assert_eq!(status.tier, "pro");
+        assert_eq!(
+            status.organization, None,
+            "no active_organization = personal"
+        );
+    }
+
+    /// `GET /me` carries `active_organization` in an organization context;
+    /// `auth status` must surface it so a caller knows which pool a
+    /// generation will spend before spending.
+    #[tokio::test]
+    async fn status_reports_the_active_organization() {
+        let server = MockServer::start().await;
+        let store = MemoryStore::with(token(
+            "access-ok",
+            Some("refresh-ok"),
+            Utc::now() + ChronoDuration::hours(1),
+        ));
+        let auth = manager(&server, store);
+        Mock::given(method("GET"))
+            .and(path("/v1/me"))
+            .and(header("authorization", "Bearer access-ok"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "id": "2f2f1a1d-7d1c-4d34-91fd-28a4d5e5d5e5",
+                "email": "ada@nolgia.ai",
+                "created_at": "2026-06-13T00:00:00Z",
+                "organizations": [{
+                    "id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "name": "Acme Studios",
+                    "slug": "acme-studios", "kind": "team", "role": "owner"
+                }],
+                "active_organization": {
+                    "id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "name": "Acme Studios",
+                    "slug": "acme-studios", "kind": "team", "role": "owner"
+                }
+            })))
+            .mount(&server)
+            .await;
+        mount_subscription(&server, "access-ok", 200, "team").await;
+
+        let status = auth.status().await.expect("status succeeds");
+
+        assert_eq!(status.tier, "team");
+        let org = status.organization.expect("active organization");
+        assert_eq!(org.slug, "acme-studios");
+        assert_eq!(org.role, "owner");
+        assert_eq!(
+            organization_line(Some(&org)),
+            "Organization: Acme Studios (acme-studios) as owner"
+        );
+        assert_eq!(organization_line(None), "Organization: Personal space");
     }
 
     #[tokio::test]

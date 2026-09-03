@@ -10,7 +10,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use commands::{
     CommandContext, ability, account, assets, billing, characters, color_presets, r#gen, masks,
-    models, pat, projects, restore, skills, status, wait,
+    models, org, pat, projects, restore, skills, status, wait,
 };
 use nolgia_client::{Client, ClientBuilder};
 use output::OutputFormat;
@@ -98,6 +98,12 @@ pub enum Commands {
     Billing(billing::BillingCommand),
     #[command(subcommand, about = "Manage personal access tokens")]
     Pat(pat::PatCommand),
+    #[command(
+        subcommand,
+        visible_alias = "workspace",
+        about = "Organization workspaces: list, status, switch, create, members, invite, credits"
+    )]
+    Org(org::OrgCommand),
     #[command(subcommand, about = "Bundled AI-agent skills (list, show, install)")]
     Skills(skills::SkillsCommand),
     #[command(
@@ -218,6 +224,7 @@ pub async fn run_cli(cli: Cli) -> Result<()> {
         Commands::Account(command) => account::run(command, &ctx).await,
         Commands::Billing(command) => billing::run(command, &ctx).await,
         Commands::Pat(command) => pat::run(command, &ctx).await,
+        Commands::Org(command) => org::run(command, &ctx).await,
         Commands::Skills(_) => unreachable!("skills handled before client construction"),
         Commands::Ability(command) => ability::run(command, &ctx).await,
         Commands::Completion(_) => unreachable!("completion handled before client construction"),

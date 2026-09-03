@@ -19,6 +19,7 @@ The `nolgia` command-line client for the [Nolgia](https://nolgia.ai) generative-
 - [Bundled skills and marketplace Abilities](#bundled-skills-and-marketplace-abilities)
 - [Authentication](#authentication)
 - [Credits](#credits)
+- [Organizations](#organizations)
 - [Output and scripting](#output-and-scripting)
 - [Command index](#command-index)
 - [Global flags and environment](#global-flags-and-environment)
@@ -184,6 +185,25 @@ Use PATs for CI, scripts, and agents. Prefer `NOLGIA_TOKEN` or a secret manager 
 
 `nolgia billing credits` reports subscription and API top-up balances separately, plus the overall total (use `--json` for additional fields). Device-login sessions and PAT-authenticated requests use the credential-appropriate pool; the API rejects a generation when that pool cannot cover it. `billing subscription` shows plan status, and `billing portal` prints a Stripe customer-portal link. `account usage` reports the number of job and asset items on its default visible pages, not credit spend or an all-account total.
 
+## Organizations
+
+Team and Enterprise plans put several users in one organization with one shared credit pool and one shared library. You work either in your personal space or inside one active organization, and that choice is stored server-side (`PUT /me/active-organization`), so the web app, MCP, and every credential you hold follow it on their next request. `nolgia org` (alias `nolgia workspace`) manages that context:
+
+```bash
+nolgia org list                              # your organizations, role in each, active one starred
+nolgia org status                            # active context plus the effective plan (seats in an organization)
+nolgia org switch acme-studios               # by slug or UUID; server-side, follows you everywhere
+nolgia org switch personal                   # back to your personal space
+nolgia org create "Acme Studios" --slug acme-studios
+nolgia org members                           # user_id, email, name, role, budget, joined
+nolgia org invite ada@example.com --role member   # accept link printed once; roles admin|billing|member|viewer
+nolgia org credits                           # shared pool balance and per-member spend this month
+```
+
+`members`, `invite`, and `credits` address the active organization by default. Pass `--org <slug|id>` or set `NOLGIA_ORG=<slug|id>` to address another organization you belong to without switching the server-side context (the API has no per-request override yet, so this only selects which organization the command reads). `switch` and the selector both refuse an organization you are not a member of and list the ones you are.
+
+Credit semantics in an organization context: every generation, whether authenticated by device login or a PAT, spends the organization's shared credit pool, and per-member monthly budgets apply. In the personal space a PAT still draws only from your prepaid API top-up pool. `nolgia auth status` prints an `Organization:` line so a script can confirm where a token's requests will land before spending.
+
 ## Output and scripting
 
 `--json` is a global flag for machine-readable output on commands that implement a JSON response. It is not a promise that every invocation emits JSON. In particular:
@@ -237,7 +257,7 @@ Replace every `<PLACEHOLDER>` below with a real value; angle-bracket placeholder
 
 | Command | Subcommands and purpose |
 |---|---|
-| `auth` | `login`, `logout`, `status`/`whoami`, `token` |
+| `auth` | `login`, `logout`, `status`/`whoami` (email, plan, and the active organization or personal space), `token` |
 | `gen` | `image`, `video`, `audio` generation |
 | `restore` | `video` footage restoration/upscale (de-noise, de-haze, up-res to a target tier) on `seedvr2-restore` or a `topaz-*` master upscaler |
 | `status`, `wait` | Inspect or wait for a job by UUID |
@@ -247,6 +267,7 @@ Replace every `<PLACEHOLDER>` below with a real value; angle-bracket placeholder
 | `account` | `me`, `usage` (identity and default-page job/asset item counts) |
 | `billing` | `subscription`, `credits`, `portal` |
 | `pat` | `create`, `list`, `revoke` personal access tokens |
+| `org` (alias `workspace`) | `list`, `status`, `switch <slug\|id\|personal>`, `create <name> [--slug]`, `members`, `invite <email> --role`, `credits`; the last three accept `--org <slug\|id>` (or `NOLGIA_ORG`) |
 | `skills` | `list`, `show`, `install` embedded agent packs |
 | `ability` | `list`, `show`, `installed`, `install`, `uninstall`, `sync`, `init`, `pack`, `publish` marketplace Abilities |
 | `models` | `list`, `get` live catalog |
@@ -262,6 +283,7 @@ Replace every `<PLACEHOLDER>` below with a real value; angle-bracket placeholder
 | `--token` / `NOLGIA_TOKEN` | stored login | Bearer token; an explicit flag wins |
 | `--json` | off | Request structured output where the command supports it |
 | `NOLGIA_TOKEN_STORE` | file with one-time migration | `file` disables keyring access; `keyring` opts into the OS keyring |
+| `--org` / `NOLGIA_ORG` | active organization | For `org members`, `org invite`, `org credits`: address another organization you belong to (slug or UUID) without switching the server-side context |
 | `NOLGIA_SURFACE` | auto-detected | Override the `X-Nolgia-Surface` value sent with API requests; any non-empty value also suppresses update hints |
 | `NOLGIA_NO_UPDATE_CHECK` | unset | Disable the once-per-day release hint |
 | `XDG_CONFIG_HOME` | `$HOME/.config` | Parent for token and install-metadata files |
