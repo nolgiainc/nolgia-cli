@@ -1042,6 +1042,256 @@ paths:
         default:
           $ref: '#/components/responses/ProblemResponse'
 
+  /organizations/{id}/storage-connections:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationId'
+    get:
+      tags: [Organizations]
+      operationId: listStorageConnections
+      summary: List the organization's bring-your-own storage connections (owner or admin; Enterprise).
+      description: >
+        Enterprise only: team organizations get 402 `Upgrade Required` (a plan
+        limit, not a credit balance). Secrets are never returned; each
+        connection shows its `access_key_id` and the last probe result.
+        Answers 503 when the platform has no credential encryption key
+        configured (`STORAGE_CREDENTIALS_KEY`).
+      responses:
+        '200':
+          description: The organization's storage connections.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StorageConnectionList'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '402':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '503':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+    post:
+      tags: [Organizations]
+      operationId: createStorageConnection
+      summary: Connect an S3-compatible bucket to the organization (owner or admin; Enterprise).
+      description: >
+        Stores the connection with the secret access key encrypted at rest
+        (AES-256-GCM). The connection starts `unverified`; call
+        `POST .../{connection_id}/test` to probe it. `endpoint` and
+        `force_path_style` target S3-compatible providers (Cloudflare R2,
+        MinIO, GCS interoperability); leave them unset for AWS S3. With
+        `mirror_enabled` every asset that becomes ready in the organization
+        library is copied to `<prefix>/<yyyy>/<mm>/<asset_id>.<ext>` by the
+        mirror worker.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateStorageConnectionRequest'
+      responses:
+        '201':
+          description: Connection stored (status `unverified`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StorageConnection'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '402':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '503':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /organizations/{id}/storage-connections/{connection_id}:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationId'
+      - $ref: '#/components/parameters/StorageConnectionId'
+    patch:
+      tags: [Organizations]
+      operationId: updateStorageConnection
+      summary: Update a storage connection (owner or admin; Enterprise).
+      description: >
+        Partial update. Toggling `mirror_enabled` never touches existing
+        mirror rows; pending copies for a disabled connection simply stop
+        being claimed. Rotating credentials requires `access_key_id` and
+        `secret_access_key` together. Any change to the bucket, region,
+        endpoint, prefix or credentials resets `status` to `unverified`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateStorageConnectionRequest'
+      responses:
+        '200':
+          description: Updated connection.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StorageConnection'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '402':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '503':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+    delete:
+      tags: [Organizations]
+      operationId: deleteStorageConnection
+      summary: Disconnect a storage connection (owner or admin; Enterprise).
+      description: >
+        Removes the connection and its mirror bookkeeping rows. Objects
+        already copied into the customer's bucket are left untouched.
+      responses:
+        '204':
+          description: Connection removed.
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '402':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '503':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /organizations/{id}/storage-connections/{connection_id}/test:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationId'
+      - $ref: '#/components/parameters/StorageConnectionId'
+    post:
+      tags: [Organizations]
+      operationId: testStorageConnection
+      summary: Probe a storage connection (owner or admin; Enterprise).
+      description: >
+        Runs HeadBucket, then writes and deletes `<prefix>/.nolgia-probe`
+        with the stored credentials. The outcome is persisted on the
+        connection: `status` becomes `ok` (with `last_verified_at`) or
+        `error` (with `last_error`), and the updated connection is returned
+        with 200 either way.
+      responses:
+        '200':
+          description: Probe finished; read `status` and `last_error`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StorageConnection'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '402':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '503':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /organizations/{id}/storage-connections/{connection_id}/import:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationId'
+      - $ref: '#/components/parameters/StorageConnectionId'
+    post:
+      tags: [Organizations]
+      operationId: importStorageObjects
+      summary: Import objects from the connected bucket into the organization library (owner or admin; Enterprise).
+      description: >
+        For each key the object is streamed from the customer's bucket into
+        NOLGIA storage through the signed-upload machinery (asset status
+        `uploading` then `ready`), stamped with the organization, named after
+        the key's basename, and classified by its content type (the same
+        media types and size limits as `POST /assets/uploads`). Keys are
+        processed in order, synchronously; each result reports `imported`
+        with the asset or `failed` with the reason, so one bad key never
+        fails the batch. The importing connection records the object as
+        already mirrored.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StorageImportRequest'
+      responses:
+        '200':
+          description: Per-key import results.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StorageImportResponse'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '402':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '503':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /organizations/{id}/storage-connections/{connection_id}/backfill:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationId'
+      - $ref: '#/components/parameters/StorageConnectionId'
+    post:
+      tags: [Organizations]
+      operationId: backfillStorageMirrors
+      summary: Queue every ready organization asset for mirroring to this connection (owner or admin; Enterprise).
+      description: >
+        Enqueues a pending mirror for each ready, non-trashed asset in the
+        organization library that has no mirror row for this connection yet.
+        The mirror worker drains the queue in the background; progress is
+        visible per asset on `GET /assets/{id}` (`mirrors`).
+      responses:
+        '202':
+          description: Mirrors enqueued.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StorageBackfillResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '402':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '503':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
   /auth/device:
     post:
       tags: [Auth]
@@ -1992,6 +2242,104 @@ paths:
         '404':
           $ref: '#/components/responses/ProblemResponse'
         '409':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /assets/imports/google-drive:
+    post:
+      tags: [Assets]
+      operationId: importGoogleDriveFile
+      summary: Import a Google Drive file into the library.
+      description: >
+        Server-side import: the API reads the file's Drive metadata, streams
+        its bytes into NOLGIA storage through the signed-upload machinery and
+        returns the ready asset. `access_token` is a short-lived Google OAuth
+        token with the `drive.file` scope, obtained by the client (Google
+        Picker); it is used for this request only and never stored or
+        logged. Google Docs, Sheets and Slides (`application/vnd.google-apps.*`)
+        cannot be imported (400 `Unsupported Drive file`); the accepted
+        media types and size limits are those of `POST /assets/uploads`.
+        Plan gate: Studio plans, Team and Enterprise. Other plans get 402
+        `Upgrade Required` (a plan limit, not a credit balance). Organization
+        viewers get 403.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GoogleDriveImportRequest'
+      responses:
+        '201':
+          description: Asset imported and ready.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Asset'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '402':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '413':
+          $ref: '#/components/responses/ProblemResponse'
+        '502':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /assets/{id}/exports/google-drive:
+    post:
+      tags: [Assets]
+      operationId: exportAssetToGoogleDrive
+      summary: Save an asset to Google Drive.
+      description: >
+        Streams the asset's bytes from NOLGIA storage into a new Drive file
+        (resumable upload, shared drives supported). `access_token` is a
+        short-lived Google OAuth token with the `drive.file` scope obtained
+        by the client; it is used for this request only and never stored or
+        logged. `folder_id` places the file in that folder (My Drive root
+        when omitted); `name` overrides the file name (default: the asset's
+        download filename). Same plan gate as the import.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Asset UUID.
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GoogleDriveExportRequest'
+      responses:
+        '200':
+          description: File created in Drive.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GoogleDriveExportResponse'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '402':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        '502':
           $ref: '#/components/responses/ProblemResponse'
         default:
           $ref: '#/components/responses/ProblemResponse'
@@ -5942,6 +6290,14 @@ components:
       schema:
         type: string
         format: uuid
+    StorageConnectionId:
+      name: connection_id
+      in: path
+      required: true
+      description: Storage connection UUID.
+      schema:
+        type: string
+        format: uuid
     AgentId:
       name: id
       in: path
@@ -6655,6 +7011,345 @@ components:
             $ref: '#/components/schemas/AdminOrganization'
         total:
           type: integer
+
+    StorageConnectionKind:
+      type: string
+      description: Provider family. `s3` covers AWS S3 and every S3-compatible endpoint (Cloudflare R2, MinIO, GCS interoperability).
+      enum: [s3]
+      x-enum-varnames: [StorageConnectionKindS3]
+
+    StorageConnectionStatus:
+      type: string
+      description: Last probe outcome. `unverified` until `POST .../test` runs or after any credential or target change.
+      enum: [unverified, ok, error]
+      x-enum-varnames: [StorageConnectionStatusUnverified, StorageConnectionStatusOk, StorageConnectionStatusError]
+
+    StorageConnection:
+      type: object
+      additionalProperties: false
+      required: [id, organization_id, kind, name, bucket, region, prefix, force_path_style, access_key_id, mirror_enabled, status, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        organization_id:
+          type: string
+          format: uuid
+        kind:
+          $ref: '#/components/schemas/StorageConnectionKind'
+        name:
+          type: string
+          maxLength: 120
+          examples: ['Production archive (R2)']
+        bucket:
+          type: string
+          examples: ['acme-media-archive']
+        region:
+          type: string
+          description: Signing region. `auto` for Cloudflare R2, `us-east-1` for most S3-compatible endpoints.
+          examples: ['us-east-1']
+        prefix:
+          type: string
+          description: Key prefix every mirrored object is written under (no leading or trailing slash; empty for the bucket root).
+          examples: ['nolgia']
+        endpoint:
+          type: string
+          format: uri
+          nullable: true
+          description: Custom endpoint for S3-compatible providers. Null for AWS S3.
+          examples: ['https://<account-id>.r2.cloudflarestorage.com']
+        force_path_style:
+          type: boolean
+          description: Address the bucket in the path instead of the host (MinIO and some interop endpoints).
+        access_key_id:
+          type: string
+          description: The access key id in use. The secret access key is never returned.
+        mirror_enabled:
+          type: boolean
+          description: Whether assets that become ready in the organization library are copied to this bucket.
+        status:
+          $ref: '#/components/schemas/StorageConnectionStatus'
+        last_error:
+          type: string
+          nullable: true
+          description: Reason the last probe or copy failed. Null when the last probe succeeded or none ran.
+        last_verified_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_by:
+          type: string
+          format: uuid
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    StorageConnectionList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/StorageConnection'
+
+    CreateStorageConnectionRequest:
+      type: object
+      additionalProperties: false
+      required: [name, bucket, access_key_id, secret_access_key]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        bucket:
+          type: string
+          minLength: 3
+          maxLength: 255
+        region:
+          type: string
+          maxLength: 64
+          description: Signing region; defaults to `us-east-1`. Use `auto` for Cloudflare R2.
+        prefix:
+          type: string
+          maxLength: 512
+          description: Key prefix for mirrored objects; slashes are trimmed. Defaults to empty (bucket root).
+        endpoint:
+          type: string
+          format: uri
+          nullable: true
+          maxLength: 512
+          description: Custom `https://` endpoint for S3-compatible providers. Omit for AWS S3.
+        force_path_style:
+          type: boolean
+          description: Path-style bucket addressing (MinIO, some interop endpoints). Defaults to false.
+        access_key_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+        secret_access_key:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          writeOnly: true
+          description: Stored encrypted (AES-256-GCM); never returned.
+        mirror_enabled:
+          type: boolean
+          description: Start mirroring newly ready assets immediately. Defaults to true.
+
+    UpdateStorageConnectionRequest:
+      type: object
+      additionalProperties: false
+      description: Partial update; omitted fields are unchanged. `access_key_id` and `secret_access_key` must be sent together.
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        bucket:
+          type: string
+          minLength: 3
+          maxLength: 255
+        region:
+          type: string
+          maxLength: 64
+        prefix:
+          type: string
+          maxLength: 512
+        endpoint:
+          type: string
+          format: uri
+          nullable: true
+          maxLength: 512
+          description: Set null to switch back to AWS S3 addressing.
+        force_path_style:
+          type: boolean
+        access_key_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+        secret_access_key:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          writeOnly: true
+        mirror_enabled:
+          type: boolean
+
+    StorageImportRequest:
+      type: object
+      additionalProperties: false
+      required: [keys]
+      properties:
+        keys:
+          type: array
+          minItems: 1
+          maxItems: 50
+          description: Object keys in the connected bucket, imported in order.
+          items:
+            type: string
+            minLength: 1
+            maxLength: 1024
+          examples: [['archive/2026/hero-shot.mp4']]
+
+    StorageImportStatus:
+      type: string
+      enum: [imported, failed]
+      x-enum-varnames: [StorageImportStatusImported, StorageImportStatusFailed]
+
+    StorageImportResult:
+      type: object
+      additionalProperties: false
+      required: [key, status]
+      properties:
+        key:
+          type: string
+        status:
+          $ref: '#/components/schemas/StorageImportStatus'
+        asset:
+          $ref: '#/components/schemas/Asset'
+        error:
+          type: string
+          description: Why the key was not imported (missing object, unsupported content type, over the size limit, copy failure).
+
+    StorageImportResponse:
+      type: object
+      additionalProperties: false
+      required: [items, imported, failed]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/StorageImportResult'
+        imported:
+          type: integer
+          minimum: 0
+        failed:
+          type: integer
+          minimum: 0
+
+    StorageBackfillResponse:
+      type: object
+      additionalProperties: false
+      required: [enqueued]
+      properties:
+        enqueued:
+          type: integer
+          minimum: 0
+          description: Number of assets newly queued for mirroring (assets already mirrored or queued are not counted).
+
+    AssetMirrorStatus:
+      type: string
+      enum: [pending, copied, error]
+      x-enum-varnames: [AssetMirrorStatusPending, AssetMirrorStatusCopied, AssetMirrorStatusError]
+
+    AssetMirror:
+      type: object
+      additionalProperties: false
+      required: [connection_id, status, updated_at]
+      properties:
+        connection_id:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/AssetMirrorStatus'
+        remote_key:
+          type: string
+          nullable: true
+          description: Object key in the customer's bucket once copied.
+        last_error:
+          type: string
+          nullable: true
+          description: Last copy failure; the worker retries up to five times with backoff before settling on `error`.
+        updated_at:
+          type: string
+          format: date-time
+
+    GoogleDriveImportRequest:
+      type: object
+      additionalProperties: false
+      required: [file_id, access_token]
+      properties:
+        file_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          description: Drive file id (from the Google Picker).
+        access_token:
+          type: string
+          minLength: 1
+          maxLength: 4096
+          writeOnly: true
+          description: Short-lived Google OAuth access token with the `drive.file` scope. Used for this request only; never stored or logged.
+        name:
+          type: string
+          nullable: true
+          maxLength: 255
+          description: Display name override (defaults to the Drive file name without its extension).
+        mime_type:
+          type: string
+          nullable: true
+          maxLength: 128
+          description: Client hint; Drive's own metadata is authoritative.
+        size_bytes:
+          type: integer
+          format: int64
+          nullable: true
+          minimum: 1
+          description: Client hint; Drive's own metadata is authoritative.
+        project_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Files the imported asset into this caller-owned project; an unknown or foreign project returns 400.
+        tags:
+          type: array
+          maxItems: 10
+          items:
+            type: string
+            minLength: 1
+            maxLength: 40
+
+    GoogleDriveExportRequest:
+      type: object
+      additionalProperties: false
+      required: [access_token]
+      properties:
+        access_token:
+          type: string
+          minLength: 1
+          maxLength: 4096
+          writeOnly: true
+          description: Short-lived Google OAuth access token with the `drive.file` scope. Used for this request only; never stored or logged.
+        folder_id:
+          type: string
+          nullable: true
+          maxLength: 256
+          description: Destination Drive folder id (shared drives supported). My Drive root when omitted.
+        name:
+          type: string
+          nullable: true
+          maxLength: 255
+          description: Drive file name override (defaults to the asset's download filename).
+
+    GoogleDriveExportResponse:
+      type: object
+      additionalProperties: false
+      required: [file_id, name]
+      properties:
+        file_id:
+          type: string
+        name:
+          type: string
+        web_view_link:
+          type: string
+          format: uri
+          nullable: true
 
     Modality:
       type: string
@@ -8499,6 +9194,15 @@ components:
             for live assets; only trash listings
             (`GET /assets?trashed=true`) return trashed assets. Trashed
             assets are purged permanently 30 days after this timestamp.
+        mirrors:
+          type: array
+          description: >
+            Bring-your-own storage mirror state per organization storage
+            connection (Enterprise). Only returned by `GET /assets/{id}` for
+            assets in an organization library with at least one connection;
+            omitted otherwise.
+          items:
+            $ref: '#/components/schemas/AssetMirror'
         identity_score:
           type: number
           nullable: true
