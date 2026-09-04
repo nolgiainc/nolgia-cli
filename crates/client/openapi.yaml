@@ -7931,6 +7931,28 @@ components:
             the field is accepted with no promise that it does anything.
             Absence is deliberately not the same as `false`: refusing on an
             unchecked assumption would delete a capability that may work.
+        max_prompt_chars:
+          type: integer
+          description: |
+            The longest `prompt`, in characters, this model's provider
+            accepts. Absent when the provider publishes no limit of its own.
+
+            Measured on the prompt the provider receives, after the
+            `character_id` continuity description and the `shots[]`
+            composition are folded in, and a request above it is rejected
+            with a 400 that names the limit and your length before any
+            credit hold is taken. Your prompt is never altered on a request
+            you send.
+
+            The one place the API shortens a prompt is an automatic policy
+            re-route: when a model's provider refuses your reference media
+            (Seedance's lifelike-human moderation) and the job is re-dispatched
+            to a fallback model with a stricter cap, the prompt is cut at a
+            word boundary to fit it, and the asset's generation metadata
+            records `prompt_truncated_for_fallback: true` with
+            `original_prompt_chars`.
+          minimum: 1
+          example: 4096
 
     ImageCapabilities:
       type: object
