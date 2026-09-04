@@ -7950,6 +7950,15 @@ components:
           description: Selectable `aspect_ratio` values for this model.
           items:
             $ref: '#/components/schemas/ImageAspectRatio'
+        negative_prompt_max_length:
+          type: integer
+          description: |
+            Maximum `negative_prompt` length in characters for this model.
+            Absent when the shared request-contract maximum applies. Requests
+            above a published model-specific limit are rejected before any
+            credit hold is taken.
+          minimum: 1
+          example: 500
         reference_images_max:
           type: integer
           description: |
@@ -8168,18 +8177,36 @@ components:
         both with the ten Gemini aspect ratios and reference-image editing.
         `grok-imagine-image-2.0` is the newest Grok Imagine image model, same
         1k/2k tiers and aspect ratios as `grok-imagine-image`.
+
+        Four fal-hosted families ship as ONE id each; the server dispatches
+        the family's edit route whenever a reference image rides the request
+        (`image_url`, `image_urls`, `reference_asset_ids`, a face or element
+        reference) and the text-to-image route otherwise. `reve-2.1` (Reve
+        2.1): a single reference, the shared `native`/`2k`/`4k` upscaler
+        tiers. `seedream-v5-pro` (ByteDance Seedream 5 Pro): native `1k`
+        (default) and `2k` output tiers, up to 4 reference images.
+        `ideogram-v4` (Ideogram v4): `turbo`/`balanced`/`quality` tiers that
+        select the rendering speed, a single reference. `qwen-image-3`
+        (Alibaba Qwen Image 3): native `1k`/`2k` tiers, 1 to 3 reference
+        images, `negative_prompt` honored (500 characters upstream). All four
+        take the five alias-shaped aspect ratios (16:9, 4:3, 1:1, 3:4, 9:16);
+        `seed` reaches the provider on `ideogram-v4` and `qwen-image-3` only
+        (Reve and Seedream publish no seed).
       enum:
         - gpt-image-2
         - gpt-image-1.5
+        - reve-2.1
         - gpt-image-1
         - imagen-4
         - nano-banana-2
         - nano-banana-pro
         - nano-banana-2-lite
+        - seedream-v5-pro
         - flux/schnell
         - flux-ultra
         - flux-pro
         - flux-2-pro
+        - qwen-image-3
         - flux-2-max
         - flux-2-flex
         - flux-2-klein
@@ -8196,6 +8223,7 @@ components:
         - recraft-v4.1-utility-pro
         - recraft-v4
         - recraft-v4-pro
+        - ideogram-v4
         - ideogram-v3
         - stable-diffusion-3.5
         - kling-image-v3
@@ -8395,6 +8423,11 @@ components:
           type: string
           nullable: true
           maxLength: 4000
+          description: |
+            Negative prompt text. The shared contract accepts up to 4,000
+            characters; models with a lower provider limit publish it as
+            `image.negative_prompt_max_length` in `GET /models` and reject
+            longer values before reserving credits.
         image_size:
           $ref: '#/components/schemas/ImageSize'
         aspect_ratio:
@@ -8426,12 +8459,15 @@ components:
           description: >-
             Multiple reference images (https URLs) for models that support
             multi-reference input (OpenAI gpt-image models — e.g. character +
-            outfit + style references combined — and Kling Image 3.0
-            multi-reference i2i). Mutually additive with `image_url` (it is
-            treated as the first reference); at most 4 references total.
+            outfit + style references combined — Kling Image 3.0
+            multi-reference i2i, `seedream-v5-pro` (up to 4) and
+            `qwen-image-3` (up to 3)). Mutually additive with `image_url` (it
+            is treated as the first reference); at most 4 references total,
+            and never more than the model's `image.reference_images_max`.
             OpenAI references are fetched server-side under one 10 MB combined
-            download budget; Kling fetches the URLs itself. Rejected (400) on
-            models without multi-reference support.
+            download budget; Kling and the fal-hosted models fetch the URLs
+            themselves. Rejected (400) on models without multi-reference
+            support.
           items:
             type: string
             format: uri
@@ -8447,8 +8483,9 @@ components:
             multi-reference path as `image_urls` (the image lane's sibling of
             the video lane's `element_asset_ids`). Counted against the same
             per-model cap as `image_url` + `image_urls` combined
-            (`image.reference_images_max` on `GET /models` — 4 on gpt-image-2
-            and Kling Image 3.0, 1 on single-reference models, 0 on models
+            (`image.reference_images_max` on `GET /models` — 4 on gpt-image-2,
+            Kling Image 3.0 and seedream-v5-pro, 3 on qwen-image-3, 1 on
+            single-reference models, 0 on models
             with no reference input, where any reference is rejected with a
             400 rather than silently dropped). Prefer this over `image_urls`
             for assets already in your Library: the server re-signs the
