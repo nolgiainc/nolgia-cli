@@ -5,6 +5,26 @@ the matching GitHub release.
 
 ## Unreleased
 
+## v0.2.24
+
+- **`nolgia compositions`** — assemble clips into a Studio timeline and render
+  one finished video, the step the film/agent pipeline was missing (`gen`
+  makes clips and `projects` groups them into a folder, but neither sequences
+  a timeline or exports a single cut). `create --name <n> --clip <id> --clip
+  <id> [--project <id>] [--render] [--wait]` resolves each clip's duration from
+  its asset, authors a renderer-honored `index.html` timeline (one media
+  element per clip, back to back, `asset:<uuid>` refs, each clip's audio kept
+  unless `--mute`; canvas via `--width`/`--height`, default 1920x1080),
+  uploads it, and with `--render --wait` renders it and resolves the finished
+  MP4 asset. `render <composition_id> [--wait]` renders an existing
+  composition; `status <render_id>` shows one render's status; `list`/`get`
+  browse compositions. Renders have no server long-poll, so `--wait` is a
+  client-side poll over `GET /renders/{id}` with `--timeout`/`--poll-interval`,
+  and the render id prints on submit so a timeout never loses in-flight work.
+  The bundled `nolgia-platform`, `nolgia-ugc-ads`, and `nolgia-video-prompting`
+  skills now teach the assemble-and-render step and require a succeeded render
+  (a named finished asset) before a video is reported done — a project folder
+  of clips is not a deliverable.
 - **`nolgia org` (alias `nolgia workspace`)**: organization workspace commands
   for Team and Enterprise plans. `list` shows every organization you belong
   to with your role and the active one marked; `status` shows the active
