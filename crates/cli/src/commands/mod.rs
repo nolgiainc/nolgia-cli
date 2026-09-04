@@ -4,6 +4,7 @@ pub mod assets;
 pub mod billing;
 pub mod characters;
 pub mod color_presets;
+pub mod compositions;
 pub mod r#gen;
 pub mod masks;
 pub mod models;

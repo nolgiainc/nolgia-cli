@@ -30,12 +30,140 @@ fn help_lists_full_command_surface() {
         .stdout(predicate::str::contains("assets"))
         .stdout(predicate::str::contains("characters"))
         .stdout(predicate::str::contains("projects"))
+        .stdout(predicate::str::contains("compositions"))
         .stdout(predicate::str::contains("account"))
         .stdout(predicate::str::contains("billing"))
         .stdout(predicate::str::contains("pat"))
         .stdout(predicate::str::contains("restore"))
         .stdout(predicate::str::contains("color-presets"))
         .stdout(predicate::str::contains("masks"));
+}
+
+/// `compositions create --render --wait` is the "assemble and compile" path:
+/// it must create a composition, upload an index.html timeline, submit a
+/// render, poll it to completion, and resolve the produced asset's URL. This
+/// walks that whole chain against mocks and asserts the final URL lands on
+/// stdout — the finished video the caller actually wanted.
+#[tokio::test]
+async fn compositions_create_render_wait_resolves_final_asset() {
+    let api = MockServer::start().await;
+    let clip_id = Uuid::new_v4();
+    let comp_id = Uuid::new_v4();
+    let render_id = Uuid::new_v4();
+    let final_asset = Uuid::new_v4();
+
+    Mock::given(method("GET"))
+        .and(path(format!("/v1/assets/{clip_id}")))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(video_clip_json(clip_id, "https://files/clip.mp4")),
+        )
+        .mount(&api)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/v1/compositions"))
+        .respond_with(ResponseTemplate::new(201).set_body_json(composition_json(comp_id)))
+        .mount(&api)
+        .await;
+    Mock::given(method("PUT"))
+        .and(path(format!("/v1/compositions/{comp_id}/file")))
+        .and(query_param("path", "index.html"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "path": "index.html", "content_type": "text/html", "size_bytes": 256,
+            "updated_at": "2026-06-13T00:00:00Z"
+        })))
+        .mount(&api)
+        .await;
+    Mock::given(method("POST"))
+        .and(path(format!("/v1/compositions/{comp_id}/render")))
+        .respond_with(
+            ResponseTemplate::new(202)
+                .set_body_json(render_json(render_id, comp_id, "queued", None)),
+        )
+        .mount(&api)
+        .await;
+    Mock::given(method("GET"))
+        .and(path(format!("/v1/renders/{render_id}")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(render_json(
+            render_id,
+            comp_id,
+            "succeeded",
+            Some(final_asset),
+        )))
+        .mount(&api)
+        .await;
+    Mock::given(method("GET"))
+        .and(path(format!("/v1/assets/{final_asset}")))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(video_clip_json(final_asset, "https://files/final.mp4")),
+        )
+        .mount(&api)
+        .await;
+
+    run_ok(
+        &api,
+        &[
+            "--json",
+            "compositions",
+            "create",
+            "--name",
+            "test-comp",
+            "--clip",
+            &clip_id.to_string(),
+            "--render",
+            "--wait",
+            "--poll-interval",
+            "1",
+        ],
+    )
+    .stdout(predicate::str::contains("https://files/final.mp4"));
+}
+
+/// Without `--render`, `compositions create` builds the timeline and stops,
+/// printing the new composition id (no render row).
+#[tokio::test]
+async fn compositions_create_without_render_prints_composition_id() {
+    let api = MockServer::start().await;
+    let clip_id = Uuid::new_v4();
+    let comp_id = Uuid::new_v4();
+
+    Mock::given(method("GET"))
+        .and(path(format!("/v1/assets/{clip_id}")))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(video_clip_json(clip_id, "https://files/clip.mp4")),
+        )
+        .mount(&api)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/v1/compositions"))
+        .respond_with(ResponseTemplate::new(201).set_body_json(composition_json(comp_id)))
+        .mount(&api)
+        .await;
+    Mock::given(method("PUT"))
+        .and(path(format!("/v1/compositions/{comp_id}/file")))
+        .and(query_param("path", "index.html"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "path": "index.html", "content_type": "text/html", "size_bytes": 256,
+            "updated_at": "2026-06-13T00:00:00Z"
+        })))
+        .mount(&api)
+        .await;
+
+    run_ok(
+        &api,
+        &[
+            "--json",
+            "compositions",
+            "create",
+            "--name",
+            "test-comp",
+            "--clip",
+            &clip_id.to_string(),
+        ],
+    )
+    .stdout(predicate::str::contains(comp_id.to_string()));
 }
 
 /// NOL-317: `--help` must name the env vars it reads but never render their
@@ -3156,6 +3284,36 @@ fn project_json() -> serde_json::Value {
         "id": PROJECT_ID, "user_id": USER_ID, "name": "Launch teaser",
         "description": "Spring launch assets", "asset_count": 3,
         "created_at": "2026-06-13T00:00:00Z", "updated_at": "2026-06-13T00:00:00Z"
+    })
+}
+
+fn composition_json(id: Uuid) -> serde_json::Value {
+    json!({
+        "id": id, "user_id": USER_ID, "name": "test-comp",
+        "description": "", "meta": {},
+        "created_at": "2026-06-13T00:00:00Z", "updated_at": "2026-06-13T00:00:00Z"
+    })
+}
+
+fn render_json(
+    id: Uuid,
+    composition_id: Uuid,
+    status: &str,
+    asset_id: Option<Uuid>,
+) -> serde_json::Value {
+    json!({
+        "id": id, "composition_id": composition_id, "user_id": USER_ID,
+        "status": status, "params": {}, "warnings": [], "asset_id": asset_id,
+        "created_at": "2026-06-13T00:00:00Z", "updated_at": "2026-06-13T00:00:00Z"
+    })
+}
+
+/// A clip asset the composition timeline references (video with a duration).
+fn video_clip_json(id: Uuid, url: &str) -> serde_json::Value {
+    json!({
+        "id": id, "user_id": USER_ID, "modality": "video", "model": "fal-ai/kling-video/v3/text-to-video",
+        "signed_url": url, "duration_seconds": 5.0,
+        "expires_at": "2026-06-13T00:00:00Z", "created_at": "2026-06-13T00:00:00Z"
     })
 }
 
