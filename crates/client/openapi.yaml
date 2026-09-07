@@ -4381,8 +4381,14 @@ paths:
         Pins the agent's reasoning model to one of the selectable brains from
         GET /agent/models. A running agent is flipped back to `pending_deploy`
         so the deploy pipeline rolls the change onto the pod (the same
-        reconcile flow as a config edit). Subsequent chat turns bill the
-        selected brain's per-turn credit rate.
+        reconcile flow as a config edit); the roll is a pod restart and takes
+        several minutes. The response (and every GET /agent until it settles)
+        carries `model_switch` with the progress and a time estimate. Turns
+        submitted while the switch is open are queued, not run, until the new
+        brain is serving, so a turn is always billed at the rate of the brain
+        that actually ran it. Selecting the brain the agent already runs is a
+        no-op (nothing is rolled). Subsequent chat turns bill the selected
+        brain's per-turn credit rate.
       requestBody:
         required: true
         content:
@@ -4411,7 +4417,9 @@ paths:
       description: >-
         Removes an explicit model selection so the agent follows the fleet
         default brain again (billed at the default per-turn rate). A running
-        agent is flipped back to `pending_deploy` to roll the change.
+        agent is flipped back to `pending_deploy` to roll the change, tracked
+        by `model_switch` exactly like PUT /agent/model. A no-op when no pin
+        is set.
       responses:
         '200':
           description: The updated agent.
@@ -11913,10 +11921,12 @@ components:
         pending_turn:
           type: boolean
           description: >-
-            Whether the agent's owning user has an in-flight agent turn (a
-            pending agent message). Populated only on the internal provisioner
-            listing so the reconcile loop can defer a pod roll until the agent
-            is idle and avoid killing a running turn. Omitted elsewhere.
+            Whether the agent's owning user has an in-flight agent turn: a
+            pending agent message the pod is executing (claimed by a worker
+            or carrying a pod-side run). A queued, unclaimed message does not
+            count. Populated only on the internal provisioner listing so the
+            reconcile loop can defer a pod roll until the agent is idle and
+            avoid killing a running turn. Omitted elsewhere.
         model:
           type: string
           nullable: true
@@ -11927,6 +11937,18 @@ components:
             billed at the default flat per-turn rate. Chat turns bill the
             configured brain's rate (see GET /agent/models).
           examples: ['glm-5.2']
+        model_switch:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/AgentModelSwitch'
+          description: >-
+            Progress of the agent's brain change, when one is in flight or
+            settled within the last few minutes; omitted/null otherwise.
+            Present on GET /agent and on the PUT / DELETE /agent/model
+            responses. A brain change is a pod roll (typically 4 to 10
+            minutes): render "Switching to `to`, about `expected_seconds`"
+            while `status` is `pending` or `rolling`, and never show the raw
+            deployment status to customers.
 
     AgentModelCatalog:
       type: object
@@ -11954,6 +11976,45 @@ components:
         default:
           type: boolean
           description: True for the platform default brain (what an agent runs with no explicit selection).
+
+    AgentModelSwitchStatus:
+      type: string
+      enum: [pending, rolling, ready, failed]
+      x-enum-varnames: [AgentModelSwitchStatusPending, AgentModelSwitchStatusRolling, AgentModelSwitchStatusReady, AgentModelSwitchStatusFailed]
+      description: >-
+        Where a brain change is in the roll: `pending` (recorded, the deploy
+        pipeline has not picked the agent up yet), `rolling` (the pipeline is
+        upgrading the pod), `ready` (the pod reported the new brain; turns
+        run on it), `failed` (the pipeline landed a different brain, or did
+        not land it within 30 minutes; the agent's `model` is what runs).
+
+    AgentModelSwitch:
+      type: object
+      additionalProperties: false
+      required: [from, to, status, started_at, expected_seconds]
+      properties:
+        from:
+          type: string
+          description: The brain the agent ran before the change (the fleet default brain's id when it had no pin).
+          examples: ['deepseek-v4-flash']
+        to:
+          type: string
+          description: The brain the agent is switching to (the fleet default brain's id after DELETE /agent/model).
+          examples: ['kimi-k3']
+        status:
+          $ref: '#/components/schemas/AgentModelSwitchStatus'
+        started_at:
+          type: string
+          format: date-time
+          description: When the customer made the selection.
+        expected_seconds:
+          type: integer
+          description: >-
+            While the switch is open, the estimated total duration in seconds
+            from `started_at` (the mean of the last few completed switches
+            in this environment; 420 before any has completed). Once settled,
+            the observed duration.
+          examples: [420]
 
     SetAgentModelRequest:
       type: object
@@ -14675,7 +14736,13 @@ components:
             The chat model the deploy pipeline actually pinned on the release
             (per-turn billing is keyed on it). Omit to leave the stored value
             untouched; omitted by older provisioners and for releases running
-            the chart default brain.
+            the chart default brain. A `running` report settles the agent's
+            open brain switch: `ready` when this equals the switch target
+            (both omitted = the default brain); a different pin means the
+            customer changed the selection after the pipeline read it, so the
+            API keeps the newer selection, answers with the agent still
+            `pending_deploy` for the next tick to roll it, and fails the
+            switch after two such re-rolls.
           examples: ['glm-5.2']
 
     AgentDashboardTicket:
