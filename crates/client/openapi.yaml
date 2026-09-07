@@ -11312,7 +11312,8 @@ components:
           format: uuid
         name:
           type: string
-          examples: ['Hermes']
+          description: Display name for the agent. New agents default to "NOLGIA Agent" unless a name is supplied at provisioning.
+          examples: ['NOLGIA Agent']
         status:
           $ref: '#/components/schemas/AgentStatus'
         release_name:
@@ -11405,7 +11406,7 @@ components:
           type: string
           minLength: 1
           maxLength: 64
-          description: Display name for the agent. Defaults to "Hermes".
+          description: Display name for the agent. Defaults to "NOLGIA Agent".
         auto_provisioned:
           type: boolean
           description: Set by the web app when pre-provisioning for top-tier plans.
