@@ -81,6 +81,8 @@ tags:
       organization (`PUT /me/active-organization`); the context is server
       state and is resolved at authentication time, so every credential the
       user holds follows it.
+  - name: Sharing
+    description: Durable, revocable public share links for finished media (assets and renders) and the public resolver behind them.
   - name: Agent
     description: Per-customer Hermes agent provisioning, usage, and chat relay.
   - name: Abilities
@@ -3704,6 +3706,302 @@ paths:
         default:
           $ref: '#/components/responses/ProblemResponse'
 
+  # --- Durable public share links (tester feedback #329) -------------------
+  # Signed GCS URLs expire within the hour, so sharing a finished video to
+  # social, text or email needs a durable, revocable link. A share link is a
+  # random 128-bit token (stored hashed) bound to one asset or one render; the
+  # public resolver below trades it for a freshly signed short-lived URL on
+  # every visit and serves the metadata a link preview needs.
+  /assets/{id}/share:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      tags: [Sharing]
+      operationId: listAssetShareLinks
+      summary: List the active share links on an asset.
+      description: >
+        Every unrevoked, unexpired share link on the asset, newest first, for
+        management (revoke). Tokens are stored hashed, so the list carries
+        each link's id and `token_prefix` but never the token or the URL: a
+        URL is returned exactly once, by the create call. The asset must be
+        visible in the caller's library scope (`404` otherwise).
+      responses:
+        '200':
+          description: Active share links, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShareLinkList'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+    post:
+      tags: [Sharing]
+      operationId: createAssetShareLink
+      summary: Create a durable public share link for an asset.
+      description: |
+        Mints a random 128-bit token, stores only its hash, and returns the
+        token together with the public `url` to hand out (the nolgia.ai share
+        page, which renders link previews and plays or downloads the media)
+        and its `expires_at`. Default lifetime is 30 days; pass
+        `expires_in_days` (1..365) to change it. The token and URL are
+        returned ONLY by this call.
+
+        Authority follows the library scope rules: the asset must be visible
+        in the caller's scope (`404` otherwise), read-only roles (viewer,
+        billing) get `403 Read-only role`, and in an organization a member may
+        share only assets they created while owners and admins may share any
+        (`403 Forbidden`). Only `ready`, untrashed assets can be shared
+        (`409`). Every creation is recorded (the link row itself carries the
+        creator, and organization context also writes an organization audit
+        event).
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateShareLinkRequest'
+      responses:
+        '201':
+          description: The new share link, carrying its token and public URL (returned once).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShareLink'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /assets/{id}/share/{token}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - $ref: '#/components/parameters/ShareToken'
+    delete:
+      tags: [Sharing]
+      operationId: revokeAssetShareLink
+      summary: Revoke a share link on an asset.
+      description: >
+        Revokes the link so the public resolver answers `410` from now on.
+        `token` is the share token returned at creation, or the link's `id`
+        from the listing (tokens are stored hashed, so the listing cannot
+        hand the token back). The link's creator may revoke it, and so may
+        anyone allowed to change the asset itself (its creator; organization
+        owners and admins); other teammates get `403`, read-only roles
+        `403 Read-only role`. Idempotent: revoking an already revoked link
+        is `204`. A link that does not exist, or does not belong to this
+        asset, is `404`.
+      responses:
+        '204':
+          description: Link revoked (or already revoked).
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /renders/{id}/share:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      tags: [Sharing]
+      operationId: listRenderShareLinks
+      summary: List the active share links on a render.
+      description: >
+        The render-flavoured twin of `listAssetShareLinks`: every unrevoked,
+        unexpired share link on the render, newest first, without tokens or
+        URLs. The render must be visible in the caller's library scope (a
+        render is visible exactly when its composition is; `404` otherwise).
+      responses:
+        '200':
+          description: Active share links, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShareLinkList'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+    post:
+      tags: [Sharing]
+      operationId: createRenderShareLink
+      summary: Create a durable public share link for a finished render.
+      description: |
+        The render-flavoured twin of `createAssetShareLink`: the link resolves
+        to the MP4 the render produced and its preview carries the
+        composition's name as the title. Only a `succeeded` render whose
+        output asset still exists can be shared (`409` otherwise). Same
+        authority rules: the render must be visible in the caller's scope
+        (`404`), read-only roles get `403 Read-only role`, and in an
+        organization a member may share only renders they requested while
+        owners and admins may share any (`403 Forbidden`).
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateShareLinkRequest'
+      responses:
+        '201':
+          description: The new share link, carrying its token and public URL (returned once).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShareLink'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /renders/{id}/share/{token}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - $ref: '#/components/parameters/ShareToken'
+    delete:
+      tags: [Sharing]
+      operationId: revokeRenderShareLink
+      summary: Revoke a share link on a render.
+      description: >
+        The render-flavoured twin of `revokeAssetShareLink`; `token` is the
+        share token or the link's `id`. The link's creator may revoke it, and
+        so may anyone allowed to change the render (its requester;
+        organization owners and admins). Idempotent `204`; `404` when the
+        link does not exist or does not belong to this render.
+      responses:
+        '204':
+          description: Link revoked (or already revoked).
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /share/{token}:
+    parameters:
+      - $ref: '#/components/parameters/ShareToken'
+    get:
+      tags: [Sharing]
+      operationId: resolveShareLink
+      summary: Public resolver (no authentication) that redirects to the shared media.
+      description: |
+        Trades a share token for a freshly signed, short-lived URL to the
+        media (about 15 minutes) and answers `302` with it in `Location`.
+        The signed URL is minted per visit and must never be stored; the
+        share URL itself is the durable thing. Pass `download=true` to make
+        the signed URL a download (Content-Disposition attachment).
+
+        Unknown tokens answer `404`. Revoked and expired links, and links
+        whose media has since been trashed or deleted, answer `410` with a
+        detail that says which. The endpoint is rate limited per client IP
+        (`429`) so tokens cannot be enumerated. Each successful redirect
+        counts as one access on the link.
+      security: []
+      parameters:
+        - name: download
+          in: query
+          required: false
+          description: When true the signed URL carries a Content-Disposition attachment header so browsers save the file instead of playing it.
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '302':
+          description: Redirect to a freshly signed, short-lived media URL.
+          headers:
+            Location:
+              description: The signed media URL. Follow it immediately; it expires in about 15 minutes.
+              schema:
+                type: string
+                format: uri
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '410':
+          $ref: '#/components/responses/ProblemResponse'
+        '429':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /share/{token}/meta:
+    parameters:
+      - $ref: '#/components/parameters/ShareToken'
+    get:
+      tags: [Sharing]
+      operationId: getShareLinkMeta
+      summary: Public metadata (no authentication) for a share link's preview page.
+      description: >
+        What the nolgia.ai share page and link-preview crawlers need: the
+        title, an optional description, the media's modality and MIME type,
+        a freshly signed short-lived `media_url` (about 15 minutes; play or
+        embed it, never store it), an optional signed `thumbnail_url`,
+        duration and size when known, and the link's expiry. Same `404`,
+        `410` and per-IP `429` semantics as `resolveShareLink`; reading the
+        metadata does not count as an access.
+      security: []
+      responses:
+        '200':
+          description: Preview metadata.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShareLinkMeta'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '410':
+          $ref: '#/components/responses/ProblemResponse'
+        '429':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
   /activity:
     get:
       tags: [Activity]
@@ -6586,6 +6884,15 @@ components:
       schema:
         type: string
         format: uuid
+    ShareToken:
+      name: token
+      in: path
+      required: true
+      description: The share link's URL token (from the create response or the share URL). The revoke endpoints also accept the link's id here.
+      schema:
+        type: string
+        minLength: 16
+        maxLength: 128
     InviteToken:
       name: token
       in: path
@@ -7676,6 +7983,127 @@ components:
     Modality:
       type: string
       enum: [image, audio, video]
+
+    ShareLinkKind:
+      type: string
+      enum: [asset, render]
+      x-enum-varnames: [ShareLinkKindAsset, ShareLinkKindRender]
+      description: What a share link points at.
+
+    CreateShareLinkRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        expires_in_days:
+          type: integer
+          minimum: 1
+          maximum: 365
+          default: 30
+          description: Lifetime of the link in days from now. Defaults to 30.
+
+    ShareLink:
+      type: object
+      additionalProperties: false
+      required: [id, kind, target_id, token_prefix, expires_at, created_at, created_by, access_count]
+      description: >
+        One durable public share link. `token` and `url` are present ONLY on
+        the create response: tokens are stored hashed, so no later read can
+        return them.
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          $ref: '#/components/schemas/ShareLinkKind'
+        target_id:
+          type: string
+          format: uuid
+          description: The shared asset's id, or the shared render's id.
+        token:
+          type: string
+          description: The share token (base64url, 128 bits of entropy). Create response only.
+        token_prefix:
+          type: string
+          description: The first characters of the token, for recognising a link in a listing.
+        url:
+          type: string
+          format: uri
+          description: The public share URL to hand out (the nolgia.ai share page). Create response only.
+        expires_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        created_by:
+          type: string
+          format: uuid
+          description: The user who created the link.
+        access_count:
+          type: integer
+          description: Successful public resolutions so far.
+        last_accessed_at:
+          type: string
+          format: date-time
+          description: When the link was last resolved. Absent until the first visit.
+        revoked_at:
+          type: string
+          format: date-time
+          description: Set once the link has been revoked. Listings only return unrevoked links.
+
+    ShareLinkList:
+      type: object
+      additionalProperties: false
+      required: [links]
+      properties:
+        links:
+          type: array
+          items:
+            $ref: '#/components/schemas/ShareLink'
+
+    ShareLinkMeta:
+      type: object
+      additionalProperties: false
+      required: [kind, title, modality, media_url, media_expires_at, expires_at, created_at]
+      description: Everything a share page or link-preview crawler needs to render the shared media.
+      properties:
+        kind:
+          $ref: '#/components/schemas/ShareLinkKind'
+        title:
+          type: string
+          description: The asset's display name (or a trimmed prompt), or the composition's name for a render.
+        description:
+          type: string
+          description: A short description when one is known (the generation prompt, or the composition's description).
+        modality:
+          $ref: '#/components/schemas/Modality'
+        mime_type:
+          type: string
+        media_url:
+          type: string
+          format: uri
+          description: Freshly signed short-lived URL of the media itself. Play or embed it now; never store it.
+        media_expires_at:
+          type: string
+          format: date-time
+          description: When `media_url` (and `thumbnail_url`) stop working. Fetch the metadata again for a new one.
+        thumbnail_url:
+          type: string
+          format: uri
+          description: Freshly signed short-lived poster image, when the media has one.
+        duration_seconds:
+          type: number
+          format: float
+          description: Media duration for video and audio, when known.
+        size_bytes:
+          type: integer
+        expires_at:
+          type: string
+          format: date-time
+          description: When the share link itself stops resolving.
+        created_at:
+          type: string
+          format: date-time
 
     ModelList:
       type: object
