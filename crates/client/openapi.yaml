@@ -4288,6 +4288,81 @@ paths:
         default:
           $ref: '#/components/responses/ProblemResponse'
 
+  /agent/messages/{id}/feedback:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The agent reply's message id (an `agent`-role row of `GET /agent/messages`).
+        schema:
+          type: string
+          format: uuid
+    put:
+      tags: [Agent]
+      operationId: setAgentMessageFeedback
+      summary: Record or replace the caller's thumbs up or thumbs down on an agent reply.
+      description: |
+        Records the caller's rating of one agent reply, replacing whatever
+        they recorded before: there is exactly one feedback row per message
+        and user, so changing your mind is another `PUT`, not a delete and
+        re-create. An optional `note` of up to 500 characters (typically
+        "what went wrong" on a thumbs down) travels with the rating and is
+        available to admins on `GET /admin/agent/feedback`. Whitespace-only
+        notes are dropped.
+
+        Feedback is personal to the transcript owner: the message must be an
+        `agent`-role row of the caller's own transcript (`agent_messages` is
+        keyed by the user who chatted, in every organization context), so a
+        message that is not the caller's, or does not exist, answers `404`.
+        A `user`-role message answers `400`; a reply that is still `pending`
+        answers `409` (rate it once it has settled).
+
+        Analytics only for now: recording feedback does not change how the
+        agent behaves. `GET /agent/messages` echoes the recorded rating on
+        the message's `feedback` field so clients can render the state on
+        reload.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentMessageFeedbackRequest'
+      responses:
+        '200':
+          description: The recorded feedback.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentMessageFeedback'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+    delete:
+      tags: [Agent]
+      operationId: clearAgentMessageFeedback
+      summary: Clear the caller's feedback on an agent reply.
+      description: >
+        Removes the caller's rating and note from the reply, so a second tap
+        on the same thumb un-records it. Idempotent: `204` whether or not
+        feedback was recorded, as long as the message is an `agent`-role row
+        of the caller's own transcript; `404` otherwise.
+      responses:
+        '204':
+          description: Feedback cleared (or there was none).
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
   /agent/followups:
     post:
       tags: [Agent]
@@ -4735,6 +4810,71 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AdminAgentSessionTranscript'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /admin/agent/feedback:
+    get:
+      tags: [Admin]
+      operationId: listAdminAgentFeedback
+      summary: Review thumbs up / down feedback on agent replies across every account (admin only).
+      description: >
+        ADMIN-ONLY: one page of the feedback customers recorded on agent
+        replies (`PUT /agent/messages/{id}/feedback`), most recently changed
+        first. Each row carries the rater's email, the rating and note, the
+        chat session, and short excerpts (500 characters) of the prompt that
+        led to the reply and of the reply itself, so a reviewer can read the
+        exchange without opening the transcript. `since` keeps rows recorded
+        or changed at or after that instant; `rating` keeps one rating.
+        Offset pagination like `GET /admin/users`; `total` counts the rows
+        matching the filters. Non-admin callers get `404` so the surface is
+        invisible, exactly like the other `/admin` reads. Browser (JWT)
+        sessions only; PATs are rejected. Every read is audit-logged with
+        the calling admin's email.
+      parameters:
+        - name: since
+          in: query
+          required: false
+          description: Keep only feedback recorded or changed at or after this timestamp.
+          schema:
+            type: string
+            format: date-time
+        - name: rating
+          in: query
+          required: false
+          description: Keep only this rating.
+          schema:
+            $ref: '#/components/schemas/AgentMessageFeedbackRating'
+        - name: limit
+          in: query
+          required: false
+          description: Page size. Values outside 1..200 are rejected with `400`.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+        - name: offset
+          in: query
+          required: false
+          description: Rows to skip (offset pagination, most recently changed first). Negative values are rejected with `400`.
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: Feedback matching the filters, most recently changed first, with the total match count.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminAgentFeedbackList'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
         '401':
           $ref: '#/components/responses/ProblemResponse'
         '404':
@@ -11681,6 +11821,11 @@ components:
             submitted while the slots are full waits its turn (FIFO by
             submit time). Absent once execution starts (and on settled
             rows) - render queued rows as "queued", not "thinking".
+        feedback:
+          # The caller's own thumbs up / down on this agent reply (PUT
+          # /agent/messages/{id}/feedback). Absent on user messages and on
+          # replies the caller has not rated.
+          $ref: '#/components/schemas/AgentMessageFeedback'
         created_at:
           type: string
           format: date-time
@@ -11688,6 +11833,105 @@ components:
           type: string
           format: date-time
           description: When the agent reply completed or failed. Absent while pending and on user messages.
+
+    AgentMessageFeedbackRating:
+      type: string
+      enum: [up, down]
+      x-enum-varnames: [AgentMessageFeedbackRatingUp, AgentMessageFeedbackRatingDown]
+      description: Thumbs up or thumbs down on an agent reply.
+
+    AgentMessageFeedbackRequest:
+      type: object
+      additionalProperties: false
+      required: [rating]
+      properties:
+        rating:
+          $ref: '#/components/schemas/AgentMessageFeedbackRating'
+        note:
+          type: string
+          maxLength: 500
+          description: >
+            Optional free-text note, typically "what went wrong" on a thumbs
+            down. Trimmed; a whitespace-only note is dropped. Longer than 500
+            characters is rejected with `400`.
+
+    AgentMessageFeedback:
+      type: object
+      additionalProperties: false
+      required: [rating, created_at, updated_at]
+      description: The caller's recorded feedback on one agent reply.
+      properties:
+        rating:
+          $ref: '#/components/schemas/AgentMessageFeedbackRating'
+        note:
+          type: string
+          description: The note recorded with the rating; absent when none was given.
+        created_at:
+          type: string
+          format: date-time
+          description: When feedback was first recorded on this reply.
+        updated_at:
+          type: string
+          format: date-time
+          description: When the rating or note last changed.
+
+    AdminAgentFeedbackList:
+      type: object
+      additionalProperties: false
+      required: [feedback, total, fetched_at]
+      description: One page of agent reply feedback for admin review, most recently changed first.
+      properties:
+        feedback:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminAgentFeedbackEntry'
+        total:
+          type: integer
+          description: Total feedback rows matching the filters (before limit/offset), for pagination.
+        fetched_at:
+          type: string
+          format: date-time
+
+    AdminAgentFeedbackEntry:
+      type: object
+      additionalProperties: false
+      required: [message_id, user_id, email, rating, reply_excerpt, created_at, updated_at]
+      description: One customer's feedback on one agent reply, with enough of the exchange to review it.
+      properties:
+        message_id:
+          type: string
+          format: uuid
+          description: The rated agent reply.
+        user_id:
+          type: string
+          format: uuid
+          description: The rater (the transcript's owner).
+        email:
+          type: string
+          description: The rater's email; empty string when the user row has no email.
+        session_id:
+          type: string
+          format: uuid
+          description: The chat session the reply belongs to. Absent on legacy rows filed under no session.
+        rating:
+          $ref: '#/components/schemas/AgentMessageFeedbackRating'
+        note:
+          type: string
+          description: The rater's note; absent when none was given.
+        prompt_excerpt:
+          type: string
+          description: The first 500 characters of the user message that prompted the reply. Absent when the reply has no linked prompt.
+        reply_excerpt:
+          type: string
+          description: The first 500 characters of the rated reply.
+        created_at:
+          type: string
+          format: date-time
+          description: When feedback was first recorded on this reply.
+        updated_at:
+          type: string
+          format: date-time
+          description: When the rating or note last changed.
 
     AgentMessageList:
       type: object
