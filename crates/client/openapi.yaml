@@ -5466,6 +5466,69 @@ paths:
         default:
           $ref: '#/components/responses/ProblemResponse'
 
+  /admin/presets/launches:
+    get:
+      tags: [Admin]
+      operationId: getPresetLaunchAttribution
+      summary: Preset launches by campaign over a date range (admin only).
+      description: |
+        ADMIN-ONLY: how many chat sessions each preset was launched into over a
+        date range, split by the marketing campaign that produced the launch
+        (`SessionCampaign`, recorded at session creation from a
+        `nolgia.ai/p/<slug>?utm_source=...` link). This is how a marketing
+        campaign is measured against the presets it actually drove people into.
+
+        One row per (preset, source, medium, campaign) combination, largest
+        first. Organic launches — sessions created under a preset with no
+        campaign attached — are reported as a row with all three campaign
+        dimensions empty, so the row set always sums to `total_launches` and an
+        attributed share is a subtraction rather than a second query.
+        `utm_content` and `utm_term` are stored on the session but deliberately
+        NOT grouping keys here: they split a campaign into creative-level noise
+        that a launch-volume report cannot support.
+
+        Counts sessions, never people: no user id, email, or session id appears
+        in the response, and the aggregate cannot be narrowed to one account.
+
+        Non-admin callers get `404` — the surface is invisible, exactly like the
+        other `/admin` reads.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: from
+          in: query
+          required: false
+          description: >-
+            Start of the window, inclusive (RFC 3339). Defaults to 30 days
+            before `to`.
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          required: false
+          description: >-
+            End of the window, exclusive (RFC 3339). Defaults to now. Must be
+            after `from`, and the window may not exceed 366 days.
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: Launch counts for the requested window.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PresetLaunchAttribution'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
   /admin/catalog-audit:
     get:
       tags: [Admin]
@@ -6669,7 +6732,7 @@ paths:
     post:
       tags: [Presets]
       operationId: upsertPreset
-      summary: Create or update a preset by slug (admin only). Presets are mutable metadata — unlike abilities there are no immutable versions; posting an existing slug overwrites all of its content fields with the request body. The lifecycle fields (`sort_order`, `visibility`, `featured`) are preserved when omitted, so a catalog sync cannot unpublish or unfeature curated presets; change them explicitly here or via `PATCH /presets/{slug}`. The page-authored fields (`page_category`, `options`, `long_description`, `use_cases`, `examples`, `model_ids`) follow the same preserve-when-omitted rule.
+      summary: Create or update a preset by slug (admin only). Presets are mutable metadata — unlike abilities there are no immutable versions; posting an existing slug overwrites all of its content fields with the request body. The lifecycle fields (`sort_order`, `visibility`, `featured`) are preserved when omitted, so a catalog sync cannot unpublish or unfeature curated presets; change them explicitly here or via `PATCH /presets/{slug}`. The page-authored fields (`page_category`, `options`, `long_description`, `use_cases`, `examples`, `model_ids`) follow the same preserve-when-omitted rule. For a content-only edit of a LIVE preset use `PATCH /presets/{slug}/page`, which cannot touch visibility or the card fields.
       requestBody:
         required: true
         content:
@@ -6754,6 +6817,69 @@ paths:
       responses:
         '204':
           description: Preset deleted.
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /presets/{slug}/page:
+    patch:
+      tags: [Presets]
+      operationId: updatePresetPage
+      summary: Update ONLY a preset's page content (admin and agent).
+      description: |
+        Updates the PAGE-authored fields of an existing preset —
+        `long_description`, `use_cases`, `examples`, `model_ids` — and nothing
+        else. The card fields (`name`, `description`, `best_for`,
+        `estimated_time`, `estimated_credits`, `recommended_models`,
+        `thumbnail_url`, `preview_asset_id`, `guardrails`, the target) and the
+        lifecycle fields (`visibility`, `featured`, `sort_order`) are not
+        readable or writable here and are left exactly as they are.
+
+        This route exists because `POST /presets` cannot do a content-only edit
+        of a LIVE preset. That endpoint is a whole-preset upsert: an
+        agent-credentialed call to it is forced to `visibility: private` and is
+        refused outright against an already-public slug (the agent drafts, a
+        human promotes — correct for AUTHORING a preset), and a human call
+        restates every card field, so an edit that forgets one blanks it.
+        Updating page copy is a different act from publishing a preset, and it
+        gets its own route rather than a flag on the old one.
+
+        Consequently the agent-surface guard does NOT fire here: an
+        agent-credentialed caller may edit the page content of a public preset
+        and the preset STAYS PUBLIC. That is safe precisely because the route
+        cannot reach visibility — the guard on `POST /presets` protects the
+        live catalog from being unpublished and overwritten, and neither is
+        possible through this endpoint.
+
+        Every field follows the preserve-on-nil rule the upsert uses: an
+        omitted field keeps what is stored, an explicit `""` / `[]` clears it.
+        All of #341's validation applies unchanged (length ceilings, every
+        example resolving to an existing asset or succeeded render, every model
+        id published by `GET /models`, and the no-em-dash rule on copy). At
+        least one field must be provided. Writes a `catalog_audit` row
+        (`update_preset_page`) naming the fields the call carried.
+      parameters:
+        - $ref: '#/components/parameters/PresetSlug'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePresetPageRequest'
+      responses:
+        '200':
+          description: The updated preset.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Preset'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
         '401':
           $ref: '#/components/responses/ProblemResponse'
         '403':
@@ -13048,6 +13174,16 @@ components:
             (like ability_slug): relayed turns gain the preset's guardrails
             and output context while the preset exists and is public; a
             later-deleted or held (private) preset is skipped gracefully.
+        campaign:
+          allOf:
+            - $ref: '#/components/schemas/SessionCampaign'
+          nullable: true
+          description: >-
+            The marketing attribution recorded when the session was launched,
+            or null for an organic launch. Written once at creation and never
+            updated: it describes how the session STARTED, so a later visit
+            from another link cannot rewrite the credit. Marketing dimensions
+            only, never a user identifier.
         archived_at:
           type: string
           format: date-time
@@ -13121,6 +13257,45 @@ components:
           items:
             $ref: '#/components/schemas/AgentSession'
 
+    SessionCampaign:
+      type: object
+      additionalProperties: false
+      description: |
+        Marketing attribution for a chat-session launch: the five standard UTM
+        dimensions a campaign link carries, and nothing else.
+
+        This is a CLOSED set on purpose. It is written by the web app from the
+        query string of a marketing link, so an open map would let arbitrary
+        caller-supplied query params (an email address in a mistyped link, a
+        session token pasted into a tracking parameter) become durable rows.
+        Every member is an optional bounded string; the object is stored only
+        when at least one is non-empty.
+
+        These are campaign dimensions, not a user profile: nothing here
+        identifies a person, and the admin aggregate that reads them counts
+        launches without listing who made them.
+      properties:
+        source:
+          type: string
+          maxLength: 128
+          description: '`utm_source` — where the click came from (e.g. `newsletter`, `x`, `partner-blog`).'
+        medium:
+          type: string
+          maxLength: 128
+          description: '`utm_medium` — the channel class (e.g. `email`, `cpc`, `social`).'
+        campaign:
+          type: string
+          maxLength: 128
+          description: '`utm_campaign` — the named campaign (e.g. `launch-week`).'
+        content:
+          type: string
+          maxLength: 128
+          description: '`utm_content` — which creative or placement within the campaign.'
+        term:
+          type: string
+          maxLength: 128
+          description: '`utm_term` — the paid keyword, for search campaigns.'
+
     CreateAgentSessionRequest:
       type: object
       additionalProperties: false
@@ -13141,6 +13316,16 @@ components:
             Preset to run the session under. Must name an existing public
             preset (400 otherwise); the agent receives the preset's
             guardrails and output context on every turn.
+        campaign:
+          allOf:
+            - $ref: '#/components/schemas/SessionCampaign'
+          description: >-
+            Marketing attribution for this launch, when the session was
+            started from a campaign link (`nolgia.ai/p/<slug>?utm_source=...`).
+            Recorded on the session so a campaign can be measured against the
+            launches it produced; ignored for anything else. Blank and
+            whitespace-only members are dropped, and a campaign whose members
+            are all blank is stored as absent.
 
     UpdateAgentSessionRequest:
       type: object
@@ -13343,6 +13528,7 @@ components:
         - install_ability
         - uninstall_ability
         - upsert_preset
+        - update_preset_page
         - update_preset_visibility
         - delete_preset
       description: The catalog mutation a catalog-audit row records.
@@ -15151,6 +15337,62 @@ components:
           items:
             $ref: '#/components/schemas/PresetMediaResult'
 
+    PresetLaunchAttribution:
+      type: object
+      additionalProperties: false
+      required: [from, to, total_launches, attributed_launches, rows]
+      description: >-
+        Preset launch counts for one window, split by campaign. Admin-only and
+        PII-free: it counts sessions, it does not list them.
+      properties:
+        from:
+          type: string
+          format: date-time
+          description: Start of the window, inclusive (the value actually used, after defaulting).
+        to:
+          type: string
+          format: date-time
+          description: End of the window, exclusive (the value actually used, after defaulting).
+        total_launches:
+          type: integer
+          description: Sessions created under any preset in the window, campaign-attributed or not.
+        attributed_launches:
+          type: integer
+          description: The subset of `total_launches` that carried a campaign.
+        rows:
+          type: array
+          description: >-
+            One row per (preset, source, medium, campaign), largest first, then
+            by preset slug. Capped at 500 rows.
+          items:
+            $ref: '#/components/schemas/PresetLaunchAttributionRow'
+
+    PresetLaunchAttributionRow:
+      type: object
+      additionalProperties: false
+      required: [preset_slug, preset_name, source, medium, campaign, launches]
+      properties:
+        preset_slug:
+          type: string
+          description: Slug of the preset the session was launched under.
+        preset_name:
+          type: string
+          description: >-
+            The preset's current display name, or the slug when the preset has
+            since been deleted (the session row keeps a soft slug reference).
+        source:
+          type: string
+          description: '`utm_source`, or empty for an organic launch.'
+        medium:
+          type: string
+          description: '`utm_medium`, or empty for an organic launch.'
+        campaign:
+          type: string
+          description: '`utm_campaign`, or empty for an organic launch.'
+        launches:
+          type: integer
+          description: Sessions created in the window under this preset with this campaign.
+
     PresetVisibility:
       type: string
       enum: [public, private]
@@ -15651,6 +15893,49 @@ components:
             visibility or featured flag, so ordering the rail no longer needs a
             full-overwrite `POST /presets`. Omit to leave the position
             unchanged.
+
+    UpdatePresetPageRequest:
+      type: object
+      additionalProperties: false
+      description: >-
+        Page-content update for an existing preset. Carries ONLY the
+        page-authored fields; the card copy and the lifecycle trio are out of
+        reach here by construction, which is what makes this route safe to
+        expose to the agent against a live preset. At least one field must be
+        provided; an omitted field preserves what is stored, an explicit empty
+        value clears it.
+      properties:
+        long_description:
+          type: string
+          maxLength: 8000
+          description: >-
+            Long-form customer copy for the preset page (markdown-lite:
+            paragraphs, `**bold**`, `-` bullets; no headings, links or raw
+            HTML). `""` clears it, and the page falls back to `description`.
+        use_cases:
+          type: array
+          maxItems: 12
+          description: One line of copy per entry. `[]` clears the list.
+          items:
+            type: string
+            maxLength: 200
+        examples:
+          type: array
+          maxItems: 12
+          description: >-
+            Example outputs by reference. Each names exactly one existing
+            `asset_id` or `render_id`; the served media is DERIVED, never
+            resolved at read time. `[]` clears the list.
+          items:
+            $ref: '#/components/schemas/PresetExampleInput'
+        model_ids:
+          type: array
+          maxItems: 12
+          description: >-
+            Machine model ids as published by `GET /models`, validated against
+            the registry on write. `[]` clears the list.
+          items:
+            type: string
 
     UpdateAgentDeploymentRequest:
       type: object
