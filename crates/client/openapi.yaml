@@ -190,6 +190,48 @@ paths:
         default:
           $ref: '#/components/responses/ProblemResponse'
 
+  /pricing/models:
+    get:
+      tags: [Models]
+      operationId: listModelPricing
+      summary: Public per-model credit prices (no authentication).
+      description: |
+        The published price list, readable without a token, so a pricing page
+        can print what a generation costs from the same source of truth the
+        API bills from. Per model: the catalog `id` a request sends, its
+        `modality`, the plan floor (`min_tier`), the credit `cost` with its
+        billing `unit`, the per-quality-tier credit costs (`quality.options`)
+        and the `aspect_ratios` it renders.
+
+        This is a strict projection of the pricing half of `GET /models` —
+        identical numbers, same registry, same
+        deployed-proxy capability filter — with everything else dropped. It
+        carries NO per-user data (no balance, entitlement, or history), no
+        provider cost, and no internal routing name, so the response is byte
+        identical for every caller and safe to cache and to serve from a
+        marketing page.
+
+        Read `GET /models` instead when you hold a credential and need the
+        full capability surface (durations, references, voices, seeds).
+        Rate limited per client IP (`429`).
+      security: []
+      responses:
+        '200':
+          description: The public model price list.
+          headers:
+            Cache-Control:
+              description: '`public, max-age=300` — the list only changes with a deploy or a proxy capability change.'
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelPricingList'
+        '429':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
   /providers/status:
     get:
       tags: [Models]
@@ -8341,6 +8383,59 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Model'
+
+    ModelPricingList:
+      type: object
+      additionalProperties: false
+      description: |
+        The public price list served by `GET /pricing/models`, in the same
+        order as the `GET /models` catalog.
+      required: [models]
+      properties:
+        models:
+          type: array
+          items:
+            $ref: '#/components/schemas/ModelPricing'
+
+    ModelPricing:
+      type: object
+      additionalProperties: false
+      description: |
+        One model's published price, as a pricing page prints it. Every field
+        is copied verbatim from the same model's entry in `GET /models`, so
+        the two can never quote different numbers; the capability fields a
+        price does not need are simply absent here.
+      required: [id, modality, min_tier, aspect_ratios]
+      properties:
+        id:
+          type: string
+          description: The catalog id a generation request sends as `model`.
+          examples: ['veo-3.1']
+        modality:
+          $ref: '#/components/schemas/Modality'
+        min_tier:
+          allOf:
+            - $ref: '#/components/schemas/SubscriptionTier'
+          description: >-
+            Minimum subscription plan required to run this model; `starter`
+            means every plan can. Cost and eligibility are independent — an
+            affordable model can still be out of plan, and topping up does not
+            unlock it. Always sent (see `Model.min_tier`).
+        cost:
+          $ref: '#/components/schemas/ModelCost'
+        quality:
+          $ref: '#/components/schemas/QualityCapabilities'
+        aspect_ratios:
+          type: array
+          description: >-
+            The output aspect ratios this model renders (`video.aspect_ratios`
+            for video models, `image.aspect_ratios` for image models), as
+            plain strings so one field spans both enums. Empty when the model
+            has no selectable ratio (audio models, and image models that only
+            speak `image_size`); the choice never changes the price.
+          items:
+            type: string
+            examples: ['16:9']
 
     ProviderStatusList:
       type: object
