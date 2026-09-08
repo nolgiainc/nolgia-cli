@@ -4598,16 +4598,17 @@ paths:
       summary: Choose which brain the user's agent runs; turns bill that brain's flat per-turn rate.
       description: >-
         Pins the agent's reasoning model to one of the selectable brains from
-        GET /agent/models. A running agent is flipped back to `pending_deploy`
-        so the deploy pipeline rolls the change onto the pod (the same
-        reconcile flow as a config edit); the roll is a pod restart and takes
-        several minutes. The response (and every GET /agent until it settles)
-        carries `model_switch` with the progress and a time estimate. Turns
-        submitted while the switch is open are queued, not run, until the new
-        brain is serving, so a turn is always billed at the rate of the brain
-        that actually ran it. Selecting the brain the agent already runs is a
-        no-op (nothing is rolled). Subsequent chat turns bill the selected
-        brain's per-turn credit rate.
+        GET /agent/models. The selected brain takes effect on the next newly
+        executing chat turn, billed at that brain's flat per-turn credit rate.
+        Existing turns keep their durable execution model and billing rate,
+        including when resumed or retried. A running agent stays `running`:
+        the switch does not roll or restart the pod or queue turns. The switch
+        record is immediately `ready` with `expected_seconds: 0`, exposed via
+        `model_switch` in the response and subsequent GET /agent responses.
+        Selecting the brain the agent already runs is a no-op that returns the
+        current state. Other pod surfaces, such as the dashboard UI and
+        Telegram bot, follow the durable model pin on subsequent convergence
+        rolls triggered by changes that require a restart.
       requestBody:
         required: true
         content:
@@ -4632,13 +4633,18 @@ paths:
     delete:
       tags: [Agent]
       operationId: clearAgentModel
-      summary: Clear the agent's model pin — back to the platform default brain and rate.
+      summary: Clear the agent's model pin to use the platform default brain and rate.
       description: >-
-        Removes an explicit model selection so the agent follows the fleet
-        default brain again (billed at the default per-turn rate). A running
-        agent is flipped back to `pending_deploy` to roll the change, tracked
-        by `model_switch` exactly like PUT /agent/model. A no-op when no pin
-        is set.
+        Removes an explicit model selection so the next newly executing chat
+        turn uses the fleet default brain and its flat per-turn credit rate.
+        Existing turns keep their durable execution model and billing rate,
+        including when resumed or retried. A running agent stays `running`:
+        the switch does not roll or restart the pod or queue turns. As with
+        PUT /agent/model, the switch record is immediately `ready` with
+        `expected_seconds: 0`. Other pod surfaces, such as the dashboard UI
+        and Telegram bot, follow the cleared pin on subsequent convergence
+        rolls triggered by changes that require a restart. A no-op when the
+        agent already uses the default brain, returning the current state.
       responses:
         '200':
           description: The updated agent.
@@ -12568,21 +12574,27 @@ components:
             The brain (reasoning model) this agent is configured to run,
             when explicitly selected via PUT /agent/model or pinned by the
             deploy pipeline. Omitted/null means the platform default brain,
-            billed at the default flat per-turn rate. Chat turns bill the
-            configured brain's rate (see GET /agent/models).
+            billed at the default flat per-turn rate. The next newly executing
+            chat turn uses and bills this brain (see GET /agent/models).
+            Existing turns retain their durable execution model and billing
+            rate, including when resumed or retried. Other pod surfaces follow
+            this pin on subsequent convergence rolls.
           examples: ['glm-5.2']
         model_switch:
           nullable: true
           allOf:
             - $ref: '#/components/schemas/AgentModelSwitch'
           description: >-
-            Progress of the agent's brain change, when one is in flight or
-            settled within the last few minutes; omitted/null otherwise.
-            Present on GET /agent and on the PUT / DELETE /agent/model
-            responses. A brain change is a pod roll (typically 4 to 10
-            minutes): render "Switching to `to`, about `expected_seconds`"
-            while `status` is `pending` or `rolling`, and never show the raw
-            deployment status to customers.
+            The agent's brain change record, when one is in flight or settled
+            within the last few minutes; omitted/null otherwise. Present on
+            GET /agent and on the PUT / DELETE /agent/model responses. New
+            hot switches are immediately `ready` with `expected_seconds: 0`:
+            the next newly executing chat turn uses `to`, with no pod roll or
+            switch-induced queueing, and a running agent stays `running`.
+            Existing turns retain their durable execution model and billing
+            rate. Clients can show "Now running on `to`" rather than a rollout
+            countdown. This does not signal convergence of other pod surfaces,
+            which follow the pin on subsequent rolls.
 
     AgentModelCatalog:
       type: object
@@ -12616,24 +12628,33 @@ components:
       enum: [pending, rolling, ready, failed]
       x-enum-varnames: [AgentModelSwitchStatusPending, AgentModelSwitchStatusRolling, AgentModelSwitchStatusReady, AgentModelSwitchStatusFailed]
       description: >-
-        Where a brain change is in the roll: `pending` (recorded, the deploy
-        pipeline has not picked the agent up yet), `rolling` (the pipeline is
-        upgrading the pod), `ready` (the pod reported the new brain; turns
-        run on it), `failed` (the pipeline landed a different brain, or did
-        not land it within 30 minutes; the agent's `model` is what runs).
+        New hot switches settle immediately as `ready`: the selected brain
+        applies to the next newly executing chat turn without a pod roll.
+        `ready` does not mean other pod surfaces have converged. Historical
+        rollout-based records may still report `pending` (awaiting deployment),
+        `rolling` (pod upgrade in progress), or `failed` (deployment did not
+        land the selected brain or exceeded its deadline).
 
     AgentModelSwitch:
       type: object
+      description: >-
+        Records a brain selection. New hot switches are immediately `ready`
+        with `expected_seconds: 0`; a running agent stays `running`, with no
+        pod roll or switch-induced queueing. The next newly executing chat
+        turn uses the selected brain and rate. Existing turns retain their
+        durable execution model and billing rate, including on resume or retry.
+        Other pod surfaces follow the durable pin on subsequent convergence
+        rolls triggered by changes that require a restart.
       additionalProperties: false
       required: [from, to, status, started_at, expected_seconds]
       properties:
         from:
           type: string
-          description: The brain the agent ran before the change (the fleet default brain's id when it had no pin).
+          description: The configured brain before the change (the fleet default brain's id when it had no pin).
           examples: ['deepseek-v4-flash']
         to:
           type: string
-          description: The brain the agent is switching to (the fleet default brain's id after DELETE /agent/model).
+          description: The selected brain for the next newly executing chat turn (the fleet default brain's id after DELETE /agent/model).
           examples: ['kimi-k3']
         status:
           $ref: '#/components/schemas/AgentModelSwitchStatus'
@@ -12644,11 +12665,12 @@ components:
         expected_seconds:
           type: integer
           description: >-
-            While the switch is open, the estimated total duration in seconds
-            from `started_at` (the mean of the last few completed switches
-            in this environment; 420 before any has completed). Once settled,
-            the observed duration.
-          examples: [420]
+            Zero for new hot switches, which settle immediately with no rollout
+            wait. For historical rollout-based records, the estimated total
+            duration in seconds from `started_at` while open, or the observed
+            duration once settled. This is not an estimate for convergence of
+            other pod surfaces.
+          examples: [0]
 
     SetAgentModelRequest:
       type: object
