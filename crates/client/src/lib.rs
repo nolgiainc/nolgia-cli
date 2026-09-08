@@ -5,6 +5,29 @@ mod generated {
     // Schemas with `minLength: 0` (e.g. SubmitAgentMessageRequest.content)
     // generate an always-false `chars().count() < 0usize` guard.
     #![allow(unused_comparisons)]
+    // progenitor's `defaults` module can carry helpers nothing calls. typify
+    // (typify-impl 0.6.2, `src/defaults.rs`) accounts for a default twice, and
+    // the two halves disagree for `type: number` properties: `validate_value`
+    // maps `TypeEntryDetails::Float` with a non-zero default to
+    // `DefaultKind::Generic(DefaultImpl::I64)`, which *registers* the generic
+    // `defaults::default_i64` helper, while `default_fn` has no `Float` arm at
+    // all and falls through to emitting a *bespoke* `<type>_<prop>()` function
+    // instead. So every float property with a non-zero default emits
+    // `default_i64` and then never references it (`default_i64` is only ever
+    // called for a negative *integer* default). `MotionAnchor.{x,y}`
+    // (`default: 50`, api#345 motion keyframes) is the first such property to
+    // reach the vendored spec, and under CI's `-D warnings` its dead helper is
+    // a hard build error.
+    //
+    // This cannot be fixed in build.rs's spec rewrites: the emission is
+    // unconditional for the schema shape, so the only way to suppress it there
+    // is to delete the `default` (as `unmaterialize_server_side_defaults`
+    // does for `Mask`), which changes the generated type and would have to be
+    // repeated by hand for every numeric default a future re-vendor adds —
+    // re-breaking the automated re-vendor branch each time. Dead code in a
+    // generated file is never actionable anyway, so it is allowed here, at the
+    // only place `codegen.rs` is included, and nowhere else in the workspace.
+    #![allow(dead_code)]
 
     include!(concat!(env!("OUT_DIR"), "/codegen.rs"));
 }

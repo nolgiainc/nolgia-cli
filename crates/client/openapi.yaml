@@ -117,6 +117,28 @@ tags:
       them live and the render job bakes them into the exported MP4. The
       sanitizer (`POST /masks:validate`) is public and stateless: it reports
       exactly what the renderer will draw.
+  - name: Motion
+    description: |
+      Per-clip timeline motion (Adobe Premiere's Motion effect): `x`/`y`
+      position of the clip's anchor as % of the canvas, `scale` (uniform,
+      1 = fit-to-frame) with optional per-axis `scaleX`/`scaleY`
+      multipliers, `rotation` in degrees clockwise, `opacity` 0..100, and the
+      `anchor` point as % of the clip box. Since phase 2 every one of those
+      properties except `anchor` is a CONSTANT or a KEYFRAME LIST
+      (`[{t, v, ease}, ...]`, `t` seconds from the clip start, `ease` one of
+      `linear | ease-in | ease-out | ease-in-out | hold`; see the
+      `MotionKeyframe` schema): the Studio preview samples it every frame and
+      the render job samples it at the export frame rate, both with the same
+      curves, so the export matches the editor. Motion lives in the
+      `nolgia-edits.json` overlay only (`elements.<key>.motion`,
+      `additions[].motion`, object-level replacement: `{}` clears back to the
+      default fit-to-frame centered placement; there is no authored
+      `data-motion` attribute yet); the render job bakes it into the exported
+      MP4, with the clip's mask riding inside the transform. Text clips are
+      placed by their `textStyle` (x/y/rotation/opacity) instead; a `motion`
+      on a text clip is ignored with a warning. The sanitizer
+      (`POST /motion:validate`) is public and stateless: it reports exactly
+      what the renderer will apply, keyframe lists included.
   - name: Admin
     description: >
       Internal admin-only debugging surfaces. Invisible to non-admin callers
@@ -3616,6 +3638,21 @@ paths:
           grades per clip then on the composited canvas; masks as the
           clip's alpha (video and image clips — a mask on a text clip is
           preview-only and recorded as a warning, on audio it is ignored).
+        - Per-clip motion (overlay `motion` on element overrides and
+          additions, see the Motion tag and the `Motion` schema): a video or
+          image clip is fitted to the canvas, scaled about its anchor,
+          rotated about its anchor, its anchor placed at `x`/`y` % of the
+          canvas, then faded by `opacity`; the mask moves with the clip and
+          the letterbox area of a moved clip is transparent. Keyframed
+          properties are sampled at every output frame (`frame / fps`
+          exactly, the same curves the Studio preview interpolates with;
+          `hold` segments step at the next keyframe) and the whole chain is
+          re-evaluated per frame, so a keyframed clip moves, scales, rotates
+          and fades with its mask. A motion on a text clip is ignored with a
+          warning (text additions are placed by their `textStyle`
+          x/y/rotation/opacity, defaulting to the centered title the Studio
+          preview shows; authored text elements keep the lower-third caption
+          placement), on audio it is ignored.
         - Pure text elements (an element whose content is plain text with no
           child elements) and text additions — rendered as animated titles
           with basic styling (white text on a dark pill, safe-zone margin).
@@ -4127,6 +4164,146 @@ paths:
               schema:
                 $ref: '#/components/schemas/CreditBalance'
         '401':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /billing/transactions:
+    get:
+      tags: [Billing]
+      operationId: listCreditTransactions
+      summary: List the itemized credit ledger, newest first.
+      description: >
+        Every credit movement on the wallets the caller can spend from, as
+        customer-facing rows: plan grants, top-ups, code redemptions,
+        generation and agent-turn charges, refunds and adjustments, newest
+        first, each with the running balance of its wallet after the row.
+        In the personal space the rows are the caller's own wallets. Inside
+        an organization they are the ORGANIZATION's wallets (the only pool
+        spendable there): owner, admin and billing roles see every member's
+        rows and may narrow them with `member_id`; member and viewer roles
+        see only the rows they caused, and a `member_id` naming anyone else
+        is `403`. A charge appears when the hold is taken (the debit IS the
+        charge; a delivered generation writes no second row) and a hold that
+        was released appears as a `refund` row for the same amount. `model`
+        is the catalog id and `preset` the preset slug: the web labels model
+        ids through its `modelLabel` helper, the API does not resolve them.
+        Descriptions are plain language and never contain an em dash.
+        `balance_after` is per wallet row (`wallet_id`), so an expired
+        subscription cycle's leftover stays visible as the last balance of
+        that cycle's wallet.
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - name: limit
+          in: query
+          required: false
+          description: Rows per page.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+        - name: from
+          in: query
+          required: false
+          description: Inclusive window start (RFC 3339). Omit for no lower bound.
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          required: false
+          description: Exclusive window end (RFC 3339). Omit for no upper bound.
+          schema:
+            type: string
+            format: date-time
+        - name: kind
+          in: query
+          required: false
+          description: Only rows of this kind.
+          schema:
+            $ref: '#/components/schemas/CreditTransactionKind'
+        - name: wallet
+          in: query
+          required: false
+          description: Only rows on this wallet type (default `all`).
+          schema:
+            $ref: '#/components/schemas/CreditTransactionWalletFilter'
+        - name: member_id
+          in: query
+          required: false
+          description: >
+            Organization context only: rows caused by this member. Owner,
+            admin and billing roles may name any member; other roles only
+            themselves. `400` in the personal space.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: One page of ledger rows, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreditTransactionPage'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /billing/transactions/summary:
+    get:
+      tags: [Billing]
+      operationId: getCreditUsageSummary
+      summary: Credits used per day and totals per kind over a window.
+      description: >
+        The roll-up behind the billing page's usage chart, over the same rows
+        and the same scoping rules as `GET /billing/transactions`.
+        `credits_used` sums the generation, agent-turn and render charges
+        (as a positive number), `credits_refunded` the refunds of those
+        charges and `credits_added` the grants, top-ups and redemptions.
+        `by_day` lists only UTC days with activity (fill the gaps
+        client-side); `by_kind` carries the signed net and row count of
+        every kind present. Defaults to the current UTC calendar month; the
+        window may span at most 366 days.
+      parameters:
+        - name: from
+          in: query
+          required: false
+          description: Inclusive window start (RFC 3339). Defaults to the first instant of the current UTC month.
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          required: false
+          description: Exclusive window end (RFC 3339). Defaults to the first instant of the next UTC month.
+          schema:
+            type: string
+            format: date-time
+        - name: member_id
+          in: query
+          required: false
+          description: Organization context only; same rules as on `GET /billing/transactions`.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Usage summary.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreditUsageSummary'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
           $ref: '#/components/responses/ProblemResponse'
         default:
           $ref: '#/components/responses/ProblemResponse'
@@ -6450,7 +6627,7 @@ paths:
     post:
       tags: [Presets]
       operationId: upsertPreset
-      summary: Create or update a preset by slug (admin only). Presets are mutable metadata — unlike abilities there are no immutable versions; posting an existing slug overwrites all of its content fields with the request body. The lifecycle fields (`sort_order`, `visibility`, `featured`) are preserved when omitted, so a catalog sync cannot unpublish or unfeature curated presets; change them explicitly here or via `PATCH /presets/{slug}`.
+      summary: Create or update a preset by slug (admin only). Presets are mutable metadata — unlike abilities there are no immutable versions; posting an existing slug overwrites all of its content fields with the request body. The lifecycle fields (`sort_order`, `visibility`, `featured`) are preserved when omitted, so a catalog sync cannot unpublish or unfeature curated presets; change them explicitly here or via `PATCH /presets/{slug}`. The page-authored fields (`page_category`, `options`, `long_description`, `use_cases`, `examples`, `model_ids`) follow the same preserve-when-omitted rule.
       requestBody:
         required: true
         content:
@@ -6628,6 +6805,48 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/MaskValidation'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /motion:validate:
+    post:
+      tags: [Motion]
+      operationId: validateMotion
+      summary: Sanitize a timeline motion and report what was clamped or dropped. Public and stateless, the same sanitizer the render job and the Studio preview apply.
+      description: |
+        Runs the platform's motion sanitizer over an arbitrary JSON value and
+        returns the canonical sparse `Motion` the renderer would apply (or
+        `null` when the value is not an object, or is the identity: the
+        default fit-to-frame centered placement), plus one `problems` entry
+        per clamped or dropped field. Use it to lint overlay `motion` objects
+        before a push: a value that produces problems renders differently
+        from the author's intent.
+
+        Sanitizer contract (identical in the Studio preview): unknown keys
+        and non-numeric / non-finite numbers are dropped; numbers are clamped
+        to range and rounded to 2 decimals; a non-object `anchor` is dropped;
+        fields equal to their default are dropped; an object whose every
+        field is the default is the identity and is reported absent
+        (`motion: null`, `identity: true`).
+      security:
+        - {}
+        - bearerAuth: []
+        - patAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MotionValidateRequest'
+      responses:
+        '200':
+          description: The sanitized motion and its diagnostics.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MotionValidation'
         '400':
           $ref: '#/components/responses/ProblemResponse'
         default:
@@ -8767,7 +8986,15 @@ components:
     ImageModel:
       type: string
       description: |
-        Image model identifier exposed by the public API. `gpt-image-1.5` is
+        Image model identifier exposed by the public API.
+        `gpt-image-2.5-sunburst` is OpenAI's most capable model for image
+        generation and editing: built for premium visual workflows and tighter
+        control across edits, at longer generation times.
+        `gpt-image-2.5-flare` is the fast everyday tier and OpenAI's own
+        default for most applications, higher quality than `gpt-image-2` at
+        50% lower latency. Both inherit `gpt-image-2`'s twelve aspect ratios,
+        its `native`/`2k`/`4k` tiers, its multi-reference editing and its
+        credit cost. `gpt-image-1.5` is
         the OpenAI model between GPT Image 1 and 2, sized like `gpt-image-1`
         (1:1, 3:2, 2:3). `nano-banana-pro`
         (Gemini 3 Pro Image) is the flagship Gemini image model and
@@ -8791,6 +9018,8 @@ components:
         `seed` reaches the provider on `ideogram-v4` and `qwen-image-3` only
         (Reve and Seedream publish no seed).
       enum:
+        - gpt-image-2.5-sunburst
+        - gpt-image-2.5-flare
         - gpt-image-2
         - gpt-image-1.5
         - reve-2.1
@@ -11586,6 +11815,188 @@ components:
       enum: [personal, organization]
       x-enum-varnames: [BillingScopePersonal, BillingScopeOrganization]
 
+    CreditTransactionKind:
+      type: string
+      description: >
+        Customer-facing class of a ledger row, derived server-side from the
+        internal ledger type and the row's provenance. `grant` is a plan's
+        monthly credits or credits granted by Nolgia (a contract grant, a
+        make-good); `topup` a purchase; `redeem` a credit code; `generation`
+        an image, video or audio generation charge; `agent_turn` an agent
+        chat turn charge; `render` a composition render charge (reserved:
+        renders take no credit hold today); `refund` credits returned for a
+        charge whose work did not complete; `adjustment` a plan-change
+        correction or other manual movement.
+      enum: [grant, topup, redeem, generation, agent_turn, render, refund, adjustment]
+      x-enum-varnames: [CreditTransactionKindGrant, CreditTransactionKindTopup, CreditTransactionKindRedeem, CreditTransactionKindGeneration, CreditTransactionKindAgentTurn, CreditTransactionKindRender, CreditTransactionKindRefund, CreditTransactionKindAdjustment]
+
+    CreditTransactionWallet:
+      type: string
+      description: Which wallet a row moved, the expiring monthly plan wallet or the non-expiring top-up wallet.
+      enum: [subscription, topup]
+      x-enum-varnames: [CreditTransactionWalletSubscription, CreditTransactionWalletTopup]
+
+    CreditTransactionWalletFilter:
+      type: string
+      description: Wallet filter for the ledger read; `all` is the default.
+      enum: [subscription, topup, all]
+      x-enum-varnames: [CreditTransactionWalletFilterSubscription, CreditTransactionWalletFilterTopup, CreditTransactionWalletFilterAll]
+
+    CreditTransactionMember:
+      type: object
+      additionalProperties: false
+      description: The organization member who caused a row. `email` is empty when the member's account has since been deleted.
+      required: [id, email]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+        name:
+          type: string
+          nullable: true
+
+    CreditTransaction:
+      type: object
+      additionalProperties: false
+      required: [id, occurred_at, kind, wallet, wallet_id, credits, balance_after, description]
+      properties:
+        id:
+          type: string
+          format: uuid
+        occurred_at:
+          type: string
+          format: date-time
+        kind:
+          $ref: '#/components/schemas/CreditTransactionKind'
+        wallet:
+          $ref: '#/components/schemas/CreditTransactionWallet'
+        wallet_id:
+          type: string
+          format: uuid
+        wallet_expires_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the wallet's credits expire (subscription wallets); `null` for the top-up wallet.
+        credits:
+          type: integer
+          description: Signed movement. Negative for charges and debits, positive for grants, top-ups, redemptions and refunds.
+        balance_after:
+          type: integer
+          description: The wallet's balance after this row (running sum of the wallet identified by `wallet_id`).
+        description:
+          type: string
+          description: Plain-language label, for example `Video generation · seedance-2.5 · 5 s` or `Refund · Agent turn`. Never contains an em dash.
+        model:
+          type: string
+          description: Catalog model id when the row charges or refunds a generation. Label it client-side.
+        preset:
+          type: string
+          description: Preset slug when the generation was launched from a preset.
+        job_id:
+          type: string
+          format: uuid
+          description: The generation job behind a `generation` charge or its refund.
+        session_id:
+          type: string
+          format: uuid
+          description: The agent chat session behind an `agent_turn` charge or its refund.
+        render_id:
+          type: string
+          format: uuid
+          description: The render behind a `render` charge or its refund.
+        member:
+          $ref: '#/components/schemas/CreditTransactionMember'
+
+    CreditTransactionPage:
+      type: object
+      additionalProperties: false
+      required: [items, next_cursor, scope]
+      properties:
+        items:
+          type: array
+          description: Rows newest first.
+          items:
+            $ref: '#/components/schemas/CreditTransaction'
+        next_cursor:
+          type: string
+          nullable: true
+          description: Pass as `cursor` for the next page; `null` on the last page.
+        scope:
+          $ref: '#/components/schemas/BillingScope'
+        organization_id:
+          type: string
+          format: uuid
+          description: Set when `scope` is `organization`.
+
+    CreditUsageDay:
+      type: object
+      additionalProperties: false
+      required: [date, credits_used, credits_refunded]
+      properties:
+        date:
+          type: string
+          pattern: '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+          description: UTC calendar day, `YYYY-MM-DD`.
+        credits_used:
+          type: integer
+          description: Generation, agent-turn and render charges taken that day, as a positive number.
+        credits_refunded:
+          type: integer
+          description: Refunds credited that day, as a positive number.
+
+    CreditUsageKindTotal:
+      type: object
+      additionalProperties: false
+      required: [kind, credits, count]
+      properties:
+        kind:
+          $ref: '#/components/schemas/CreditTransactionKind'
+        credits:
+          type: integer
+          description: Signed net of every row of this kind in the window.
+        count:
+          type: integer
+
+    CreditUsageSummary:
+      type: object
+      additionalProperties: false
+      required: [from, to, scope, credits_used, credits_refunded, credits_added, by_day, by_kind]
+      properties:
+        from:
+          type: string
+          format: date-time
+        to:
+          type: string
+          format: date-time
+        scope:
+          $ref: '#/components/schemas/BillingScope'
+        organization_id:
+          type: string
+          format: uuid
+          description: Set when `scope` is `organization`.
+        member_id:
+          type: string
+          format: uuid
+          description: Set when the summary is narrowed to one member's rows.
+        credits_used:
+          type: integer
+        credits_refunded:
+          type: integer
+        credits_added:
+          type: integer
+          description: Grants, top-ups and redemptions in the window.
+        by_day:
+          type: array
+          items:
+            $ref: '#/components/schemas/CreditUsageDay'
+        by_kind:
+          type: array
+          items:
+            $ref: '#/components/schemas/CreditUsageKindTotal'
+
     OrganizationCreditBalance:
       type: object
       additionalProperties: false
@@ -14316,6 +14727,229 @@ components:
             $ref: '#/components/schemas/MaskProblem'
           description: Every clamp/drop/undrawable diagnostic, in field order; empty when the input was already canonical.
 
+    MotionAnchor:
+      type: object
+      additionalProperties: false
+      description: The transform origin (Premiere's Anchor Point) as percentages of the CLIP BOX. 50/50 (the default) is the clip's center, 0/0 its top-left corner. Scale and rotation happen about this point, and it is the point `x`/`y` place on the canvas.
+      properties:
+        x:
+          type: number
+          format: double
+          minimum: -100
+          maximum: 200
+          default: 50
+          description: Anchor X, % of the clip box width.
+        y:
+          type: number
+          format: double
+          minimum: -100
+          maximum: 200
+          default: 50
+          description: Anchor Y, % of the clip box height.
+
+    MotionEase:
+      type: string
+      enum: [linear, ease-in, ease-out, ease-in-out, hold]
+      x-enum-varnames: [MotionEaseLinear, MotionEaseEaseIn, MotionEaseEaseOut, MotionEaseEaseInOut, MotionEaseHold]
+      default: linear
+      description: |
+        The curve of the keyframe SEGMENT that starts at a keyframe and runs
+        to the next one. `linear` interpolates evenly; `ease-in`, `ease-out`
+        and `ease-in-out` are the CSS cubic-bezier curves (0.42, 0, 1, 1),
+        (0, 0, 0.58, 1) and (0.42, 0, 0.58, 1); `hold` keeps the keyframe's
+        value for the whole segment and steps to the next value exactly at
+        the next keyframe. The last keyframe's ease is carried but never
+        used. A missing or unknown ease reads as `linear`.
+
+    MotionKeyframe:
+      type: object
+      additionalProperties: false
+      required: [t, v]
+      description: |
+        One keyframe of an animated Motion property. A property's keyframes
+        sort ascending by `t`; two at the same `t` collapse to the later
+        entry; an entry without a finite `t` and `v` is dropped. Before the
+        first keyframe the property holds the first `v`, at or after the last
+        it holds the last `v`. A one-keyframe list is kept as a list (the
+        editor's "stopwatch on" state) and behaves as the constant `v`.
+      properties:
+        t:
+          type: number
+          format: double
+          description: Seconds relative to the CLIP START on the timeline (not the source media; trimming the head with `srcOffset` does not move keyframes). Any finite number, kept at full precision, so a frame-snapped keyframe is exactly `frame / fps` on every side.
+          examples: [0.5]
+        v:
+          type: number
+          format: double
+          description: The property value at `t`, in the property's units and range, clamped and rounded to 2 decimals exactly like the constant form.
+          examples: [80]
+        ease:
+          $ref: '#/components/schemas/MotionEase'
+
+    Motion:
+      type: object
+      additionalProperties: false
+      description: |
+        One per-clip timeline motion: a SPARSE object where every field is
+        optional and an absent field is the default. `{}` is the identity
+        motion (its one job is the explicit reset in the `nolgia-edits.json`
+        overlay). The CLIP BOX is the clip fitted to the canvas preserving
+        aspect (what a motion-less clip renders as, minus the letterbox
+        bars): `scale` 1 means exactly that box.
+
+        Every property except `anchor` is either a CONSTANT number (phase 1)
+        or a KEYFRAME LIST (phase 2, `MotionKeyframe[]`) animating it over
+        the clip: the preview and the export sample the list at each frame's
+        clip time with the same easing curves. A constant stays a constant
+        (no migration). `anchor` stays a constant object in this phase.
+
+        Transform order: fit, scale about the anchor (per axis
+        `scale * scaleX`, `scale * scaleY`), rotate about the anchor,
+        translate so the anchor lands at (`x` % of the canvas width,
+        `y` % of the canvas height), then `opacity`. The clip's mask is
+        applied in the clip box BEFORE the transform, so it moves, scales,
+        and rotates with the clip. Applies to video and image clips; text
+        clips are placed by their `textStyle` instead (a `motion` on a text
+        clip is ignored with a warning); audio ignores it.
+      properties:
+        x:
+          description: Where the anchor lands, % of the canvas width (0 = left edge, 100 = right edge); -100..200, default 50. A constant or a keyframe list.
+          oneOf:
+            - type: number
+              format: double
+              minimum: -100
+              maximum: 200
+              default: 50
+            - type: array
+              minItems: 1
+              items:
+                $ref: '#/components/schemas/MotionKeyframe'
+        y:
+          description: Where the anchor lands, % of the canvas height (0 = top edge, 100 = bottom edge); -100..200, default 50. A constant or a keyframe list.
+          oneOf:
+            - type: number
+              format: double
+              minimum: -100
+              maximum: 200
+              default: 50
+            - type: array
+              minItems: 1
+              items:
+                $ref: '#/components/schemas/MotionKeyframe'
+        scale:
+          description: Uniform scale about the anchor; 1 = fit-to-frame, 0.5 = half size, 0 = the clip vanishes; 0..10, default 1. A constant or a keyframe list.
+          oneOf:
+            - type: number
+              format: double
+              minimum: 0
+              maximum: 10
+              default: 1
+            - type: array
+              minItems: 1
+              items:
+                $ref: '#/components/schemas/MotionKeyframe'
+        scaleX:
+          description: Horizontal multiplier on top of `scale` (the effective X scale is `scale * scaleX`); 0..10, default 1. A constant or a keyframe list.
+          oneOf:
+            - type: number
+              format: double
+              minimum: 0
+              maximum: 10
+              default: 1
+            - type: array
+              minItems: 1
+              items:
+                $ref: '#/components/schemas/MotionKeyframe'
+        scaleY:
+          description: Vertical multiplier on top of `scale` (the effective Y scale is `scale * scaleY`); 0..10, default 1. A constant or a keyframe list.
+          oneOf:
+            - type: number
+              format: double
+              minimum: 0
+              maximum: 10
+              default: 1
+            - type: array
+              minItems: 1
+              items:
+                $ref: '#/components/schemas/MotionKeyframe'
+        rotation:
+          description: Degrees, clockwise (screen coordinates, y down), about the anchor; -360..360, default 0. A constant or a keyframe list.
+          oneOf:
+            - type: number
+              format: double
+              minimum: -360
+              maximum: 360
+              default: 0
+            - type: array
+              minItems: 1
+              items:
+                $ref: '#/components/schemas/MotionKeyframe'
+        opacity:
+          description: Clip opacity, 100 = fully opaque, 0 = invisible; multiplied into the clip's mask alpha; 0..100, default 100. A constant or a keyframe list.
+          oneOf:
+            - type: number
+              format: double
+              minimum: 0
+              maximum: 100
+              default: 100
+            - type: array
+              minItems: 1
+              items:
+                $ref: '#/components/schemas/MotionKeyframe'
+        anchor:
+          $ref: '#/components/schemas/MotionAnchor'
+      examples:
+        - { x: 80, y: 20, scale: 0.35 }
+        - { scale: 1.25, rotation: -6 }
+        - { x: 0, y: 0, scale: 0.5, anchor: { x: 0, y: 0 } }
+        - { opacity: 60 }
+        - { x: [{ t: 0, v: 20, ease: ease-in-out }, { t: 1.5, v: 80, ease: linear }], scale: [{ t: 0, v: 0.5, ease: hold }, { t: 1, v: 0.5, ease: linear }, { t: 2, v: 1, ease: linear }], opacity: [{ t: 0, v: 0, ease: ease-out }, { t: 0.5, v: 100, ease: linear }] }
+
+    MotionValidateRequest:
+      type: object
+      additionalProperties: false
+      required: [motion]
+      description: A candidate motion, any JSON value; non-objects are reported as "not a motion".
+      properties:
+        motion:
+          description: The value to sanitize (normally an object shaped like `Motion`, but any JSON is accepted so junk can be diagnosed).
+          nullable: true
+
+    MotionProblem:
+      type: object
+      additionalProperties: false
+      required: [path, message]
+      description: One sanitizer diagnostic, a field that was clamped or dropped.
+      properties:
+        path:
+          type: string
+          description: JSON path of the offending value relative to the motion (`""` for the motion itself, `"x"`, `"anchor.y"`, `"scale[2].v"` for the third keyframe's value, `"opacity[0]"` for a dropped keyframe entry).
+          examples: ['anchor.y', 'scale[2].v']
+        message:
+          type: string
+          description: What happened and why, in one sentence.
+          examples: ['clamped from 250 to 200 (range -100..200)']
+
+    MotionValidation:
+      type: object
+      additionalProperties: false
+      required: [motion, identity, problems]
+      description: The sanitizer's verdict on a candidate motion.
+      properties:
+        motion:
+          allOf:
+            - $ref: '#/components/schemas/Motion'
+          nullable: true
+          description: The canonical sparse motion the renderer would apply (keyframe lists sorted, clamped, every keyframe carrying an explicit ease), or `null` when the input is absent (not an object) or the identity.
+        identity:
+          type: boolean
+          description: True when the input sanitized to the identity motion (the default fit-to-frame centered placement); in the overlay that is the explicit reset of a stored motion.
+        problems:
+          type: array
+          items:
+            $ref: '#/components/schemas/MotionProblem'
+          description: Every clamp/drop diagnostic, in field order; empty when the input was already canonical.
+
     PresetMediaOutcome:
       type: string
       enum: [derived, reused, skipped, failed, deferred]
@@ -14359,12 +14993,49 @@ components:
         error:
           type: string
           description: Present only on `failed`.
+        examples:
+          type: array
+          items:
+            $ref: '#/components/schemas/PresetMediaExampleResult'
+          description: >-
+            One entry per example on the preset (`Preset.examples`), in
+            order: the example media goes through the same derivation as the
+            card poster, and each example is its own unit of work against
+            the call's limit. Omitted when the preset has no examples.
+
+    PresetMediaExampleResult:
+      type: object
+      additionalProperties: false
+      required: [ref, outcome]
+      description: One example's derivation result.
+      properties:
+        ref:
+          type: string
+          description: The example's source reference, `asset:<uuid>` or `render:<uuid>`.
+          examples: ['asset:b3f7c1e2-8a4d-4e2b-9c1a-2f3e4d5c6b7a']
+        outcome:
+          $ref: '#/components/schemas/PresetMediaOutcome'
+        reason:
+          type: string
+        poster_url:
+          type: string
+          nullable: true
+        media_url:
+          type: string
+          nullable: true
+        error:
+          type: string
+          description: Present only on `failed`.
 
     PresetMediaSweep:
       type: object
       additionalProperties: false
       required: [presets, derived, reused, skipped, failed, deferred, results]
-      description: Aggregate result of a preset card media derivation sweep.
+      description: >-
+        Aggregate result of a preset media derivation sweep. The outcome
+        counts are over MEDIA UNITS (each preset's card preview plus each of
+        its examples), not presets, so `deferred` is a true "this much work
+        is left".
       properties:
         presets:
           type: integer
@@ -14379,7 +15050,7 @@ components:
           type: integer
         deferred:
           type: integer
-          description: Not examined because the call's limit was spent. Call again while this is non-zero.
+          description: Media units not worked because the call's limit was spent. Call again while this is non-zero.
         results:
           type: array
           items:
@@ -14558,6 +15229,53 @@ components:
             Customer-visible pick-one chips surfacing the option menus the
             preset's guardrails carry (named styles, archetypes, effects,
             casting, formats). Empty when the preset has no options surface.
+        long_description:
+          type: string
+          description: >-
+            Long-form customer copy for the preset's own page (preset pages
+            phase 2): what the preset makes, how it works, what to bring.
+            Markdown-lite: paragraphs separated by blank lines, `**bold**`,
+            and `-` bullet lists; no headings, links or raw HTML. Empty when
+            the preset has none (the page falls back to `description`).
+            Always emitted by the server; optional in the schema so
+            pre-existing client fixtures stay valid. Customer copy: the
+            no-em-dash rule applies.
+        use_cases:
+          type: array
+          items:
+            type: string
+          description: >-
+            Short customer-facing use cases, one per entry, rendered as a
+            list on the preset page ("Launch teasers for a new drop"). Each
+            entry is one line of copy, not a heading. Empty when none are
+            authored. Always emitted by the server. Customer copy: the
+            no-em-dash rule applies.
+          examples: [['Paid social hooks for a product launch', 'Creator-style testimonials without a shoot']]
+        examples:
+          type: array
+          items:
+            $ref: '#/components/schemas/PresetExample'
+          description: >-
+            Example outputs of this preset (platform assets or composition
+            renders) with a caption and the prompt that made them, served as
+            DURABLE preset media: each carries `poster_url` / `media_url`
+            derived through the same content-addressed CDN pipeline as
+            `thumbnail_poster_url`, never a signed URL into the generations
+            bucket. Empty when none are authored. Always emitted by the
+            server.
+        model_ids:
+          type: array
+          items:
+            type: string
+          description: >-
+            Machine ids of the models this preset runs on, as published by
+            `GET /models` (e.g. `veo-3.1`, `gpt-image-2`). Validated against
+            the model registry on write, so a client can join them to the
+            live catalog for capabilities and credit cost. Complements the
+            display labels in `recommended_models`, which stay for
+            compatibility. Empty when none are set. Always emitted by the
+            server.
+          examples: [['veo-3.1', 'seedance-2.0-pro']]
         sort_order:
           type: integer
           description: Ascending display order on the /presets page.
@@ -14576,6 +15294,93 @@ components:
         updated_at:
           type: string
           format: date-time
+
+    PresetExampleKind:
+      type: string
+      enum: [image, video, audio]
+      x-enum-varnames: [PresetExampleKindImage, PresetExampleKindVideo, PresetExampleKindAudio]
+      description: Media kind of an example's source, recorded when its durable media is derived.
+
+    PresetExampleInput:
+      type: object
+      additionalProperties: false
+      required: [caption]
+      description: >-
+        One example output on the admin upsert. Exactly one of `asset_id`
+        (a platform asset: a generated image or video) or `render_id` (a
+        composition render; its output asset is what gets served) must be
+        set, and it must exist. Captions and prompts are customer copy, so
+        the no-em-dash rule applies to both.
+      properties:
+        asset_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Platform asset this example shows. Mutually exclusive with `render_id`.
+        render_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Composition render whose output this example shows. Mutually exclusive with `asset_id`.
+        caption:
+          type: string
+          minLength: 1
+          maxLength: 280
+          description: One line under the example saying what it is.
+          examples: ['Sneaker drop teaser, 9:16, generated from a single product photo']
+        prompt:
+          type: string
+          nullable: true
+          maxLength: 4000
+          description: The prompt that produced this example, shown to the customer so they can start from it.
+
+    PresetExample:
+      type: object
+      additionalProperties: false
+      required: [caption]
+      description: >-
+        One example output as served on the preset. `poster_url` /
+        `media_url` are DERIVED durable media on the preset-media CDN path
+        (WebP poster at most 1280x720; for video a silent, faststart preview
+        clip at most 720p), content-addressed and immutably cached like the
+        card poster. Both are `null` until the derivation that every preset
+        write kicks has landed (seconds to a minute), and stay `null` for a
+        source that cannot be derived (an audio asset, a render that has not
+        succeeded, a deleted asset): clients skip or placeholder such an
+        example, and must never resolve the raw asset themselves.
+      properties:
+        asset_id:
+          type: string
+          format: uuid
+          nullable: true
+        render_id:
+          type: string
+          format: uuid
+          nullable: true
+        caption:
+          type: string
+        prompt:
+          type: string
+          nullable: true
+        kind:
+          allOf:
+            - $ref: '#/components/schemas/PresetExampleKind'
+          nullable: true
+          description: Media kind of the example's source; `null` until derived.
+        poster_url:
+          type: string
+          nullable: true
+          description: Durable WebP poster (at most 1280x720) for the example; `null` until derived.
+          examples: ['https://nolgia.ai/preset-media/v2/3f/3f9c…/poster.webp']
+        media_url:
+          type: string
+          nullable: true
+          description: >-
+            Durable silent preview clip for a `video` example (full source
+            duration, at most 720p, faststart); `null` for image examples
+            (the poster IS the media) and until derived. Load with
+            `preload="none"` and `poster_url` as the poster.
+          examples: ['https://nolgia.ai/preset-media/v2/3f/3f9c…/preview.mp4']
 
     UpsertPresetRequest:
       type: object
@@ -14664,6 +15469,55 @@ components:
             preset's current options (defaults to none on first create);
             send [] explicitly to clear them. Option copy is customer-facing
             — the no-em-dash rule applies.
+        long_description:
+          type: string
+          nullable: true
+          maxLength: 8000
+          description: >-
+            Long-form customer copy for the preset page (markdown-lite, see
+            `Preset.long_description`). Authored once in the admin panel, so
+            it follows the preserve-on-omit rule of `page_category` and
+            `options`: omit to keep an existing preset's copy (defaults to
+            empty on first create); send '' explicitly to clear it. The
+            no-em-dash rule applies.
+        use_cases:
+          type: array
+          nullable: true
+          maxItems: 12
+          items:
+            type: string
+            minLength: 1
+            maxLength: 200
+          description: >-
+            Customer-facing use cases, one line each. Omit to keep an
+            existing preset's list (defaults to none on first create); send
+            [] explicitly to clear it. The no-em-dash rule applies.
+        examples:
+          type: array
+          nullable: true
+          maxItems: 12
+          items:
+            $ref: '#/components/schemas/PresetExampleInput'
+          description: >-
+            Example outputs, each a platform asset or a composition render
+            with a caption and optionally the prompt that made it. Omit to
+            keep an existing preset's examples (defaults to none on first
+            create); send [] explicitly to clear them. Every referenced asset
+            or render must exist (400 otherwise). The durable
+            `poster_url` / `media_url` are derived after the write by the
+            preset-media pipeline; do not send them.
+        model_ids:
+          type: array
+          nullable: true
+          maxItems: 12
+          items:
+            type: string
+          description: >-
+            Machine ids of the models the preset runs on. Each must be a
+            model id published by `GET /models` (400 names the first unknown
+            one). Omit to keep an existing preset's list (defaults to none on
+            first create); send [] explicitly to clear it.
+          examples: [['veo-3.1', 'gpt-image-2']]
         sort_order:
           type: integer
           description: >-
