@@ -9214,8 +9214,10 @@ components:
         `gpt-image-2.5-flare` is the fast everyday tier and OpenAI's own
         default for most applications, higher quality than `gpt-image-2` at
         50% lower latency. Both inherit `gpt-image-2`'s twelve aspect ratios,
-        its `native`/`2k`/`4k` tiers, its multi-reference editing and its
-        credit cost. `gpt-image-1.5` is
+        its `native`/`2k`/`4k` tiers and its multi-reference editing, but cost
+        markedly fewer credits: measured token consumption is far below
+        `gpt-image-2`'s, and the two 2.5 models are priced identically to each
+        other. `gpt-image-1.5` is
         the OpenAI model between GPT Image 1 and 2, sized like `gpt-image-1`
         (1:1, 3:2, 2:3). `nano-banana-pro`
         (Gemini 3 Pro Image) is the flagship Gemini image model and
