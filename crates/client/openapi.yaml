@@ -9889,6 +9889,15 @@ components:
             videos combined with `video_urls`, MP4/MOV, 2–15 seconds
             combined; Seedance additionally requires 480p–720p input and 50MB
             total. This is the recommended way to pass reference videos.
+
+
+            Pricing: on `flux-3-video`, attaching a reference video selects
+            the provider's video-continuation mode, which it bills well above
+            the text/image rate — such a request is charged the continuation
+            price (108 credits per 5s at `hd`, 135 at `fhd`) rather than the
+            43/73 published on `GET /pricing/models`, and scales with
+            duration from there. The job's reservation carries the exact
+            amount charged. No other model charges a continuation premium.
           items:
             type: string
             format: uuid
@@ -9914,10 +9923,10 @@ components:
             ids of your image assets — resolved to signed URLs and forwarded
             as the provider's `image_urls`. Address them in the prompt as
             `@Image1`..`@Image9`. At most 9 combined with `image_urls`.
-            Images-only requests (no reference video) are allowed but bill
-            at the model's full undiscounted rate — the published
-            reference-to-video credit price assumes a reference video is
-            attached (the provider's with-video discount).
+            Images-only requests (no reference video) are allowed and bill
+            at exactly the published reference-to-video credit price, the
+            same as a request carrying a reference video: both execute on
+            the same provider route at the same rate.
           items:
             type: string
             format: uuid
