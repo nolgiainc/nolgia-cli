@@ -13533,13 +13533,17 @@ components:
         - update_preset_page
         - update_preset_visibility
         - rename_preset
+        - repoint_preset_model
         - delete_preset
       description: >-
         The catalog mutation a catalog-audit row records. `rename_preset` is a
         DISPLAY-NAME-only change (the slug is stable); it is distinct from
         `upsert_preset` (a whole-preset write) and `update_preset_page` (page
         content) so "why did this preset's customer-facing name change?" is
-        answerable from the trail alone.
+        answerable from the trail alone. `repoint_preset_model` is a change to
+        the model a preset runs on (`target_params.model`) and is likewise its
+        own action, because a preset's model may only be swapped after a dated
+        validation run and the trail is where that is recorded.
 
     CatalogAuditEntry:
       type: object
