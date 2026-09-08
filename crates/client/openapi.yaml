@@ -89,7 +89,7 @@ tags:
     description: Marketplace of admin-published ability packages that customer Hermes agents install and run.
   - name: Presets
     description: |
-      Customer-facing, outcome-named workflow wrappers ("UGC ad", "Short film")
+      Customer-facing, outcome-named workflow wrappers ("Social media ad", "Short film")
       that power the /presets page. Metadata only — no package content: a
       preset either deep-links into a creation endpoint (`create_image` /
       `create_video` / `create_audio` targets with `{prompt, model}` params) or
@@ -13532,8 +13532,14 @@ components:
         - upsert_preset
         - update_preset_page
         - update_preset_visibility
+        - rename_preset
         - delete_preset
-      description: The catalog mutation a catalog-audit row records.
+      description: >-
+        The catalog mutation a catalog-audit row records. `rename_preset` is a
+        DISPLAY-NAME-only change (the slug is stable); it is distinct from
+        `upsert_preset` (a whole-preset write) and `update_preset_page` (page
+        content) so "why did this preset's customer-facing name change?" is
+        answerable from the trail alone.
 
     CatalogAuditEntry:
       type: object
@@ -15465,7 +15471,7 @@ components:
           examples: ['ugc-ad']
         name:
           type: string
-          examples: ['UGC ad']
+          examples: ['Social media ad']
         description:
           type: string
           description: Short outcome description ("what you get").
