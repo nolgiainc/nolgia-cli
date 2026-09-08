@@ -5,6 +5,45 @@ the matching GitHub release.
 
 ## Unreleased
 
+## v0.2.25
+
+- **The generated API client is refreshed against the current platform
+  contract.** No command or flag changed in this release, so the binary
+  behaves exactly as v0.2.24 did; what moves is the typed surface the
+  `nolgia-client` crate exposes, which had fallen eight spec re-vendors
+  behind what the API actually serves. Newly covered: durable share links
+  (list, create and revoke a public link for an asset or a render, resolve
+  one by token, and read the link-preview metadata a share page needs;
+  tokens are stored hashed, so the plaintext token is returned only once, on
+  the create response), the credit transaction ledger and its usage summary
+  (per-entry wallet, balance after, and model, preset, job, session or member
+  attribution, plus totals by day and by kind over a date range), thumbs-up
+  and thumbs-down feedback on an agent message, the agent `model_switch`
+  state so a brain change still in flight is visible while it runs, motion
+  keyframe validation via `POST /motion:validate` (the timeline-motion twin
+  of what `nolgia masks validate` already does for masks), and the preset
+  page fields `long_description`, `use_cases`, `model_ids` and worked
+  `examples`. Every addition is additive: no existing field was removed, and
+  nothing became newly required, so a v0.2.24 binary keeps working against
+  the same API.
+- **`nolgia models list --json` and `nolgia models get --json` now carry the
+  per-model prompt caps.** A video model publishes `video.max_prompt_chars`,
+  the longest prompt its provider accepts, measured on the prompt the
+  provider actually receives after a `--character-id` continuity description
+  and any `--shot` segments are folded in; an image model publishes
+  `image.negative_prompt_max_length`. Both are absent when only the shared
+  request-contract maximum applies. A request over a published cap is
+  refused with a `400` naming the limit and your length before any credit
+  hold is taken, so an agent that reads these can size a prompt up front
+  instead of paying a round trip to discover it. Human output is unchanged.
+- **`nolgia-client` builds clean under `-D warnings` again.** The code
+  generator emits an unused numeric-default helper for any float property
+  carrying a non-zero default, and the motion keyframe anchor is the first
+  such property to reach the vendored spec, so a strict build of the crate
+  failed on dead code it never wrote. Generated code is now allowed to carry
+  it, at the single point the generated module is included and nowhere else
+  in the workspace.
+
 ## v0.2.24
 
 - **`nolgia compositions`** — assemble clips into a Studio timeline and render
