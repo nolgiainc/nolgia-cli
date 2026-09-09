@@ -4579,6 +4579,11 @@ paths:
         reasoning loop — routed through the LLM proxy with a provider-outage
         fallback group — priced as a flat credit rate per chat turn. The
         default brain is included; premium brains cost more per turn.
+        `gpt-6-astra` is the top tier at 170 credits a turn: OpenAI's hardest
+        reasoning model, for long-horizon reasoning, coding and long
+        documents. Treat this catalogue as the source of truth for both the
+        selectable ids and their rates rather than hard-coding either — it is
+        served from the same table that prices the turn.
       responses:
         '200':
           description: The selectable brains, default first, then by ascending per-turn rate.
@@ -12623,11 +12628,18 @@ components:
         model:
           type: string
           description: Model identifier, as accepted by PUT /agent/model.
-          examples: ['glm-5.2']
+          examples: ['glm-5.2', 'gpt-6-astra']
         turn_credits:
           type: integer
-          description: Flat credits billed per agent chat turn while the agent runs this brain.
-          examples: [30]
+          description: >-
+            Flat credits billed per agent chat turn while the agent runs this
+            brain. The rate is per TURN, not per token, and today does not vary
+            with how much work the turn does: it ranges from 10 for the default
+            brain to 170 for `gpt-6-astra`. Per-turn rates are under active
+            revision and will change — always read the current rate from this
+            catalogue and show it to the user before a brain is selected,
+            rather than hard-coding it.
+          examples: [30, 170]
         default:
           type: boolean
           description: True for the platform default brain (what an agent runs with no explicit selection).
@@ -12689,8 +12701,14 @@ components:
         model:
           type: string
           minLength: 1
-          description: One of the selectable models from GET /agent/models.
-          examples: ['glm-5.2']
+          description: >-
+            One of the selectable models from GET /agent/models. Anything
+            else is rejected with 400, including models the proxy routes but
+            the platform does not sell. `gpt-6-astra` (170 credits a turn) is
+            OpenAI's hardest reasoning model — long-horizon reasoning, coding
+            and long documents; the cheaper brains are better value for
+            routine turns.
+          examples: ['glm-5.2', 'gpt-6-astra']
 
     ProvisionAgentRequest:
       type: object
