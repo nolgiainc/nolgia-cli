@@ -13580,6 +13580,7 @@ components:
         - uninstall_ability
         - upsert_preset
         - update_preset_page
+        - update_preset_prompt
         - update_preset_visibility
         - rename_preset
         - repoint_preset_model
@@ -13593,6 +13594,11 @@ components:
         the model a preset runs on (`target_params.model`) and is likewise its
         own action, because a preset's model may only be swapped after a dated
         validation run and the trail is where that is recorded.
+        `update_preset_prompt` is a change to the BAKED PROMPT a preset's
+        one-tap run generates from (`target_params.prompt`), separate for the
+        same reason: the prompt is what the customer actually gets, so the
+        trail has to say which preset's prompt moved, to what, and on whose
+        authority.
 
     CatalogAuditEntry:
       type: object
