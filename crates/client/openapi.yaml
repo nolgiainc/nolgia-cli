@@ -9542,6 +9542,24 @@ components:
             unknown as permitted rather than blocking the user.
           minimum: 0
           example: 4
+        reference_long_edge_max:
+          type: integer
+          description: |
+            The largest reference image, in pixels on its longer edge, this
+            model is sent. A reference above it is downscaled to exactly this
+            edge (aspect ratio preserved) before the provider sees it, so
+            sending a larger image costs nothing extra and changes nothing
+            but the pixels the model works from; a reference too large to
+            decode at all (over 4096x4096) is rejected up front with a 400
+            naming the fix. Clients that resize before upload should size to
+            this edge.
+
+            Published only by models that bound the reference. The Microsoft
+            MAI-Image family bills input image tokens per pixel with no
+            ceiling, so its bound (2048) is what its price is derived from.
+            Absent means references are forwarded at their native size.
+          minimum: 1
+          example: 2048
         num_images_max:
           type: integer
           description: |
@@ -9812,15 +9830,18 @@ components:
         `topaz-image-cgi` for illustrations, renders and game art, and
         `topaz-image-text` for logos, screenshots and typography.
 
-        Seven models reach the catalog through OpenRouter, and all seven are
-        TEXT-TO-IMAGE ONLY: they publish `reference_images_max` of 0 and
-        reject a reference image up front, because the provider route that
-        serves them does not currently execute image editing. `mai-image-2.6`,
+        Seven models reach the catalog through OpenRouter. `mai-image-2.6`,
         `mai-image-2.6-flash`, `mai-image-2.5` and `mai-image-2.5-pro` are
         Microsoft MAI-Image on Azure, four of the strongest text-to-image
-        models in the catalog; they carry the shared `native`/`2k`/`4k`
-        upscaler tiers, since the family has no native resolution knob, and
-        render one image per request. `riverflow-v2.5-pro` and
+        models in the catalog, and they EDIT: each takes exactly one
+        reference image (`reference_images_max` of 1, `image_url` only),
+        downscaled to a 2048 px long edge before dispatch
+        (`reference_long_edge_max`), because the family bills input image
+        tokens per pixel. They carry the shared `native`/`2k`/`4k` upscaler
+        tiers, since the family has no native resolution knob, and render
+        one image per request. The other three are TEXT-TO-IMAGE ONLY
+        (`reference_images_max` of 0, a reference is a 400 up front) until
+        each is verified with a reference on its route. `riverflow-v2.5-pro` and
         `riverflow-v2.5-fast` (Sourceful Riverflow V2.5) are the catalog's
         strongest typography and layout models, with native `1k`/`2k` output
         and `4k` on pro; both are SLOW (a 1k pro render measures over two
