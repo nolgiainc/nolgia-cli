@@ -9549,10 +9549,14 @@ components:
             model is sent. A reference above it is downscaled to exactly this
             edge (aspect ratio preserved) before the provider sees it, so
             sending a larger image costs nothing extra and changes nothing
-            but the pixels the model works from; a reference too large to
-            decode at all (over 4096x4096) is rejected up front with a 400
-            naming the fix. Clients that resize before upload should size to
-            this edge.
+            but the pixels the model works from. References needing resizing
+            fail asynchronously if they exceed 16,777,216 pixels (4096x4096
+            worth of pixels) or use 16-bit color. The request returns 202
+            Accepted before the worker downloads and checks the reference;
+            poll the accepted job for its failure message. Its reserved
+            credits are refunded. This is not a synchronous HTTP 400.
+            Clients should resize to this edge or export 8-bit images before
+            uploading.
 
             Published only by models that bound the reference. The Microsoft
             MAI-Image family bills input image tokens per pixel with no
