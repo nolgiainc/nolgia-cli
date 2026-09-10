@@ -8888,6 +8888,14 @@ components:
           items:
             type: string
             examples: ['16:9']
+        render_quality:
+          allOf:
+            - $ref: '#/components/schemas/RenderQualityCapabilities'
+          description: >-
+            Mirrors `image.render_quality` from `GET /models`. Unlike
+            `inpaint_mask` this one is unambiguously pricing: each option
+            carries the credits it adds, and a page that prints a model's cost
+            without it would understate an `xhigh` or `max` render.
         inpaint_mask:
           type: boolean
           description: >-
@@ -8944,6 +8952,56 @@ components:
           type: string
           nullable: true
           description: Customer-safe explanation of a degraded state.
+
+    RenderQualityCapabilities:
+      type: object
+      additionalProperties: false
+      description: |
+        The render-quality values a model accepts on `render_quality`, and what
+        each ADDS to the price.
+
+        Deliberately separate from `QualityCapabilities`, which for an image
+        model is the native/2k/4k upscale ladder. The two are orthogonal: one
+        decides how the picture is drawn, the other whether it is enlarged
+        afterwards, and a request may carry both.
+      required: [default, options]
+      properties:
+        default:
+          type: string
+          description: >-
+            The value applied when `render_quality` is omitted. Always `auto`
+            today, and `auto` sends nothing to the provider at all — it is the
+            model's own choice, and the state every published base price was
+            measured against.
+          examples: ['auto']
+        options:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/RenderQualityOption'
+
+    RenderQualityOption:
+      type: object
+      additionalProperties: false
+      required: [id, credits_added, premium]
+      properties:
+        id:
+          type: string
+          description: Value accepted by the `render_quality` request parameter.
+          examples: ['xhigh']
+        credits_added:
+          type: integer
+          minimum: 0
+          description: >-
+            Credits this value ADDS to the model's per-image price, on top of
+            whatever `quality` tier the request also carries. 0 for `auto` and
+            for every value that spends no more than it. Added per IMAGE, so a
+            request for four images pays it four times.
+          examples: [11]
+        premium:
+          type: boolean
+          description: Whether this value costs more than the base rate.
+          examples: [true]
 
     Model:
       type: object
@@ -9499,6 +9557,14 @@ components:
           minimum: 1
           maximum: 4
           example: 4
+        render_quality:
+          allOf:
+            - $ref: '#/components/schemas/RenderQualityCapabilities'
+          description: >-
+            The model's render-quality ladder, the second and independent
+            quality axis (see the `render_quality` request field). Absent on
+            every model that does not take one, which is everything outside
+            the GPT Image family.
         inpaint_mask:
           type: boolean
           description: |
@@ -10182,6 +10248,31 @@ components:
           items:
             type: string
             format: uuid
+        render_quality:
+          type: string
+          enum: [auto, low, medium, high, xhigh, max]
+          x-enum-varnames: [RenderQualityAuto, RenderQualityLow, RenderQualityMedium, RenderQualityHigh, RenderQualityXhigh, RenderQualityMax]
+          description: |
+            How much detail the model spends on the render itself, on models
+            that publish `image.render_quality` (the GPT Image family). This
+            is a SECOND axis and not a rename of `quality`: `quality` is the
+            native/2k/4k UPSCALE ladder, which re-renders the finished image
+            larger, while this changes how the picture is drawn in the first
+            place. They compose — `quality: 4k` with `render_quality: max` is
+            a legitimate request and pays for both.
+
+            `auto` (the default) is the model's own choice and costs the base
+            rate, exactly as an omitted field always has. `low`, `medium` and
+            `high` spend LESS than auto and are charged the same, so they buy
+            speed rather than savings. `xhigh` and `max` spend substantially
+            more and add credits — see `image.render_quality.options` for the
+            exact figure per model, and read it there rather than assuming,
+            because it is per model.
+
+            `xhigh` and `max` exist only on the GPT Image 2.5 models. Sending
+            a value a model does not publish is a 400 naming what it accepts,
+            before any credit hold — never a silent downgrade.
+          examples: ['xhigh']
         mask_asset_id:
           type: string
           format: uuid
