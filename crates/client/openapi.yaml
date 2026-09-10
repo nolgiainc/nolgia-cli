@@ -4581,9 +4581,13 @@ paths:
         default brain is included; premium brains cost more per turn.
         `gpt-6-astra` is the top tier at 170 credits a turn: OpenAI's hardest
         reasoning model, for long-horizon reasoning, coding and long
-        documents. Treat this catalogue as the source of truth for both the
-        selectable ids and their rates rather than hard-coding either — it is
-        served from the same table that prices the turn.
+        documents. Retired brains are NOT listed: `glm-5.2` (superseded by
+        `glm-5.3`) and `kimi-k3` left the catalogue on 2026-09-09, and an
+        agent still pinned to one keeps running and keeps billing at its own
+        rate — GET /agent carries a `model_advisory` for that case. Treat this
+        catalogue as the source of truth for both the selectable ids and their
+        rates rather than hard-coding either — it is served from the same
+        table that prices the turn.
       responses:
         '200':
           description: The selectable brains, default first, then by ascending per-turn rate.
@@ -12592,8 +12596,23 @@ components:
             chat turn uses and bills this brain (see GET /agent/models).
             Existing turns retain their durable execution model and billing
             rate, including when resumed or retried. Other pod surfaces follow
-            this pin on subsequent convergence rolls.
-          examples: ['glm-5.2']
+            this pin on subsequent convergence rolls. `glm-5.2` and
+            `kimi-k3` are RETIRED: they are still accepted here on reads and
+            still bill at their own rate for agents already pinned to them,
+            but they can no longer be selected — see `model_advisory`.
+          examples: ['glm-5.3']
+        model_advisory:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/AgentModelAdvisory'
+          description: >-
+            Present only when `model` pins a brain the platform has RETIRED
+            (`glm-5.2`, `kimi-k3` as of 2026-09-09); omitted/null otherwise.
+            Purely advisory: nothing is migrated, the agent keeps running on
+            the pinned brain and keeps billing at that brain's own per-turn
+            rate. Surface it so the customer can pick a replacement themselves
+            — a brain change alters both an agent's behaviour and its price,
+            so the platform will not make that choice for them.
         model_switch:
           nullable: true
           allOf:
@@ -12609,6 +12628,43 @@ components:
             rate. Clients can show "Now running on `to`" rather than a rollout
             countdown. This does not signal convergence of other pod surfaces,
             which follow the pin on subsequent rolls.
+
+    AgentModelAdvisory:
+      type: object
+      description: >-
+        Notice that an agent is pinned to a brain the platform no longer
+        offers. The pin is still honoured and still billed at its own rate;
+        this only tells the client what to say and what to suggest.
+      additionalProperties: false
+      required: [reason, model, recommended, detail]
+      properties:
+        reason:
+          $ref: '#/components/schemas/AgentModelAdvisoryReason'
+        model:
+          type: string
+          description: The retired brain the agent is still pinned to.
+          examples: ['kimi-k3']
+        recommended:
+          type: string
+          description: >-
+            A currently selectable brain to suggest instead, always present in
+            GET /agent/models. It is a suggestion, not a migration — the
+            customer must select it themselves via PUT /agent/model.
+          examples: ['glm-5.3']
+        detail:
+          type: string
+          description: Human-readable copy safe to show as-is.
+      x-nolgia-note: >-
+        Additional reasons may be added; treat an unrecognised `reason` as a
+        generic notice and render `detail`.
+
+    AgentModelAdvisoryReason:
+      type: string
+      enum: [legacy_model]
+      x-enum-varnames: [AgentModelAdvisoryReasonLegacyModel]
+      description: >-
+        `legacy_model` — the pinned brain has been withdrawn from the
+        selectable catalogue.
 
     AgentModelCatalog:
       type: object
@@ -12628,7 +12684,7 @@ components:
         model:
           type: string
           description: Model identifier, as accepted by PUT /agent/model.
-          examples: ['glm-5.2', 'gpt-6-astra']
+          examples: ['glm-5.3', 'gpt-6-astra']
         turn_credits:
           type: integer
           description: >-
@@ -12676,7 +12732,7 @@ components:
         to:
           type: string
           description: The selected brain for the next newly executing chat turn (the fleet default brain's id after DELETE /agent/model).
-          examples: ['kimi-k3']
+          examples: ['glm-5.3']
         status:
           $ref: '#/components/schemas/AgentModelSwitchStatus'
         started_at:
@@ -12704,11 +12760,14 @@ components:
           description: >-
             One of the selectable models from GET /agent/models. Anything
             else is rejected with 400, including models the proxy routes but
-            the platform does not sell. `gpt-6-astra` (170 credits a turn) is
-            OpenAI's hardest reasoning model — long-horizon reasoning, coding
-            and long documents; the cheaper brains are better value for
-            routine turns.
-          examples: ['glm-5.2', 'gpt-6-astra']
+            the platform does not sell, and RETIRED brains — `glm-5.2` and
+            `kimi-k3` are no longer selectable as of 2026-09-09 and are
+            rejected here, though agents already pinned to them keep running
+            and keep billing at their own rate. `gpt-6-astra` (170 credits a
+            turn) is OpenAI's hardest reasoning model — long-horizon
+            reasoning, coding and long documents; the cheaper brains are
+            better value for routine turns.
+          examples: ['glm-5.3', 'gpt-6-astra']
 
     ProvisionAgentRequest:
       type: object
@@ -16044,7 +16103,7 @@ components:
             API keeps the newer selection, answers with the agent still
             `pending_deploy` for the next tick to roll it, and fails the
             switch after two such re-rolls.
-          examples: ['glm-5.2']
+          examples: ['glm-5.3']
 
     AgentDashboardTicket:
       type: object
