@@ -97,7 +97,13 @@ pub struct VideoArgs {
     /// API already serves works even on a binary built before it was added
     /// (NOL-439: `flux-3-video` was rejected by the closed client-side enum
     /// though the API accepted it). The API is the authority on what exists.
-    #[arg(long, default_value = "fal-ai/kling-video/v3/text-to-video")]
+    /// The default is `seedance-2.5`, matching the API's own
+    /// DefaultVideoModel. It was `fal-ai/kling-video/v3/text-to-video` until
+    /// 2026-09-09, when the founder hid Kling indefinitely after the prepaid
+    /// provider account ran dry: `nolgia gen video` with no `--model` was the
+    /// highest-impact silent route to that dead account anywhere in the
+    /// platform, because nobody had to type a Kling id to reach it.
+    #[arg(long, default_value = "seedance-2.5")]
     pub model: String,
     #[arg(long)]
     pub prompt: String,

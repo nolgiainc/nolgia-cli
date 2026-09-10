@@ -5,7 +5,7 @@ version: 1.0.0
 author: NOLGIA
 license: MIT
 metadata:
-  tags: [nolgia, video-prompting, directing, seedance, kling, multi-shot, filmmaking]
+  tags: [nolgia, video-prompting, directing, seedance, minimax-h3, multi-shot, filmmaking]
 ---
 
 # NOLGIA Video Prompting
