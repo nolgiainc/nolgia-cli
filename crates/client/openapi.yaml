@@ -9388,25 +9388,75 @@ components:
         The `topaz-*` ids are the Topaz master upscalers, one per engine, so
         you pick the engine that matches the footage:
 
-        - `topaz-proteus` — general live action
-        - `topaz-rhea` — texture-heavy upscales
-        - `topaz-iris` — faces
-        - `topaz-nyx` — denoise plus detail
-        - `topaz-theia` — fine-tuned detail
-        - `topaz-artemis` — high-quality restore
-        - `topaz-gaia` — CG and animation
-        - `topaz-dione` — interlaced footage
-        - `topaz-starlight-fast` — fast generative restore
-        - `topaz-starlight` — precise generative restore
-        - `topaz-wonder` — generative restore
-        - `topaz-hyperion` — generative flagship
+        Up-res and detail, for footage that is basically sound:
 
-        Topaz tiers are 720p/1080p/1440p/2160p, plus 4320p (8K) on the eight
-        engines above `topaz-starlight-fast` and on `topaz-starlight-fast`
-        itself; the generative trio (`topaz-starlight`, `topaz-wonder`,
-        `topaz-hyperion`) tops out at 2160p. Read each model's real tier list
-        and per-tier credit rates from `quality.options` on `GET /models`
-        rather than hard-coding this paragraph.
+        - `topaz-proteus` — general live action, the default
+        - `topaz-proteus-natural` — a gentler 2x general pass, without the crunchy look
+        - `topaz-rhea` — texture-heavy upscales
+        - `topaz-theia` — fine-tuned detail
+        - `topaz-theia-fidelity` — detail that stays stable frame to frame
+        - `topaz-gaia` — CG and animation
+        - `topaz-gaia-cg` — animation and 3D renders that are already clean
+
+        Faces:
+
+        - `topaz-iris` — faces, from a low-quality source
+        - `topaz-iris-medium` — faces, from a mid-quality source; takes interlaced too
+
+        Compression damage. Pick the one that matches how rough the source is:
+
+        - `topaz-artemis` — high-quality sources
+        - `topaz-artemis-medium` — moderately compressed
+        - `topaz-artemis-low` — the roughest sources, heaviest denoise
+        - `topaz-artemis-moire` — moire patterning and stair-stepped edges
+        - `topaz-artemis-dehalo-medium` — halo suppression, one strength
+        - `topaz-artemis-dehalo-low` — halo suppression, the other strength
+
+        The two halo variants are not ranked here on purpose: Topaz's own
+        published mapping for them contradicts the example files on the same
+        page, so try both on a clip rather than trusting an ordering.
+
+        Denoise:
+
+        - `topaz-nyx` — denoise plus detail
+        - `topaz-nyx-xl` — the heaviest denoiser, for severe noise or grain
+        - `topaz-nyx-fast` — the quick one, for volume work
+
+        Interlaced footage:
+
+        - `topaz-dione` — robust deinterlace, the general choice
+        - `topaz-dione-dv` — digital camcorder tape: DV, DVCPRO, DVCAM, 720i, 1080i
+        - `topaz-dione-tv` — analog broadcast, VHS, DVD and SD (480i, 576i)
+        - `topaz-dione-dehalo` — the same plus halo and colour-fringe suppression
+        - `topaz-dione-robust-dehalo` — combing baked into footage already made progressive
+
+        Generative restoration, for footage too degraded for the engines above.
+        These cost several times as much per second:
+
+        - `topaz-starlight-fast` — the fast pass
+        - `topaz-starlight` — Starlight Precise 2.5
+        - `topaz-wonder` — Starlight Sharp: sharper detail on clean progressive video
+
+        Fixes that are not up-res at all. These cost the same at every tier,
+        because the engine is not enlarging anything:
+
+        - `topaz-motion-deblur` — blur from fast camera or subject movement
+        - `topaz-hdr` — SDR to HDR (Hyperion). Deinterlace first: it is weak on interlaced
+        - `topaz-hyperion` — SDR to HDR, second generation, for finishing
+
+        Tiers are 720p/1080p/1440p/2160p on every engine, plus 4320p (8K) on
+        most; `topaz-starlight` and `topaz-hyperion` top out at 2160p. Read
+        each model's real tier list and per-tier credit rates from
+        `quality.options` on `GET /models` rather than hard-coding this
+        paragraph.
+
+        Four more Topaz engines are configured but not offered yet:
+        animation up-res, Starlight HQ, Starlight Mini and black-and-white
+        colorization. Those four are the only ones that require the source
+        clip's own dimensions and frame count to be declared upstream, which
+        the generation proxy does not send yet, so they are withheld rather
+        than advertised and then refused. They will appear here, with their
+        rates, once that ships.
       enum:
         - seedvr2-restore
         - topaz-proteus
@@ -9421,6 +9471,23 @@ components:
         - topaz-starlight
         - topaz-wonder
         - topaz-hyperion
+        - topaz-proteus-natural
+        - topaz-theia-fidelity
+        - topaz-artemis-low
+        - topaz-artemis-medium
+        - topaz-artemis-moire
+        - topaz-artemis-dehalo-low
+        - topaz-artemis-dehalo-medium
+        - topaz-gaia-cg
+        - topaz-iris-medium
+        - topaz-nyx-xl
+        - topaz-dione-dv
+        - topaz-dione-tv
+        - topaz-dione-dehalo
+        - topaz-dione-robust-dehalo
+        - topaz-nyx-fast
+        - topaz-motion-deblur
+        - topaz-hdr
 
     ImageSize:
       type: string
