@@ -5058,6 +5058,15 @@ paths:
         auto-created default session, reused by later sessionless submits.
         When the session is linked to a project, the platform scopes the
         turn to that project server-side.
+
+        **Starting a new chat**: pass `new_session` (instead of
+        `session_id`) to create a fresh chat session and file this message
+        under it in ONE transaction. The session only exists once its first
+        message does, so opening a composer never leaves an empty chat in
+        the history; the created session is returned as `session`, and
+        `session_id` names it. `new_session` accepts the same fields as
+        `POST /agent/sessions` (name, project link, preset, campaign) — an
+        omitted name is derived from the message text.
       requestBody:
         required: true
         content:
@@ -13818,6 +13827,15 @@ components:
             one-pending-turn limit is per session: a running turn in one
             session never blocks submits into another (those queue and run
             FIFO).
+        new_session:
+          allOf:
+            - $ref: '#/components/schemas/SubmitAgentMessageNewSession'
+          description: >
+            Create a fresh chat session for this message and file the turn
+            under it, atomically — the session row is written in the same
+            transaction as its first message, so it never exists empty.
+            Mutually exclusive with `session_id` (`400` when both are set).
+            The created session comes back as `session` on the `202`.
         steering:
           type: boolean
           default: false
@@ -13828,6 +13846,40 @@ components:
             its in-flight one settles. When the session has no pending turn
             this behaves exactly like a normal send, so clients may set it
             unconditionally from an unlocked composer.
+
+    SubmitAgentMessageNewSession:
+      type: object
+      additionalProperties: false
+      description: >
+        The chat session to create for a first message
+        (`SubmitAgentMessageRequest.new_session`). Same fields as
+        `CreateAgentSessionRequest`, all optional: an omitted `name` is
+        derived from the message text (its first six words, at most 48
+        characters), falling back to `New chat` for an attachment-only send.
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        project_id:
+          type: string
+          format: uuid
+          description: Project (owned by the caller) to scope the session to (`400` otherwise).
+        preset_slug:
+          type: string
+          pattern: '^[a-z0-9][a-z0-9-]{0,63}$'
+          description: >-
+            Preset to run the session under. Must name an existing public
+            preset (`400` otherwise); the agent receives the preset's
+            guardrails and output context on every turn.
+        campaign:
+          allOf:
+            - $ref: '#/components/schemas/SessionCampaign'
+          description: >-
+            Marketing attribution for this launch, recorded on the created
+            session exactly as `POST /agent/sessions` would. Attribution is
+            therefore counted when the first message is sent, not when a
+            composer is opened.
 
     SubmitAgentMessageAccepted:
       type: object
@@ -13846,6 +13898,20 @@ components:
             `GET /agent/messages` until its status leaves `pending`. Absent
             when a steering send was queued behind an in-flight turn: the
             reply row is created automatically when that turn settles.
+        session_id:
+          type: string
+          format: uuid
+          description: >
+            The chat session the message was filed under: the `session_id`
+            sent, the session `new_session` created, or the caller's
+            auto-created default session for a sessionless submit.
+        session:
+          allOf:
+            - $ref: '#/components/schemas/AgentSession'
+          description: >
+            The session `new_session` created, so a client can show it in
+            its session list without another read. Present only on a
+            `new_session` submit.
 
     AgentMessageConflict:
       type: object
