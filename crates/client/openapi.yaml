@@ -9899,8 +9899,8 @@ components:
             Pricing: on `flux-3-video`, attaching a reference video selects
             the provider's video-continuation mode, which it bills well above
             the text/image rate — such a request is charged the continuation
-            price (108 credits per 5s at `hd`, 135 at `fhd`) rather than the
-            43/73 published on `GET /pricing/models`, and scales with
+            price (120 credits per 5s at `hd`, 150 at `fhd`) rather than the
+            48/81 published on `GET /pricing/models`, and scales with
             duration from there. The job's reservation carries the exact
             amount charged. No other model charges a continuation premium.
           items:
