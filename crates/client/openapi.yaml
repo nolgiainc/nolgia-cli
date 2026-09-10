@@ -9739,9 +9739,15 @@ components:
         Video model identifier. Priority models are Kling v3.0, Seedance 2.0 Pro,
         and MiniMax Hailuo 3 (`minimax-h3`, the 2K multimodal flagship). BFL
         FLUX 3 (`flux-3-video`) is the native-audio t2v/i2v flagship with hd/fhd
-        resolution tiers. Alibaba Wan 3.0 (`wan-3.0`) renders 2-30 second
-        clips at 480p/720p/1080p from text, a start image, or reference
-        images. MiniMax H3 Max (`minimax/h3-max/text-to-video` and
+        resolution tiers. Alibaba Wan 3.0 (`wan-3.0`) renders 5-30 second
+        clips at 480p/720p/1080p from text or a start image, and is the
+        default text-to-video route. Wan 3.0 Prime (`wan-3.0-prime`) is its
+        fast variant on the same range and tiers. Wan 2.7 (`wan-2.7`) renders
+        5-10 second clips at 720p/1080p from text, a start and/or end image,
+        or up to 4 reference images - the only reference-to-video route
+        outside the Seedance family. Wan 2.6 (`wan-2.6`) renders exactly 5 or
+        10 second clips at 720p/1080p, 16:9 or 9:16, from text or a start
+        image. MiniMax H3 Max (`minimax/h3-max/text-to-video` and
         `minimax/h3-max/image-to-video`) is the post-trained H3 variant with
         480p/768p tiers. Seedance 2.5 (`seedance-2.5`): 4 to 30 second clips
         at 480p/720p from text, a start and/or end image, or up to 9
@@ -9751,9 +9757,12 @@ components:
         Veo 3.1 Lite (`veo-3.1-lite`) is the budget Veo 3.1 tier with the
         same 4/6/8 second, start-frame and ingredient-image surface as
         `veo-3.1-fast`, 720p default and a 1080p tier. HappyHorse 1.1
-        (`happyhorse-1.1`) renders silent 3 to 15 second clips at 720p/1080p
-        from text or a start image. Default is
-        `fal-ai/kling-video/v3/text-to-video`.
+        (`happyhorse-1.1`) and HappyHorse 1.0 (`happyhorse-1.0`) render silent
+        5 to 15 second clips at 720p/1080p from text or a start image.
+        Seedance 1.5 Pro (`seedance-1-5-pro`) is the budget Seedance flagship:
+        4 to 12 second clips at 480p/720p/1080p with the same start/end frame
+        and reference-image surface as 2.5, and the one Seedance route whose
+        optional audio carries a price of its own. Default is `wan-3.0`.
       enum:
         - fal-ai/kling-video/v3/text-to-video
         - fal-ai/kling-video/v3/master/text-to-video
@@ -9776,10 +9785,15 @@ components:
         - minimax-hailuo-2.3-fast
         - flux-3-video
         - wan-3.0
+        - wan-3.0-prime
+        - wan-2.7
+        - wan-2.6
         - happyhorse-1.1
+        - happyhorse-1.0
         - seedance-2.5
         - seedance-2.0-fast
         - seedance-2.0-mini
+        - seedance-1-5-pro
         - minimax/h3-max/text-to-video
         - minimax/h3-max/image-to-video
 
