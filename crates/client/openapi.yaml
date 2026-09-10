@@ -8989,6 +8989,26 @@ components:
             True for video-restoration lane models: they are submitted via
             `POST /restore/video` with a source clip and NO prompt, not via
             `POST /generate/video`. Absent for generation models.
+        image_enhance:
+          type: boolean
+          description: |
+            True for image-ENHANCEMENT models: they re-render one MANDATORY
+            reference image at a larger output size and take NO prompt. They
+            are still submitted via `POST /generate/image`, so unlike the
+            video restore lane there is no second endpoint, but the request
+            shape is different enough that a picker should keep them out of
+            the generator list:
+
+            - exactly one reference (`image_url`, `image_urls` with a single
+              entry, or one `reference_asset_ids` entry) is required; a
+              request with none is a 400
+            - `prompt` and `negative_prompt` are refused
+            - `aspect_ratio` is refused, because the output keeps the SOURCE
+              image's aspect ratio; `image.aspect_ratios` is therefore empty
+            - `quality` picks the output long edge (`2k` = 2048px, `4k` =
+              4096px); the short edge follows the source
+
+            Absent for generation models.
         capabilities:
           type: array
           description: >-
@@ -9712,6 +9732,20 @@ components:
         `seed` reaches the provider on `ideogram-v4` and `qwen-image-3` only
         (Reve and Seedream publish no seed).
 
+        The five `topaz-image-*` ids are ENHANCERS, not generators, and they
+        are the only image models that publish `image_enhance: true` in
+        `GET /models`. Each one re-renders a reference image you already have
+        at a larger output size, takes NO prompt, and requires exactly one
+        reference. They keep the source's aspect ratio, so they publish no
+        `image.aspect_ratios` and refuse `aspect_ratio`; `quality` picks the
+        output long edge (`2k` = 2048px, `4k` = 4096px, the default) and both
+        tiers cost the same. Pick by what the source is:
+        `topaz-image-standard` for everyday photos and graphics,
+        `topaz-image-high-fidelity` for already-sharp high-resolution photos,
+        `topaz-image-low-resolution` for thumbnails and web scrapes,
+        `topaz-image-cgi` for illustrations, renders and game art, and
+        `topaz-image-text` for logos, screenshots and typography.
+
         Seven models reach the catalog through OpenRouter, and all seven are
         TEXT-TO-IMAGE ONLY: they publish `reference_images_max` of 0 and
         reject a reference image up front, because the provider route that
@@ -9770,6 +9804,11 @@ components:
         - stable-diffusion-3.5
         - kling-image-v3
         - minimax-image-01
+        - topaz-image-standard
+        - topaz-image-high-fidelity
+        - topaz-image-low-resolution
+        - topaz-image-cgi
+        - topaz-image-text
         - mai-image-2.6
         - mai-image-2.6-flash
         - mai-image-2.5
@@ -10054,14 +10093,19 @@ components:
     GenerateImageRequest:
       type: object
       additionalProperties: false
-      required: [model, prompt]
+      required: [model]
       properties:
         model:
           $ref: '#/components/schemas/ImageModel'
         prompt:
           type: string
-          minLength: 1
           maxLength: 4000
+          x-go-type-skip-optional-pointer: true
+          description: |
+            What to generate. Required on every generation model, and refused
+            on the `image_enhance` models, which re-render the reference image
+            from its own pixels and have no prompt slot at all: sending one
+            there is a 400 rather than an enhancement that quietly ignored it.
           examples: ['A neon cyberpunk cat DJing on a rooftop, cinematic']
         negative_prompt:
           type: string

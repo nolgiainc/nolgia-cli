@@ -282,6 +282,7 @@ pub struct VideoOptions<'a> {
     pub bitrate: Option<BitrateMode>,
     pub video_refs: usize,
     pub elements: usize,
+    pub audio_refs: usize,
     pub end_frame: bool,
 }
 
@@ -320,6 +321,28 @@ pub async fn precheck_video_options(
             0 => format!("--element: {model_id} takes no element/reference images"),
             max => format!("--element: {model_id} accepts at most {max} element images"),
         });
+    }
+    if options.audio_refs as u64 > refs.audio_refs_max {
+        anyhow::bail!(match refs.audio_refs_max {
+            0 => format!(
+                "--audio-ref: {model_id} takes no reference audio — pick a model that lists \
+                 `audio refs` in `nolgia models get {model_id}` (the lip sync models take a \
+                 voice track; most generation models take none)"
+            ),
+            max => format!("--audio-ref: {model_id} accepts at most {max} reference audio tracks"),
+        });
+    }
+    // A model with a MINIMUM reference-audio count is a lip sync route: the
+    // voice track is the subject, not an accent. Saying so here turns the
+    // server's 400 into an instruction.
+    if let Some(min) = refs.audio_refs_min
+        && (options.audio_refs as u64) < min.get()
+    {
+        anyhow::bail!(
+            "{model_id} needs at least {min} reference audio track(s) — pass --audio-ref with \
+             one of your audio assets (or a local file, which is uploaded first). The clip's \
+             length comes from that track, so leave --duration-seconds off."
+        );
     }
     if options.end_frame && !refs.end_frame {
         anyhow::bail!(
@@ -419,6 +442,54 @@ pub async fn precheck_image_aspect_ratio(
         anyhow::bail!(
             "--aspect-ratio {ratio}: not supported by {model_id}; available: {}",
             image_ratio_list(&image.aspect_ratios)
+        );
+    }
+    Ok(())
+}
+
+/// Refuse `--mask` on a model whose catalog entry says it cannot edit part of
+/// an image, BEFORE the request is submitted.
+///
+/// The API refuses it too, and would do so before any credit hold, so this
+/// saves no money. What it saves is the round trip and the confusion: the
+/// answer is in the catalog the CLI already fetches, and a mask on the wrong
+/// model is a modelling mistake, not a transient failure.
+///
+/// It fails OPEN in both directions, like every other precheck here: an
+/// unreachable catalog, an unknown model id, or a build older than the
+/// `inpaint_mask` field all fall through to the server, which is the
+/// authority. A model added after this binary was built therefore still works.
+pub async fn precheck_inpaint_mask(ctx: &CommandContext, model_id: &str) -> Result<()> {
+    let Ok(models) = fetch(ctx).await else {
+        return Ok(());
+    };
+    let Some(model) = models.iter().find(|m| m.id == model_id) else {
+        return Ok(());
+    };
+    let Some(image) = &model.image else {
+        return Ok(());
+    };
+    // Absent means an API older than the field; only an explicit false is a
+    // refusal.
+    if image.inpaint_mask == Some(false) {
+        let capable: Vec<&str> = models
+            .iter()
+            .filter(|m| {
+                m.image
+                    .as_ref()
+                    .is_some_and(|i| i.inpaint_mask == Some(true))
+            })
+            .map(|m| m.id.as_str())
+            .collect();
+        let suggestion = if capable.is_empty() {
+            String::new()
+        } else {
+            format!(" Models that can: {}.", capable.join(", "))
+        };
+        anyhow::bail!(
+            "--mask: {model_id} cannot edit part of an image — its `inpaint mask` is false in \
+             `nolgia models get {model_id}`, and sending a mask anyway would repaint the whole \
+             picture.{suggestion}"
         );
     }
     Ok(())

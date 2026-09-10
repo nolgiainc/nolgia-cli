@@ -3686,3 +3686,503 @@ async fn json_mode_emits_the_live_job_as_a_document() {
     assert_eq!(parsed["outcome"], "still_running");
     assert_eq!(parsed["billed_twice"], false);
 }
+
+// --- masked image edits (nolgia-api#402) ------------------------------------
+
+/// A 1x1 PNG at the given colour type, built by hand so the tests can assert
+/// on the exact bytes the mask contract reads: the IHDR width, height and
+/// colour type. Colour type 6 is RGBA (a real per-pixel alpha channel, what a
+/// mask must be); 2 is truecolour with none.
+fn png_fixture(width: u32, height: u32, colour_type: u8) -> Vec<u8> {
+    fn chunk(tag: &[u8], data: &[u8]) -> Vec<u8> {
+        let mut out = (data.len() as u32).to_be_bytes().to_vec();
+        let body: Vec<u8> = tag.iter().chain(data.iter()).copied().collect();
+        let mut crc = 0xffff_ffff_u32;
+        for byte in &body {
+            crc ^= *byte as u32;
+            for _ in 0..8 {
+                crc = if crc & 1 == 1 {
+                    (crc >> 1) ^ 0xedb8_8320
+                } else {
+                    crc >> 1
+                };
+            }
+        }
+        out.extend(body);
+        out.extend((crc ^ 0xffff_ffff).to_be_bytes());
+        out
+    }
+    let mut ihdr = width.to_be_bytes().to_vec();
+    ihdr.extend(height.to_be_bytes());
+    ihdr.extend([8, colour_type, 0, 0, 0]);
+    let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
+    png.extend(chunk(b"IHDR", &ihdr));
+    // No IDAT: nothing decodes these, and the contract is read from IHDR.
+    png.extend(chunk(b"IEND", &[]));
+    png
+}
+
+fn image_models_json(inpaint_mask: bool) -> serde_json::Value {
+    json!({"models": [
+        {
+            "id": "gpt-image-2", "modality": "image", "recommended": true,
+            "cost": {"credits": 22, "unit": "per_image"},
+            "image": {"aspect_ratios": ["1:1", "16:9"], "reference_images_max": 4, "inpaint_mask": inpaint_mask},
+        },
+        {
+            "id": "nano-banana-2", "modality": "image", "recommended": false,
+            "cost": {"credits": 10, "unit": "per_image"},
+            "image": {"aspect_ratios": ["1:1"], "reference_images_max": 1, "inpaint_mask": false},
+        },
+    ]})
+}
+
+/// The happy path: --input becomes `reference_asset_ids` (the id, so the
+/// server re-signs it after a backlog) and --mask becomes `mask_asset_id`.
+/// Both are asset UUIDs here, so nothing is uploaded.
+#[tokio::test]
+async fn gen_image_forwards_mask_and_reference_asset_ids() {
+    let api = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/models"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(image_models_json(true)))
+        .mount(&api)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/v1/generate/image"))
+        .and(body_partial_json(json!({
+            "model": "gpt-image-2",
+            "reference_asset_ids": [ASSET_ID],
+            "mask_asset_id": ELEMENT_ASSET_ID,
+        })))
+        .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
+        .mount(&api)
+        .await;
+    run_ok(
+        &api,
+        &[
+            "gen",
+            "image",
+            "--model",
+            "gpt-image-2",
+            "--prompt",
+            "a fern on the desk",
+            "--input",
+            ASSET_ID,
+            "--mask",
+            ELEMENT_ASSET_ID,
+            "--no-wait",
+        ],
+    )
+    .stdout(predicate::str::contains(JOB_ID));
+}
+
+/// A mask on a model whose catalog entry says it cannot take one is refused
+/// before the request. The API refuses it too, before any hold, so this saves
+/// no money — it saves the round trip, and the message names models that can.
+#[tokio::test]
+async fn gen_image_refuses_mask_on_a_model_without_the_capability() {
+    let api = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/models"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(image_models_json(true)))
+        .mount(&api)
+        .await;
+    cmd()
+        .arg("--api-url")
+        .arg(api.uri())
+        .args([
+            "gen",
+            "image",
+            "--model",
+            "nano-banana-2",
+            "--prompt",
+            "a fern",
+            "--input",
+            ASSET_ID,
+            "--mask",
+            ELEMENT_ASSET_ID,
+            "--no-wait",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("cannot edit part of an image"))
+        .stderr(predicate::str::contains("gpt-image-2"));
+    for request in api.received_requests().await.unwrap() {
+        assert_ne!(
+            request.url.path(),
+            "/v1/generate/image",
+            "a mask on an incapable model reached the API"
+        );
+    }
+}
+
+/// A mask with no alpha channel is refused on the bytes, before either file is
+/// uploaded: the transparent pixels ARE the region to repaint, so a flat
+/// black-and-white PNG would repaint everything.
+#[tokio::test]
+async fn gen_image_refuses_a_mask_with_no_alpha_channel() {
+    let api = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/models"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(image_models_json(true)))
+        .mount(&api)
+        .await;
+    let dir = tempfile::tempdir().unwrap();
+    let mask = dir.path().join("mask.png");
+    std::fs::write(&mask, png_fixture(64, 64, 2)).unwrap();
+
+    cmd()
+        .arg("--api-url")
+        .arg(api.uri())
+        .args([
+            "gen",
+            "image",
+            "--model",
+            "gpt-image-2",
+            "--prompt",
+            "a fern",
+            "--input",
+            ASSET_ID,
+            "--mask",
+            mask.to_str().unwrap(),
+            "--no-wait",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("no alpha channel"));
+    for request in api.received_requests().await.unwrap() {
+        assert_ne!(
+            request.url.path(),
+            "/v1/assets",
+            "the mask was uploaded before it was checked"
+        );
+    }
+}
+
+/// A mask that is not a PNG at all gets the format message rather than the
+/// alpha one — the fix is different, so the wording has to be.
+#[tokio::test]
+async fn gen_image_refuses_a_mask_that_is_not_a_png() {
+    let api = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/models"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(image_models_json(true)))
+        .mount(&api)
+        .await;
+    let dir = tempfile::tempdir().unwrap();
+    let mask = dir.path().join("mask.png");
+    std::fs::write(&mask, b"\xff\xd8\xff\xe0not a png at all, just jpeg bytes").unwrap();
+
+    cmd()
+        .arg("--api-url")
+        .arg(api.uri())
+        .args([
+            "gen",
+            "image",
+            "--model",
+            "gpt-image-2",
+            "--prompt",
+            "a fern",
+            "--input",
+            ASSET_ID,
+            "--mask",
+            mask.to_str().unwrap(),
+            "--no-wait",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("is not a PNG"));
+}
+
+/// Dimensions are compared client-side when both files are local, because
+/// that is the mistake a mask painter makes and the one the operator can fix
+/// instantly. Both uploads are skipped.
+#[tokio::test]
+async fn gen_image_refuses_a_mask_that_does_not_match_the_image() {
+    let api = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/models"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(image_models_json(true)))
+        .mount(&api)
+        .await;
+    let dir = tempfile::tempdir().unwrap();
+    let image = dir.path().join("desk.png");
+    let mask = dir.path().join("mask.png");
+    std::fs::write(&image, png_fixture(1024, 1024, 6)).unwrap();
+    std::fs::write(&mask, png_fixture(512, 512, 6)).unwrap();
+
+    cmd()
+        .arg("--api-url")
+        .arg(api.uri())
+        .args([
+            "gen",
+            "image",
+            "--model",
+            "gpt-image-2",
+            "--prompt",
+            "a fern",
+            "--input",
+            image.to_str().unwrap(),
+            "--mask",
+            mask.to_str().unwrap(),
+            "--no-wait",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("512x512"))
+        .stderr(predicate::str::contains("1024x1024"));
+    for request in api.received_requests().await.unwrap() {
+        assert_ne!(
+            request.url.path(),
+            "/v1/assets",
+            "a file was uploaded for a request that could never have been submitted"
+        );
+    }
+}
+
+/// A mask needs something to paint over. clap enforces it at parse time, so
+/// the refusal costs no network at all.
+#[test]
+fn gen_image_mask_requires_an_input() {
+    cmd()
+        .args([
+            "gen",
+            "image",
+            "--model",
+            "gpt-image-2",
+            "--prompt",
+            "a fern",
+            "--mask",
+            ELEMENT_ASSET_ID,
+            "--no-wait",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--input"));
+}
+
+// --- reference audio / lip sync (nolgia-cli#168) ----------------------------
+
+const LIP_SYNC_MODEL: &str = "heygen-avatar-iv";
+
+fn lip_sync_models_json() -> serde_json::Value {
+    json!({"models": [
+        {
+            "id": LIP_SYNC_MODEL, "modality": "video", "recommended": false,
+            "cost": {"credits": 120, "unit": "per_clip", "baseline_seconds": 5},
+            "video": {"min_duration": 2, "max_duration": 60, "aspect_ratios": ["16:9", "9:16"], "image_input": true},
+            "references": {
+                "start_frame": true, "start_frame_required": true, "end_frame": false,
+                "video_refs_max": 0, "element_refs_max": 0,
+                "audio_refs_max": 1, "audio_refs_min": 1,
+            },
+        },
+        {
+            "id": "seedance-2.5", "modality": "video", "recommended": true,
+            "cost": {"credits": 90, "unit": "per_clip", "baseline_seconds": 5},
+            "video": {"min_duration": 3, "max_duration": 15, "aspect_ratios": ["16:9"], "image_input": true},
+            "references": {
+                "start_frame": true, "start_frame_required": false, "end_frame": true,
+                "video_refs_max": 0, "element_refs_max": 4, "audio_refs_max": 0,
+            },
+        },
+    ]})
+}
+
+/// The lip sync path end to end: a portrait as --input and a voice track as
+/// --audio-ref, which lands on the wire as `audio_asset_ids`. Nothing else
+/// reaches that field from the CLI, which is why the whole capability was
+/// unreachable (#168).
+#[tokio::test]
+async fn gen_video_forwards_audio_refs_as_audio_asset_ids() {
+    let api = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/models"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(lip_sync_models_json()))
+        .mount(&api)
+        .await;
+    Mock::given(method("GET"))
+        .and(path(format!("/v1/assets/{ASSET_ID}")))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(asset_json("https://files/portrait.png")),
+        )
+        .mount(&api)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/v1/generate/video"))
+        .and(body_partial_json(json!({
+            "model": LIP_SYNC_MODEL,
+            "audio_asset_ids": [ELEMENT_ASSET_ID],
+        })))
+        .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
+        .mount(&api)
+        .await;
+    run_ok(
+        &api,
+        &[
+            "gen",
+            "video",
+            "--model",
+            LIP_SYNC_MODEL,
+            "--prompt",
+            "she reads the line to camera",
+            "--input",
+            ASSET_ID,
+            "--audio-ref",
+            ELEMENT_ASSET_ID,
+            "--no-wait",
+        ],
+    )
+    .stdout(predicate::str::contains(JOB_ID));
+}
+
+/// A model that takes no reference audio says so by name, rather than letting
+/// the caller find out from a 400.
+#[tokio::test]
+async fn gen_video_refuses_audio_ref_on_a_model_without_one() {
+    let api = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/models"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(lip_sync_models_json()))
+        .mount(&api)
+        .await;
+    cmd()
+        .arg("--api-url")
+        .arg(api.uri())
+        .args([
+            "gen",
+            "video",
+            "--model",
+            "seedance-2.5",
+            "--prompt",
+            "a wind chime",
+            "--audio-ref",
+            ELEMENT_ASSET_ID,
+            "--no-wait",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("takes no reference audio"));
+    for request in api.received_requests().await.unwrap() {
+        assert_ne!(request.url.path(), "/v1/generate/video");
+    }
+}
+
+/// A lip sync model cannot render without a voice track, and an ABSENCE is
+/// invisible to a "did the caller pass a flag" gate — so the precheck runs
+/// unconditionally and the message says what to pass, plus the one thing that
+/// surprises people: the clip's length comes from the audio.
+#[tokio::test]
+async fn gen_video_requires_an_audio_ref_on_a_lip_sync_model() {
+    let api = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/models"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(lip_sync_models_json()))
+        .mount(&api)
+        .await;
+    cmd()
+        .arg("--api-url")
+        .arg(api.uri())
+        .args([
+            "gen",
+            "video",
+            "--model",
+            LIP_SYNC_MODEL,
+            "--prompt",
+            "she reads the line to camera",
+            "--input",
+            ASSET_ID,
+            "--no-wait",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--audio-ref"))
+        .stderr(predicate::str::contains("--duration-seconds"));
+    for request in api.received_requests().await.unwrap() {
+        assert_ne!(request.url.path(), "/v1/generate/video");
+    }
+}
+
+/// A local voice track is uploaded first and only its ASSET ID is sent: the
+/// API bills a lip sync clip on the track's stored duration, so it refuses a
+/// raw URL, and uploading is what makes the flag usable from a shell.
+#[tokio::test]
+async fn gen_video_uploads_a_local_audio_ref_and_sends_its_asset_id() {
+    let api = MockServer::start().await;
+    let uploaded = Uuid::new_v4();
+    Mock::given(method("GET"))
+        .and(path("/v1/models"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(lip_sync_models_json()))
+        .mount(&api)
+        .await;
+    Mock::given(method("GET"))
+        .and(path(format!("/v1/assets/{ASSET_ID}")))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(asset_json("https://files/portrait.png")),
+        )
+        .mount(&api)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/v1/assets/uploads"))
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({
+            "asset_id": uploaded,
+            "upload_id": uploaded,
+            "upload_url": format!("{}/signed-put", api.uri()),
+            "expires_at": "2030-01-01T00:00:00Z",
+        })))
+        .mount(&api)
+        .await;
+    Mock::given(method("PUT"))
+        .and(path("/signed-put"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&api)
+        .await;
+    Mock::given(method("POST"))
+        .and(path(format!("/v1/assets/uploads/{uploaded}/complete")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": uploaded,
+            "user_id": USER_ID,
+            "modality": "audio",
+            "model": "user-upload",
+            "status": "ready",
+            "signed_url": "https://files/voice.mp3",
+            "created_at": "2026-09-10T00:00:00Z",
+            "expires_at": "2030-01-01T00:00:00Z",
+            "favorite": false,
+        })))
+        .mount(&api)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/v1/generate/video"))
+        .and(body_partial_json(json!({ "audio_asset_ids": [uploaded] })))
+        .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
+        .mount(&api)
+        .await;
+
+    let dir = tempfile::tempdir().unwrap();
+    let voice = dir.path().join("voice.mp3");
+    std::fs::write(
+        &voice,
+        b"not really mp3, but the upload path only reads bytes",
+    )
+    .unwrap();
+
+    run_ok(
+        &api,
+        &[
+            "gen",
+            "video",
+            "--model",
+            LIP_SYNC_MODEL,
+            "--prompt",
+            "she reads the line to camera",
+            "--input",
+            ASSET_ID,
+            "--audio-ref",
+            voice.to_str().unwrap(),
+            "--no-wait",
+        ],
+    )
+    .stdout(predicate::str::contains(JOB_ID));
+}
