@@ -5,6 +5,25 @@ the matching GitHub release.
 
 ## Unreleased
 
+- **`gen image --render-quality`** picks how much detail the model spends
+  drawing the image, on the GPT Image models. It is a second axis and not a
+  rename of `--quality`: `--quality` is the native/2k/4k upscale ladder, which
+  re-renders the finished image larger, while this changes how the picture is
+  drawn in the first place. They compose, so `--quality 4k --render-quality
+  max` is a real request that pays for both.
+
+  `auto` (the default, and what an omitted flag sends: nothing) is the model's
+  own choice at the base rate. `low`, `medium` and `high` spend less and cost
+  the same, so they buy speed rather than savings. `xhigh` and `max` add
+  credits PER IMAGE, and the CLI prints the adder before it submits rather than
+  after you are billed. Both exist only on the GPT Image 2.5 models; asking an
+  older id for one is refused by name, with the values it does take, before any
+  request goes out.
+
+  `nolgia models get <model>` now prints the ladder with each value's adder, as
+  its own block — a quality tier's credits are the whole price of a render, an
+  adder is what it puts on top, and one list would invite adding them wrong.
+
 - **`gen image` can edit part of a picture.** `--input` names the image to
   edit (a local file or an asset UUID, sent as `reference_asset_ids` so the
   server re-signs it after a queue backlog) and `--mask` names a PNG whose

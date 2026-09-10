@@ -4186,3 +4186,256 @@ async fn gen_video_uploads_a_local_audio_ref_and_sends_its_asset_id() {
     )
     .stdout(predicate::str::contains(JOB_ID));
 }
+
+// --- render quality, the second image axis (nolgia-api#416) -----------------
+
+fn render_quality_models_json() -> serde_json::Value {
+    json!({"models": [
+        {
+            "id": "gpt-image-2.5-sunburst", "modality": "image", "recommended": true,
+            "cost": {"credits": 8, "unit": "per_image"},
+            "image": {
+                "aspect_ratios": ["1:1", "16:9"], "reference_images_max": 4, "inpaint_mask": true,
+                "render_quality": {"default": "auto", "options": [
+                    {"id": "auto", "credits_added": 0, "premium": false},
+                    {"id": "low", "credits_added": 0, "premium": false},
+                    {"id": "medium", "credits_added": 0, "premium": false},
+                    {"id": "high", "credits_added": 0, "premium": false},
+                    {"id": "xhigh", "credits_added": 11, "premium": true},
+                    {"id": "max", "credits_added": 24, "premium": true},
+                ]},
+            },
+            "quality": {"default": "native", "options": [
+                {"id": "native", "credits": 8, "premium": false},
+                {"id": "4k", "credits": 58, "premium": true},
+            ]},
+        },
+        {
+            "id": "gpt-image-2", "modality": "image", "recommended": false,
+            "cost": {"credits": 22, "unit": "per_image"},
+            "image": {
+                "aspect_ratios": ["1:1"], "reference_images_max": 4, "inpaint_mask": true,
+                "render_quality": {"default": "auto", "options": [
+                    {"id": "auto", "credits_added": 0, "premium": false},
+                    {"id": "low", "credits_added": 0, "premium": false},
+                    {"id": "medium", "credits_added": 0, "premium": false},
+                    {"id": "high", "credits_added": 0, "premium": false},
+                ]},
+            },
+        },
+        {
+            "id": "nano-banana-2", "modality": "image", "recommended": false,
+            "cost": {"credits": 4, "unit": "per_image"},
+            "image": {"aspect_ratios": ["1:1"], "reference_images_max": 1, "inpaint_mask": false},
+        },
+    ]})
+}
+
+/// The value reaches the wire under the spec's field name, beside — not
+/// instead of — the upscale tier. The two axes compose, and a request carrying
+/// both is the case that proves they are separate fields.
+#[tokio::test]
+async fn gen_image_forwards_render_quality_alongside_quality() {
+    let api = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/models"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(render_quality_models_json()))
+        .mount(&api)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/v1/generate/image"))
+        .and(body_partial_json(json!({
+            "model": "gpt-image-2.5-sunburst",
+            "quality": "4k",
+            "render_quality": "max",
+        })))
+        .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
+        .mount(&api)
+        .await;
+    run_ok(
+        &api,
+        &[
+            "gen",
+            "image",
+            "--model",
+            "gpt-image-2.5-sunburst",
+            "--prompt",
+            "a fern",
+            "--quality",
+            "4k",
+            "--render-quality",
+            "max",
+            "--no-wait",
+        ],
+    )
+    // The adder is announced before the spend, and it is per IMAGE.
+    .stderr(predicate::str::contains("+24 credits per image"));
+}
+
+/// An omitted flag sends NOTHING. `auto` is the model's own choice and the
+/// state every published base price was measured against, so an ordinary
+/// request must stay byte-identical to what it always was.
+#[tokio::test]
+async fn gen_image_omits_render_quality_when_not_asked_for() {
+    let api = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/models"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(render_quality_models_json()))
+        .mount(&api)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/v1/generate/image"))
+        .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
+        .mount(&api)
+        .await;
+    run_ok(
+        &api,
+        &[
+            "gen",
+            "image",
+            "--model",
+            "gpt-image-2.5-sunburst",
+            "--prompt",
+            "a fern",
+            "--no-wait",
+        ],
+    );
+
+    let submits: Vec<_> = api
+        .received_requests()
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|r| r.url.path() == "/v1/generate/image")
+        .collect();
+    assert_eq!(submits.len(), 1);
+    let body: serde_json::Value = serde_json::from_slice(&submits[0].body).unwrap();
+    assert!(
+        body.get("render_quality").is_none(),
+        "an omitted --render-quality must put no field on the wire: {body}"
+    );
+}
+
+/// A free value is accepted and says nothing about cost, because there is no
+/// cost to announce. low/medium/high buy speed, not savings.
+#[tokio::test]
+async fn gen_image_announces_no_adder_for_a_free_render_quality() {
+    let api = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/models"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(render_quality_models_json()))
+        .mount(&api)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/v1/generate/image"))
+        .and(body_partial_json(json!({ "render_quality": "low" })))
+        .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
+        .mount(&api)
+        .await;
+    run_ok(
+        &api,
+        &[
+            "gen",
+            "image",
+            "--model",
+            "gpt-image-2.5-sunburst",
+            "--prompt",
+            "a fern",
+            "--render-quality",
+            "low",
+            "--no-wait",
+        ],
+    )
+    .stderr(predicate::str::contains("credits per image").not());
+}
+
+/// xhigh and max exist only on the 2.5 pair. On an older id the CLI refuses
+/// before the request and lists what that model does take, rather than letting
+/// the API 400 after a round trip.
+#[tokio::test]
+async fn gen_image_refuses_a_render_quality_the_model_does_not_publish() {
+    let api = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/models"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(render_quality_models_json()))
+        .mount(&api)
+        .await;
+    cmd()
+        .arg("--api-url")
+        .arg(api.uri())
+        .args([
+            "gen",
+            "image",
+            "--model",
+            "gpt-image-2",
+            "--prompt",
+            "a fern",
+            "--render-quality",
+            "xhigh",
+            "--no-wait",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("not available on gpt-image-2"))
+        .stderr(predicate::str::contains("high"));
+    for request in api.received_requests().await.unwrap() {
+        assert_ne!(request.url.path(), "/v1/generate/image");
+    }
+}
+
+/// A model with no ladder at all refuses ANY value, and says where the axis
+/// lives instead of failing generically.
+#[tokio::test]
+async fn gen_image_refuses_render_quality_on_a_model_without_the_axis() {
+    let api = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/models"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(render_quality_models_json()))
+        .mount(&api)
+        .await;
+    cmd()
+        .arg("--api-url")
+        .arg(api.uri())
+        .args([
+            "gen",
+            "image",
+            "--model",
+            "nano-banana-2",
+            "--prompt",
+            "a fern",
+            "--render-quality",
+            "max",
+            "--no-wait",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("no render-quality ladder"));
+    for request in api.received_requests().await.unwrap() {
+        assert_ne!(request.url.path(), "/v1/generate/image");
+    }
+}
+
+/// `models get` prints the ladder with the per-image adder, so the estimate is
+/// available without submitting anything. It is printed as its own block, not
+/// merged into the quality tiers: a tier's credits are the whole price, an
+/// adder is what it puts on top, and one list would invite adding them wrong.
+#[tokio::test]
+async fn models_get_prints_the_render_quality_ladder_with_its_adders() {
+    let api = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/models"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(render_quality_models_json()))
+        .mount(&api)
+        .await;
+    run_ok(&api, &["models", "get", "gpt-image-2.5-sunburst"])
+        .stdout(predicate::str::contains("render quality:"))
+        .stdout(predicate::str::contains(
+            "auto — no extra credits (default)",
+        ))
+        .stdout(predicate::str::contains(
+            "xhigh — +11 credits per image (premium)",
+        ))
+        .stdout(predicate::str::contains(
+            "max — +24 credits per image (premium)",
+        ));
+}

@@ -3,7 +3,9 @@
 
 use anyhow::{Context, Result};
 use clap::{Args, Subcommand, ValueEnum};
-use nolgia_client::types::{BitrateMode, ImageAspectRatio, Model, QualityCapabilities};
+use nolgia_client::types::{
+    BitrateMode, ImageAspectRatio, Model, QualityCapabilities, RenderQualityCapabilities,
+};
 
 use super::CommandContext;
 use crate::output::{OutputFormat, print_json};
@@ -207,6 +209,69 @@ fn quality_lines(model: &Model, quality: &QualityCapabilities) -> Vec<String> {
             line
         })
         .collect()
+}
+
+/// The render-quality ladder, with what each value ADDS per image.
+///
+/// Rendered separately from `quality_lines` because the two axes are not the
+/// same kind of number: a quality tier's `credits` is the whole price of the
+/// render, a render-quality's `credits_added` is what it puts on top. Printing
+/// them in one list would invite exactly the addition mistake this axis makes
+/// easy.
+fn render_quality_lines(ladder: &RenderQualityCapabilities) -> Vec<String> {
+    ladder
+        .options
+        .iter()
+        .map(|option| {
+            let mut line = match option.credits_added {
+                0 => format!("{} — no extra credits", option.id),
+                added => format!("{} — +{added} credits per image", option.id),
+            };
+            if ladder.default == option.id {
+                line.push_str(" (default)");
+            }
+            if option.premium {
+                line.push_str(" (premium)");
+            }
+            line
+        })
+        .collect()
+}
+
+/// Validate `--render-quality` against the model's published ladder, and
+/// report what the choice ADDS per image so the caller sees the cost before
+/// they spend it.
+///
+/// Fails OPEN on catalog problems like every other precheck here: an
+/// unreachable catalog, an unknown model, or a build older than the field all
+/// fall through to the server. Returns the per-image adder for the caller to
+/// announce.
+pub async fn precheck_render_quality(
+    ctx: &CommandContext,
+    model_id: &str,
+    value: &str,
+) -> Result<u64> {
+    let Ok(models) = fetch(ctx).await else {
+        return Ok(0);
+    };
+    let Some(model) = models.iter().find(|m| m.id == model_id) else {
+        return Ok(0);
+    };
+    let ladder = model.image.as_ref().and_then(|i| i.render_quality.as_ref());
+    let Some(ladder) = ladder else {
+        anyhow::bail!(
+            "--render-quality: {model_id} has no render-quality ladder — the field is absent from \
+             `nolgia models get {model_id}`. Only the GPT Image models expose OpenAI's render \
+             quality; drop the flag, or pick one that publishes it"
+        );
+    };
+    let Some(option) = ladder.options.iter().find(|o| o.id == value) else {
+        anyhow::bail!(
+            "--render-quality {value}: not available on {model_id}; available: {}",
+            render_quality_lines(ladder).join(", ")
+        );
+    };
+    Ok(option.credits_added)
 }
 
 fn bitrate_list(modes: &[String]) -> String {
@@ -549,6 +614,13 @@ async fn get(args: GetArgs, ctx: &CommandContext) -> Result<()> {
                 for line in quality_lines(model, quality) {
                     println!("  {label} {line}");
                     label = "            ";
+                }
+            }
+            if let Some(ladder) = model.image.as_ref().and_then(|i| i.render_quality.as_ref()) {
+                let mut label = "render quality:";
+                for line in render_quality_lines(ladder) {
+                    println!("  {label} {line}");
+                    label = "               ";
                 }
             }
             if let Some(image) = &model.image
