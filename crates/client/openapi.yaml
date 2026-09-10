@@ -11367,7 +11367,12 @@ components:
         signed_url:
           type: string
           format: uri
-          description: Time-limited GCS signed URL for download.
+          description: >-
+            Time-limited GCS signed URL for download. Stable for about an hour:
+            every read of the same asset inside the same clock hour returns the
+            identical URL, so clients may cache the media it points to and reuse
+            it across list refreshes. The URL always has at least an hour of
+            validity left; `expires_at` reports the exact expiry.
           examples: ['https://storage.googleapis.com/nolgia-generations-prod/u/abc/img/xyz.png?X-Goog-Signature=...']
         expires_at:
           type: string
@@ -11427,7 +11432,11 @@ components:
           type: string
           format: uri
           nullable: true
-          description: Time-limited signed URL for a server-generated thumbnail (image downscale or video poster frame). Null when the asset has no thumbnail.
+          description: >-
+            Time-limited signed URL for a server-generated thumbnail (image
+            downscale or video poster frame). Null when the asset has no
+            thumbnail. Stable for about an hour like `signed_url`, so the
+            thumbnail bytes are cacheable client-side across list refreshes.
         tags:
           type: array
           maxItems: 10
@@ -12450,7 +12459,11 @@ components:
         signed_url:
           type: string
           format: uri
-          description: Short-lived signed GET URL for the stored file or asset object.
+          description: >-
+            Short-lived signed GET URL for the stored file or asset object.
+            Stable for about an hour: repeated requests inside the same clock
+            hour return the identical URL, so the bytes are cacheable
+            client-side. `expires_at` reports the exact expiry.
         expires_at:
           type: string
           format: date-time
