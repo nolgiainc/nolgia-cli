@@ -82,6 +82,7 @@ fn load_spec(
     unmaterialize_server_side_defaults(&mut value);
     relax_request_model_selectors(&mut value);
     relax_response_only_enums(&mut value);
+    prefer_json_request_body(&mut value);
     Ok(serde_yaml::from_str(&serde_yaml::to_string(&value)?)?)
 }
 
@@ -246,6 +247,71 @@ fn relax_request_model_selectors(value: &mut Value) {
         // crucially, *sending* any value the caller supplies.
         property.clear();
         property.insert(Value::from("type"), Value::from("string"));
+    }
+}
+
+/// Request bodies declaring more than one media type for the OAuth token
+/// endpoints (NOL-... MCP connector OAuth, nolgia-api#408), which progenitor
+/// cannot generate a client for.
+///
+/// `/oauth/token` and `/oauth/revoke` each accept RFC 6749/7009
+/// `application/x-www-form-urlencoded` OR an equivalent `application/json`
+/// body (some MCP clients send JSON) — a deliberate, spec-correct dual
+/// encoding on the SERVER side. progenitor-impl 0.14.0 has no support for a
+/// requestBody with more than one media type and panics at codegen time:
+///
+/// ```text
+/// not yet implemented: more media types than expected for exchangeOAuthToken: 2
+/// ```
+///
+/// The generated Rust client only ever needs to speak one wire format, and
+/// every other request body in this API is already JSON, so keep just
+/// `application/json` — a strict subset of what the endpoint accepts, never
+/// a request the server would reject. This rewrites the in-memory spec at
+/// codegen time only; the vendored `openapi.yaml` stays byte-identical to
+/// the published contract the `spec-check` CI job diffs.
+const JSON_ONLY_REQUEST_BODY_OPERATIONS: &[&str] = &["exchangeOAuthToken", "revokeOAuthToken"];
+
+fn prefer_json_request_body(value: &mut Value) {
+    let Some(paths) = value.get_mut("paths").and_then(Value::as_mapping_mut) else {
+        return;
+    };
+
+    for path_item in paths.values_mut() {
+        let Some(path_item_map) = path_item.as_mapping_mut() else {
+            continue;
+        };
+
+        for operation in path_item_map.values_mut() {
+            let Some(operation_map) = operation.as_mapping_mut() else {
+                continue;
+            };
+
+            let is_target = operation_map
+                .get(Value::from("operationId"))
+                .and_then(Value::as_str)
+                .is_some_and(|id| JSON_ONLY_REQUEST_BODY_OPERATIONS.contains(&id));
+            if !is_target {
+                continue;
+            }
+
+            let Some(content) = operation_map
+                .get_mut(Value::from("requestBody"))
+                .and_then(Value::as_mapping_mut)
+                .and_then(|rb| rb.get_mut(Value::from("content")))
+                .and_then(Value::as_mapping_mut)
+            else {
+                // The spec moved on (operation removed or requestBody
+                // reshaped). Not fatal: nothing left to narrow.
+                continue;
+            };
+
+            let json_key = Value::from("application/json");
+            if let Some(json_value) = content.get(&json_key).cloned() {
+                content.clear();
+                content.insert(json_key, json_value);
+            }
+        }
     }
 }
 
