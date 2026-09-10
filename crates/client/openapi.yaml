@@ -7028,7 +7028,7 @@ paths:
     get:
       tags: [Presets]
       operationId: listPresets
-      summary: List presets ordered by `sort_order`. Anonymous callers see the public catalog; admin accounts additionally see private (held) presets.
+      summary: List presets ordered by `sort_order`. Anonymous callers see the public catalog of ROOT presets (children hang under their parent and carry `parent_slug`; each root carries `children_count`); admin accounts see every preset, private (held) ones and children included, so a console can draw the tree.
       security:
         - {}
         - bearerAuth: []
@@ -7085,7 +7085,7 @@ paths:
     get:
       tags: [Presets]
       operationId: getPreset
-      summary: Get a preset's detail. Anonymous callers read public presets; private presets 404 for anonymous and non-admin callers.
+      summary: Get a preset's detail, with its family (`parent`, `children`, `inherited`). Anonymous callers read public presets; private presets 404 for anonymous and non-admin callers.
       security:
         - {}
         - bearerAuth: []
@@ -7211,6 +7211,93 @@ paths:
         '403':
           $ref: '#/components/responses/ProblemResponse'
         '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /presets/{slug}/suggestions:
+    post:
+      tags: [Presets]
+      operationId: suggestPresetDirections
+      summary: Ask the AI for three to five directions tailored to a preset and the customer's brief (signed in; 1 credit).
+      description: |
+        Writes `count` (3 to 5, default 4) concrete directions for this
+        preset from the customer's `brief`: a title, a one-line description,
+        a complete runnable prompt and the option chips it picks, plus the
+        slug of an existing public child when one is the best match. The
+        system prompt is built from the preset's OWN card (name, description,
+        best_for, guardrails as hard constraints, options, long description,
+        use cases and its public children) plus standing law: never a real
+        brand, logo, trademark or real person the customer did not name, no
+        em dashes, no cent signs, plain English, prompts runnable on this
+        preset's model. Every suggestion is validated against that contract
+        and the option whitelist; one that fails is dropped, not repaired.
+
+        Billed like a generation: a one-credit hold is taken before the call
+        (`402` when the account cannot cover it), the call runs on the
+        cheapest brain in the roster with strict JSON output (one retry on
+        invalid JSON), and the hold settles at `ceil(provider cost / $0.018)`
+        with a floor of 1 credit, refunded if the provider fails. The ledger
+        row reads "Preset suggestions · {slug}". Rate limited to 20 calls per
+        minute per account (`429`). Private presets `404` for non-admins, as
+        on `GET /presets/{slug}`.
+      parameters:
+        - $ref: '#/components/parameters/PresetSlug'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PresetSuggestionsRequest'
+            examples:
+              brief:
+                summary: A brief for the logo family
+                value:
+                  brief: 'A cosy coffee roaster called Ember, warm and quiet, for the top of our YouTube videos'
+                  count: 3
+      responses:
+        '200':
+          description: The validated suggestions and what the call charged.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PresetSuggestionsResponse'
+              examples:
+                logo:
+                  summary: Three directions for "Animate your logo"
+                  value:
+                    suggestions:
+                      - title: 'Ember lantern'
+                        description: 'A paper lantern glows awake in a dark cafe window and its light settles into your mark.'
+                        prompt: 'Studio ident, 16:9, one continuous shot with no cuts. THE MARK: the customer''s Ember mark, matching the reference exactly. THE SCENE: a single paper lantern in a dark cafe window flickers awake, its warm light spreading across the glass until the glow tightens into the shape of the mark. THE MOOD: whimsical, warm and quiet, late evening. THE RESOLVE: the mark holds still and centred with clear room beneath it for a wordmark. No letters, words or numbers anywhere. Soft paper rustle and one warm settle tone, no music. No on-screen text, no watermark.'
+                        options:
+                          Whimsical: 'A small, gentle, slightly odd scene with a soft glow and a touch of wonder, resolving into your mark.'
+                        child_slug: null
+                      - title: 'Racetrack ident'
+                        description: 'Your mark laid out as a toy race circuit, a chase behind the pack, then the top down reveal.'
+                        prompt: 'Toy racing flythrough, 16:9, one continuous aerial shot with no cuts. A closed race circuit whose plan shape is the customer''s Ember mark, matching the reference exactly, on a warm sunset landscape. A pack of small cartoon race cars runs it nose to tail. The camera flies a chase behind the pack, then climbs until the whole circuit reads as the mark from above. No letters, words or numbers anywhere. Engine hum and a light crowd murmur, no music. No on-screen text, no watermark.'
+                        options:
+                          Playful: 'Bright colours, bouncy timing and one visual gag that snaps into your mark.'
+                        child_slug: 'logo-racetrack-circuit'
+                      - title: 'Steam script'
+                        description: 'Steam rises from a cup on a quiet counter and curls into your mark.'
+                        prompt: 'Studio ident, 16:9, one continuous shot with no cuts. THE MARK: the customer''s Ember mark, matching the reference exactly. THE SCENE: a cup on a bare wooden counter at dawn, steam rising in slow ribbons that loop and close into the mark. THE MOOD: minimal, warm, hushed. THE RESOLVE: the mark holds still and centred with clear room beneath it for a wordmark. No letters, words or numbers anywhere. A soft room tone and one warm settle tone, no music. No on-screen text, no watermark.'
+                        options:
+                          Minimal: 'One shape, one move, one sound on a clean ground, resolving into your mark with nothing else in frame.'
+                        child_slug: null
+                    credits_charged: 1
+                    model: 'deepseek-v4-flash'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '402':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '429':
+          $ref: '#/components/responses/ProblemResponse'
+        '502':
           $ref: '#/components/responses/ProblemResponse'
         default:
           $ref: '#/components/responses/ProblemResponse'
@@ -16620,6 +16707,54 @@ components:
             compatibility. Empty when none are set. Always emitted by the
             server.
           examples: [['veo-3.1', 'seedance-2.0-pro']]
+        parent_slug:
+          type: string
+          nullable: true
+          description: >-
+            Family link (preset families, 2026-09-10). Absent or `null` for
+            a ROOT preset, which is what the public `GET /presets` lists; the
+            parent's slug for a CHILD, a concrete direction under a generic
+            parent ("Racetrack ident" under "Animate your logo"). Families
+            are two levels deep: a child never has children of its own. A
+            child is a complete preset (its own prompt, examples, card and
+            target); nothing is inherited at read time.
+          examples: ['logo-racetrack']
+        children_count:
+          type: integer
+          description: >-
+            How many PUBLIC children this preset has, so a catalog card can
+            say "3 directions" without a second read. `0` for a child and for
+            a parent whose children are all held. Emitted on the catalog list
+            and the detail read.
+          examples: [3]
+        parent:
+          allOf:
+            - $ref: '#/components/schemas/PresetParentRef'
+          nullable: true
+          description: >-
+            The parent of a CHILD preset; absent for a root. Emitted on
+            `GET /presets/{slug}` and on the write responses, not on the
+            catalog list.
+        children:
+          type: array
+          items:
+            $ref: '#/components/schemas/PresetChildSummary'
+          description: >-
+            The directions under this preset ascending by `sort_order`: the
+            "Choose a direction" list a preset page renders above its
+            "describe your own" path. Anonymous and non-admin callers see
+            public children only; admins see every child, held ones included
+            (that is also how a hold on a parent reports the public children
+            it leaves behind). Emitted on `GET /presets/{slug}` and on the
+            write responses (an empty array when there are none), not on the
+            catalog list.
+        inherited:
+          allOf:
+            - $ref: '#/components/schemas/PresetInheritance'
+          description: >-
+            What a CHILD carries verbatim from its parent, so the page can say
+            "shares the family guardrails". Emitted on `GET /presets/{slug}`
+            for a child; absent for a root.
         sort_order:
           type: integer
           description: Ascending display order on the /presets page.
@@ -16874,6 +17009,19 @@ components:
             one). Omit to keep an existing preset's list (defaults to none on
             first create); send [] explicitly to clear it.
           examples: [['veo-3.1', 'gpt-image-2']]
+        parent_slug:
+          type: string
+          pattern: '^$|^[a-z0-9][a-z0-9-]{0,63}$'
+          description: >-
+            Family link. Omit to keep an existing preset's current parent
+            (`null` on first create); send `""` to make the preset a root; send
+            a slug to file it under that parent. Refused with `400` when the
+            parent does not exist, and with `409` when it would make the tree
+            deeper than two levels (the named parent is itself a child, or this
+            preset has children of its own) or when a PUBLIC preset would be
+            filed under a PRIVATE parent (publish the parent first, or hold the
+            child).
+          examples: ['logo-racetrack']
         sort_order:
           type: integer
           description: >-
@@ -16893,6 +17041,154 @@ components:
             Marks the preset for the /presets page's featured rail. Lifecycle
             field: omit to keep an existing preset's current flag; defaults to
             `false` on first create. Clear it by sending `false` explicitly.
+
+    PresetParentRef:
+      type: object
+      additionalProperties: false
+      required: [slug, name]
+      description: The parent a child preset hangs under.
+      properties:
+        slug:
+          type: string
+          examples: ['logo-racetrack']
+        name:
+          type: string
+          examples: ['Animate your logo']
+
+    PresetChildSummary:
+      type: object
+      additionalProperties: false
+      required: [slug, name, description, output_type, estimated_credits, estimated_time, example_count, visibility]
+      description: >-
+        One direction under a parent preset, as the parent's page lists it.
+        The full child (prompt, examples, guardrails) is `GET /presets/{slug}`.
+      properties:
+        slug:
+          type: string
+          examples: ['logo-racetrack-circuit']
+        name:
+          type: string
+          examples: ['Racetrack ident']
+        description:
+          type: string
+        output_type:
+          $ref: '#/components/schemas/PresetOutputType'
+        estimated_credits:
+          type: string
+        estimated_time:
+          type: string
+        thumbnail_url:
+          type: string
+          nullable: true
+          description: Same precedence as `Preset.thumbnail_url` (derived poster, else a fresh signed preview URL, else the stored literal).
+        thumbnail_poster_url:
+          type: string
+          nullable: true
+        thumbnail_preview_url:
+          type: string
+          nullable: true
+        example_count:
+          type: integer
+          description: How many examples the child page carries.
+        visibility:
+          $ref: '#/components/schemas/PresetVisibility'
+
+    PresetInheritance:
+      type: object
+      additionalProperties: false
+      required: [guardrails_from_parent]
+      description: What a child preset shares verbatim with its parent.
+      properties:
+        guardrails_from_parent:
+          type: boolean
+          description: >-
+            `true` when the child's `guardrails` equal the parent's exactly
+            (the authoring convention for a family); `false` when the child
+            carries guardrails of its own.
+
+    PresetSuggestionsRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        brief:
+          type: string
+          maxLength: 2000
+          description: >-
+            What the customer wants, in their own words: the brand, the
+            mood, the occasion, anything. Optional; without it the
+            suggestions are directions the preset itself is good for.
+          examples: ['A cosy coffee roaster called Ember, warm and quiet, for the top of our YouTube videos']
+        count:
+          type: integer
+          minimum: 3
+          maximum: 5
+          default: 4
+          description: How many suggestions to return (3 to 5).
+
+    PresetSuggestion:
+      type: object
+      additionalProperties: false
+      required: [title, description, prompt, options, child_slug]
+      description: One AI-written direction for a preset, tailored to the brief.
+      properties:
+        title:
+          type: string
+          maxLength: 60
+          description: A short name for the direction.
+          examples: ['Ember lantern']
+        description:
+          type: string
+          maxLength: 200
+          description: One or two plain-English sentences on what the customer would get.
+        prompt:
+          type: string
+          maxLength: 1200
+          description: >-
+            A complete prompt the customer can run on this preset as it is,
+            written to the preset's guardrails and runnable on its model.
+        options:
+          type: object
+          additionalProperties:
+            type: string
+          description: >-
+            The preset's option chips this direction picks, keyed by the
+            chip's `label` with the chip's published `description` as the
+            value. Only labels the preset's `options` publish appear; empty
+            when the preset has no chips or the direction picks none.
+          examples: [{'Whimsical': 'A small, gentle, slightly odd scene with a soft glow and a touch of wonder, resolving into your mark.'}]
+        child_slug:
+          type: string
+          nullable: true
+          description: >-
+            The existing public child preset that is the best match for this
+            direction, when there is one; `null` when the direction is new.
+          examples: ['logo-racetrack-circuit']
+
+    PresetSuggestionsResponse:
+      type: object
+      additionalProperties: false
+      required: [suggestions, credits_charged, model]
+      properties:
+        suggestions:
+          type: array
+          maxItems: 5
+          items:
+            $ref: '#/components/schemas/PresetSuggestion'
+          description: >-
+            The validated suggestions, at most `count`. A suggestion the
+            model returned that failed validation (an unknown option, an
+            over-long field, a real brand the brief never named) is dropped
+            rather than repaired, so the list can be shorter than asked.
+        credits_charged:
+          type: integer
+          description: >-
+            Credits taken for this call: `ceil(provider cost / $0.018)` with a
+            floor of 1. On the current brain a call is 1 credit.
+          examples: [1]
+        model:
+          type: string
+          description: The brain that wrote the suggestions.
+          examples: ['deepseek-v4-flash']
 
     UpdatePresetRequest:
       type: object
