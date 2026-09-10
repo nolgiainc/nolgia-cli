@@ -8989,6 +8989,38 @@ components:
             True for video-restoration lane models: they are submitted via
             `POST /restore/video` with a source clip and NO prompt, not via
             `POST /generate/video`. Absent for generation models.
+        capabilities:
+          type: array
+          description: >-
+            The video capability CLASSES this model exists to serve, as opposed
+            to the individual inputs it accepts. A client builds a distinct
+            entry point per class: `lip_sync` turns a portrait plus a voice
+            track into a talking head, and `video_edit` rewrites footage the
+            customer already has from a text instruction. The structured
+            `references` and `video` blocks still say what the model TAKES, and
+            they are what the API enforces. Absent for the plain generation
+            models, which is nearly all of them.
+          items:
+            $ref: '#/components/schemas/VideoCapabilityTag'
+          examples: [['lip_sync']]
+
+    VideoCapabilityTag:
+      type: string
+      enum: [lip_sync, video_edit]
+      description: |
+        A video capability class.
+
+        * `lip_sync` - a portrait plus a voice track becomes a talking head
+          whose mouth matches those words. Implies a mandatory element image, a
+          mandatory reference audio track, and `video.speech` of `native`. The
+          clip is as long as the track and is billed on that length, so the
+          track must be one of your audio assets (`audio_asset_ids`) rather
+          than a raw `audio_urls` entry, and `duration_seconds` must either
+          equal the track's length rounded up or be omitted.
+        * `video_edit` - footage the customer already has, rewritten from a
+          text instruction. Implies a mandatory reference video. Distinct from
+          a continuation or an upscale, which extend or enlarge a clip rather
+          than changing what is in it.
 
     ReferenceCapabilities:
       type: object
@@ -9041,6 +9073,47 @@ components:
             Maximum element/reference images per request
             (`element_asset_ids` + `image_urls` combined). 0 when
             unsupported.
+        video_refs_min:
+          type: integer
+          minimum: 1
+          description: |
+            Minimum reference videos per request. Present only on models that
+            cannot render without one (`video_edit` models rewrite footage the
+            caller supplies, so the source clip is the request). Absent means
+            reference videos are optional.
+        element_refs_min:
+          type: integer
+          minimum: 1
+          description: |
+            Minimum element/reference images per request. Present only on
+            models that cannot render without one (`lip_sync` models animate a
+            portrait the caller supplies). Absent means optional.
+        element_refs_mime_types:
+          type: array
+          description: |
+            The image content types the model's reference channel accepts, when
+            the provider accepts a narrower set than the library stores (HeyGen
+            Avatar IV takes JPEG only). The API refuses a stored asset whose
+            recorded content type is outside this list; a raw `image_urls`
+            entry carries no recorded type and is forwarded for the provider to
+            validate. Absent means every image type the library stores.
+          items:
+            type: string
+          examples: [['image/jpeg']]
+        audio_refs_max_seconds:
+          type: integer
+          minimum: 1
+          description: |
+            Longest reference audio track the model accepts, in seconds. The
+            API refuses a stored track longer than this. Absent when the model
+            publishes no per-track ceiling.
+        audio_refs_min:
+          type: integer
+          minimum: 1
+          description: |
+            Minimum reference audio tracks per request. Present only on models
+            that cannot render without one (`lip_sync` models speak the voice
+            track the caller supplies). Absent means optional.
         element_refs_duration_seconds:
           type: integer
           minimum: 1
@@ -9762,7 +9835,16 @@ components:
         Seedance 1.5 Pro (`seedance-1-5-pro`) is the budget Seedance flagship:
         4 to 12 second clips at 480p/720p/1080p with the same start/end frame
         and reference-image surface as 2.5, and the one Seedance route whose
-        optional audio carries a price of its own. Default is `wan-3.0`.
+        optional audio carries a price of its own. 
+        HeyGen Avatar IV (`heygen-avatar-iv`) is
+        the LIP SYNC entry: a portrait plus a voice track becomes a talking
+        head, and both references are mandatory. Runway
+        Aleph 2 (`runway-aleph-2`) is the VIDEO EDIT entry: it rewrites footage
+        you supply from a text instruction, so a reference video is mandatory.
+        Runway Gen-4.5 (`runway-gen-4.5`) is Runway's cinematic generation
+        tier, 2 to 10 second clips at 720p from text or a start image. Read the
+        `capabilities` array on GET /models rather than inferring a model's
+        purpose from its inputs. Default is `wan-3.0`.
       enum:
         - fal-ai/kling-video/v3/text-to-video
         - fal-ai/kling-video/v3/master/text-to-video
@@ -9796,6 +9878,9 @@ components:
         - seedance-1-5-pro
         - minimax/h3-max/text-to-video
         - minimax/h3-max/image-to-video
+        - heygen-avatar-iv
+        - runway-aleph-2
+        - runway-gen-4.5
 
     RestoreVideoModel:
       type: string
