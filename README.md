@@ -162,10 +162,13 @@ Networked commands resolve a bearer token from `--token`, then `NOLGIA_TOKEN`, t
 
 ```bash
 nolgia auth login
+nolgia auth login --no-browser   # print the link and code only
 nolgia auth status       # `whoami` is an alias
 nolgia auth token        # print the resolved access token for a script
 nolgia auth logout
 ```
+
+`auth login` prints the approval link, opens it in your default browser when one is available (skip that with `--no-browser`), and shows the code on its own line for typing it in at `nolgia.ai/device` from another device. While it waits it shows one status line with the time left on the code; on success it prints `Connected as <email>`. If the code runs out before it is approved the command exits with an error that says so; run `nolgia auth login` again for a fresh code. With `--json`, stdout carries only the JSON result and the narration goes to stderr.
 
 The default store is `${XDG_CONFIG_HOME:-$HOME/.config}/nolgia/tokens.json`. On Unix, the CLI creates a `0600` file in a `0700` directory; Windows uses the platform's normal file ACLs. This avoids repeated macOS keychain prompts after upgrades. Set `NOLGIA_TOKEN_STORE=file` to use only that file and never probe the keyring; set `NOLGIA_TOKEN_STORE=keyring` to opt into the OS keyring. With the variable unset, a one-time migration read may import an older keyring token into the file store.
 

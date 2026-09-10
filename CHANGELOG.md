@@ -5,6 +5,20 @@ the matching GitHub release.
 
 ## Unreleased
 
+- **`nolgia auth login` is easier to follow.** The approval link now comes
+  first, since it is what people click, and the CLI opens it in your default
+  browser when one is available (`--no-browser` skips that; a machine with no
+  opener or no display simply falls back to the printed link). The code sits
+  on its own line for the type-it-in case, and on macOS, Windows and a Linux
+  desktop it is also placed on the clipboard with the platform's own tool, so
+  no new dependency ships for it. While the command waits it shows one status
+  line, `Waiting for you to approve in the browser... (expires in M:SS)`,
+  redrawn in place on a terminal and printed once when the output is a pipe
+  or a log. Approval ends on a single line, `Connected as <email>`, looked up
+  the same way `auth status` does; a code that runs out fails with a message
+  that says so and how to get a new one. `--json` now keeps stdout for the
+  JSON result and moves the narration to stderr. `auth status` is unchanged.
+
 - **`gen image --render-quality`** picks how much detail the model spends
   drawing the image, on the GPT Image models. It is a second axis and not a
   rename of `--quality`: `--quality` is the native/2k/4k upscale ladder, which

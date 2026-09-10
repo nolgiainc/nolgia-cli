@@ -1,8 +1,10 @@
 use std::{
     fs,
     future::Future,
+    io::{self, IsTerminal, Write},
     path::{Path, PathBuf},
     pin::Pin,
+    process::Stdio,
     sync::Arc,
     time::Duration,
 };
@@ -38,7 +40,12 @@ type CancelFn = Arc<dyn Fn() -> Pin<Box<dyn Future<Output = ()> + Send>> + Send 
 
 #[derive(Subcommand, Debug)]
 pub enum AuthCommand {
-    Login,
+    /// Log in through your browser (device code flow)
+    Login {
+        /// Print the link and code without opening a browser
+        #[arg(long)]
+        no_browser: bool,
+    },
     Logout,
     Status,
     Whoami,
@@ -78,14 +85,40 @@ impl<S: TokenStore> AuthManager<S> {
         self
     }
 
-    pub async fn login(&self) -> std::result::Result<LoginOutcome, AuthError> {
+    /// Runs the device-code login end to end, narrating it on `screen`: the
+    /// link and code, a waiting line while the user approves, and one
+    /// "Connected" line at the end.
+    pub async fn login<W: Write>(
+        &self,
+        options: LoginOptions,
+        screen: &mut LoginScreen<W>,
+    ) -> std::result::Result<LoginOutcome, AuthError> {
         let device = self.start_device_auth().await?;
         let prompt = LoginPrompt::from(&device);
-        print_login_prompt(&prompt);
+        let copied = options.copy_code && copy_to_clipboard(&prompt.user_code);
+        screen.prompt(&prompt, copied);
+        if options.open_browser {
+            open_in_browser(prompt.link());
+        }
 
-        let token = self.poll_device_token(&device).await?;
+        let token = match self.poll_device_token(&device, screen).await {
+            Ok(token) => token,
+            Err(err) => {
+                screen.end_waiting();
+                return Err(err);
+            }
+        };
         let tokens = StoredTokens::from_token_response(token);
         self.store.save(&tokens)?;
+
+        // The account name is a courtesy, and the tokens are already saved:
+        // a failed lookup must not turn a login that worked into an error.
+        let email = self
+            .fetch_user(&tokens.access_token)
+            .await
+            .ok()
+            .map(|user| user.email);
+        screen.connected(email.as_deref());
 
         Ok(LoginOutcome { prompt, tokens })
     }
@@ -187,21 +220,33 @@ impl<S: TokenStore> AuthManager<S> {
         Ok(response.json().await?)
     }
 
-    async fn poll_device_token(
+    async fn poll_device_token<W: Write>(
         &self,
         device: &DeviceAuthResponse,
+        screen: &mut LoginScreen<W>,
     ) -> std::result::Result<DeviceTokenResponse, AuthError> {
         let deadline = Instant::now() + Duration::from_secs(device.expires_in);
-        let mut interval = Duration::from_secs(device.interval);
+        let mut interval = Duration::from_secs(device.interval.max(1));
+        screen.waiting(deadline.saturating_duration_since(Instant::now()));
 
         loop {
-            if Instant::now() >= deadline {
-                return Err(AuthError::Expired);
-            }
-
-            tokio::select! {
-                () = (self.sleep)(interval) => {},
-                () = (self.cancel)() => return Err(AuthError::Canceled),
+            // Sleep out the poll interval a second at a time so the countdown
+            // on the waiting line stays honest, and never past the deadline.
+            let mut slept = Duration::ZERO;
+            while slept < interval {
+                let now = Instant::now();
+                if now >= deadline {
+                    return Err(AuthError::Expired);
+                }
+                let step = Duration::from_secs(1)
+                    .min(interval - slept)
+                    .min(deadline - now);
+                tokio::select! {
+                    () = (self.sleep)(step) => {},
+                    () = (self.cancel)() => return Err(AuthError::Canceled),
+                }
+                slept += step;
+                screen.waiting(deadline.saturating_duration_since(Instant::now()));
             }
 
             let response = self
@@ -347,7 +392,6 @@ impl FileTokenStore {
         fs::create_dir_all(self.dir())?;
         #[cfg(unix)]
         {
-            use std::io::Write;
             use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
             let _ = fs::set_permissions(self.dir(), fs::Permissions::from_mode(0o700));
             let mut file = fs::OpenOptions::new()
@@ -536,6 +580,16 @@ pub struct LoginPrompt {
     pub expires_in: u64,
 }
 
+impl LoginPrompt {
+    /// The link to open: the one with the code filled in when the server
+    /// provides it, otherwise the bare approval page.
+    pub fn link(&self) -> &str {
+        self.verification_uri_complete
+            .as_deref()
+            .unwrap_or(&self.verification_uri)
+    }
+}
+
 impl From<&DeviceAuthResponse> for LoginPrompt {
     fn from(response: &DeviceAuthResponse) -> Self {
         Self {
@@ -664,7 +718,23 @@ pub async fn run(
             println!("{resolved}");
             Ok(())
         }
-        AuthCommand::Login => emit_login(format, &manager.login().await?),
+        AuthCommand::Login { no_browser } => {
+            let mut screen = LoginScreen::for_cli(format);
+            let options = LoginOptions {
+                open_browser: !no_browser,
+                // The clipboard is for a person at a terminal; a script or an
+                // agent reading the output has nowhere to paste.
+                copy_code: screen.is_tty(),
+            };
+            let outcome = manager
+                .login(options, &mut screen)
+                .await
+                .map_err(|err| match err {
+                    AuthError::Expired => anyhow::anyhow!(LOGIN_EXPIRED_MESSAGE),
+                    other => other.into(),
+                })?;
+            emit_login(format, &outcome)
+        }
         AuthCommand::Logout => {
             manager.logout()?;
             emit_message(format, "logged out")
@@ -728,12 +798,236 @@ fn emit_message(format: OutputFormat, message: &'static str) -> Result<()> {
     }
 }
 
-fn print_login_prompt(prompt: &LoginPrompt) {
-    println!("Open: {}", prompt.verification_uri);
-    println!("Code: {}", prompt.user_code);
-    if let Some(uri) = &prompt.verification_uri_complete {
-        println!("Direct link: {uri}");
+/// What `auth login` says when the code runs out before anyone approves it.
+pub const LOGIN_EXPIRED_MESSAGE: &str =
+    "the login code expired before it was approved; run `nolgia auth login` to get a new one";
+
+const WAITING_PREFIX: &str = "Waiting for you to approve in the browser... (expires in ";
+
+/// How `login` behaves around the terminal, as opposed to what it says.
+#[derive(Clone, Copy, Debug)]
+pub struct LoginOptions {
+    /// Open the approval link in the default browser (best effort, silent).
+    pub open_browser: bool,
+    /// Put the code on the clipboard when the platform makes that trivial.
+    pub copy_code: bool,
+}
+
+/// The human narration of a login. Everything it prints is a courtesy: the
+/// outcome is carried by the returned tokens, and a write error is ignored.
+///
+/// On a TTY the waiting line is redrawn in place as the countdown moves; when
+/// the output is a pipe or a file, every line is printed exactly once.
+pub struct LoginScreen<W: Write> {
+    out: W,
+    tty: bool,
+    /// Width of the line currently occupying the cursor's row on a TTY, so a
+    /// shorter redraw can blank what the previous one left behind.
+    live_width: usize,
+    waiting_shown: bool,
+}
+
+impl LoginScreen<Box<dyn Write + Send>> {
+    /// Text mode narrates on stdout. `--json` keeps stdout for the JSON
+    /// document and moves the narration to stderr.
+    pub fn for_cli(format: OutputFormat) -> Self {
+        match format {
+            OutputFormat::Text => Self::new(Box::new(io::stdout()), io::stdout().is_terminal()),
+            OutputFormat::Json => Self::new(Box::new(io::stderr()), io::stderr().is_terminal()),
+        }
     }
+}
+
+impl<W: Write> LoginScreen<W> {
+    pub fn new(out: W, tty: bool) -> Self {
+        Self {
+            out,
+            tty,
+            live_width: 0,
+            waiting_shown: false,
+        }
+    }
+
+    pub fn is_tty(&self) -> bool {
+        self.tty
+    }
+
+    #[cfg(test)]
+    fn into_inner(self) -> W {
+        self.out
+    }
+
+    /// The link first (it is what people click), then the code on its own
+    /// line for the type-it-in case.
+    fn prompt(&mut self, prompt: &LoginPrompt, copied: bool) {
+        let copied = if copied {
+            "  (copied to clipboard)"
+        } else {
+            ""
+        };
+        let _ = write!(
+            self.out,
+            "Open: {}\n\n  Code: {}{copied}\n\n",
+            prompt.link(),
+            prompt.user_code
+        );
+        let _ = self.out.flush();
+    }
+
+    /// One status line while polling. Redrawn in place on a TTY; printed once
+    /// otherwise, since a log has no cursor to move.
+    fn waiting(&mut self, remaining: Duration) {
+        let line = format!("{WAITING_PREFIX}{})", format_remaining(remaining));
+        if self.tty {
+            self.redraw(&line);
+        } else if !self.waiting_shown {
+            let _ = writeln!(self.out, "{line}");
+            let _ = self.out.flush();
+        }
+        self.waiting_shown = true;
+    }
+
+    /// The one line a successful login ends on.
+    fn connected(&mut self, email: Option<&str>) {
+        let line = match email {
+            Some(email) => format!("\u{2705} Connected as {email}"),
+            None => "\u{2705} Connected".to_string(),
+        };
+        if self.tty {
+            self.redraw(&line);
+            self.live_width = 0;
+            let _ = writeln!(self.out);
+        } else {
+            let _ = writeln!(self.out, "{line}");
+        }
+        let _ = self.out.flush();
+    }
+
+    /// Clears the in-place waiting line so whatever is said next (an error,
+    /// usually) starts on a clean row. Nothing to do when lines are not
+    /// being redrawn.
+    fn end_waiting(&mut self) {
+        if self.tty && self.live_width > 0 {
+            self.redraw("");
+            self.live_width = 0;
+        }
+        let _ = self.out.flush();
+    }
+
+    /// Overwrites the current row. A carriage return plus blank padding is
+    /// used rather than an escape sequence so it renders the same on every
+    /// terminal, including consoles without VT processing.
+    fn redraw(&mut self, line: &str) {
+        let width = line.chars().count();
+        let pad = self.live_width.saturating_sub(width);
+        let _ = write!(self.out, "\r{line}{:pad$}", "");
+        if pad > 0 {
+            let _ = write!(self.out, "\r{line}");
+        }
+        let _ = self.out.flush();
+        self.live_width = width;
+    }
+}
+
+/// `M:SS` of what is left, rounded up so a code good for 15 minutes reads
+/// `15:00` rather than `14:59` on the first draw.
+fn format_remaining(remaining: Duration) -> String {
+    let seconds = remaining.as_millis().div_ceil(1000);
+    format!("{}:{:02}", seconds / 60, seconds % 60)
+}
+
+/// Hands the link to the platform's default opener without waiting on it.
+/// Silent by design: the link is on screen regardless, so a machine with no
+/// opener or no display (a container, an SSH session) just falls back to it.
+fn open_in_browser(url: &str) -> bool {
+    let argv: &[&str] = if cfg!(target_os = "macos") {
+        &["open"]
+    } else if cfg!(windows) {
+        &["cmd", "/C", "start", ""]
+    } else if has_display() {
+        &["xdg-open"]
+    } else {
+        // Without a display xdg-open may fall back to a text browser that
+        // takes over the terminal, which is worse than doing nothing.
+        return false;
+    };
+    let Some((program, args)) = argv.split_first() else {
+        return false;
+    };
+    let child = std::process::Command::new(program)
+        .args(args)
+        .arg(url)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn();
+    match child {
+        Ok(mut child) => {
+            // Some openers stay alive as long as the browser does; reap it
+            // off the main thread so the login never waits on it.
+            std::thread::spawn(move || {
+                let _ = child.wait();
+            });
+            true
+        }
+        Err(_) => false,
+    }
+}
+
+/// Copies the code with the clipboard tool the platform ships (`pbcopy`,
+/// `clip`, or `wl-copy`/`xclip`/`xsel` when a display is up). A clipboard
+/// crate would pull in a windowing stack for a one-line nicety, so this stays
+/// a bounded, best-effort shell-out: anything slower than a moment counts as
+/// not copied, and the login goes on either way.
+fn copy_to_clipboard(text: &str) -> bool {
+    let candidates: &'static [&'static [&'static str]] = if cfg!(target_os = "macos") {
+        &[&["pbcopy"]]
+    } else if cfg!(windows) {
+        &[&["clip"]]
+    } else if has_display() {
+        &[
+            &["wl-copy"],
+            &["xclip", "-selection", "clipboard"],
+            &["xsel", "--clipboard", "--input"],
+        ]
+    } else {
+        &[]
+    };
+    if candidates.is_empty() {
+        return false;
+    }
+    let text = text.to_string();
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let copied = candidates.iter().any(|argv| pipe_into(argv, &text));
+        let _ = tx.send(copied);
+    });
+    rx.recv_timeout(Duration::from_millis(750)).unwrap_or(false)
+}
+
+fn pipe_into(argv: &[&str], text: &str) -> bool {
+    let Some((program, args)) = argv.split_first() else {
+        return false;
+    };
+    let Ok(mut child) = std::process::Command::new(program)
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+    else {
+        return false;
+    };
+    let written = child
+        .stdin
+        .take()
+        .is_some_and(|mut stdin| stdin.write_all(text.as_bytes()).is_ok());
+    written && matches!(child.wait(), Ok(status) if status.success())
+}
+
+fn has_display() -> bool {
+    let set = |name: &str| std::env::var_os(name).is_some_and(|value| !value.is_empty());
+    set("WAYLAND_DISPLAY") || set("DISPLAY")
 }
 
 fn normalize_base_url(base_url: &str) -> String {
@@ -957,6 +1251,221 @@ mod tests {
         )
     }
 
+    /// No browser, no clipboard, narration discarded: the token mechanics only.
+    async fn login(
+        auth: &AuthManager<MemoryStore>,
+    ) -> std::result::Result<LoginOutcome, AuthError> {
+        let mut screen = LoginScreen::new(Vec::new(), false);
+        auth.login(quiet(), &mut screen).await
+    }
+
+    fn quiet() -> LoginOptions {
+        LoginOptions {
+            open_browser: false,
+            copy_code: false,
+        }
+    }
+
+    /// Runs a login that narrates into a buffer, returning the outcome and
+    /// what was printed.
+    async fn login_screen(
+        auth: &AuthManager<MemoryStore>,
+        tty: bool,
+    ) -> (std::result::Result<LoginOutcome, AuthError>, String) {
+        let mut screen = LoginScreen::new(Vec::new(), tty);
+        let outcome = auth.login(quiet(), &mut screen).await;
+        let printed = String::from_utf8(screen.into_inner()).expect("utf-8 narration");
+        (outcome, printed)
+    }
+
+    /// A device grant with the direct link the API really sends
+    /// (`?code=`), expiring in `expires_in` seconds.
+    async fn mount_direct_link_device(server: &MockServer, expires_in: u64) {
+        Mock::given(method("POST"))
+            .and(path("/v1/auth/device"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "device_code": "dev-1",
+                "user_code": "YKKQ-RXKS",
+                "verification_uri": "https://nolgia.ai/device",
+                "verification_uri_complete": "https://nolgia.ai/device?code=YKKQ-RXKS",
+                "expires_in": expires_in,
+                "interval": 1
+            })))
+            .mount(server)
+            .await;
+    }
+
+    async fn mount_me(server: &MockServer, access_token: &str, email: &str) {
+        Mock::given(method("GET"))
+            .and(path("/v1/me"))
+            .and(header("authorization", format!("Bearer {access_token}")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "email": email })))
+            .mount(server)
+            .await;
+    }
+
+    /// Piped output (an agent, a log): the link, the code, one waiting line,
+    /// one connected line. Nothing is redrawn because nothing can be.
+    #[tokio::test]
+    async fn login_narration_when_not_a_tty_prints_each_line_once() {
+        let server = MockServer::start().await;
+        let auth = manager(&server, MemoryStore::default());
+        mount_direct_link_device(&server, 900).await;
+        mount_token(&server, "access-1", Some("refresh-1")).await;
+        mount_me(&server, "access-1", "admin@nolgia.ai").await;
+
+        let (outcome, printed) = login_screen(&auth, false).await;
+
+        outcome.expect("login succeeds");
+        assert_eq!(
+            printed,
+            "Open: https://nolgia.ai/device?code=YKKQ-RXKS\n\
+             \n\
+             \x20 Code: YKKQ-RXKS\n\
+             \n\
+             Waiting for you to approve in the browser... (expires in 15:00)\n\
+             \u{2705} Connected as admin@nolgia.ai\n"
+        );
+    }
+
+    /// A terminal: the same link and code, then the waiting line is redrawn
+    /// in place (carriage return, no newline) and finally replaced by the
+    /// connected line.
+    #[tokio::test]
+    async fn login_narration_on_a_tty_redraws_the_waiting_line_in_place() {
+        let server = MockServer::start().await;
+        let auth = manager(&server, MemoryStore::default());
+        mount_direct_link_device(&server, 900).await;
+        mount_token(&server, "access-1", Some("refresh-1")).await;
+        mount_me(&server, "access-1", "admin@nolgia.ai").await;
+
+        let (outcome, printed) = login_screen(&auth, true).await;
+
+        outcome.expect("login succeeds");
+        let prompt = "Open: https://nolgia.ai/device?code=YKKQ-RXKS\n\n  Code: YKKQ-RXKS\n\n";
+        let rest = printed
+            .strip_prefix(prompt)
+            .expect("link and code come first");
+        let waiting = format!("\r{WAITING_PREFIX}15:00)");
+        // Drawn once before the first sleep and once after it: same row.
+        assert!(
+            rest.starts_with(&format!("{waiting}{waiting}")),
+            "waiting line is redrawn with a carriage return, got {rest:?}"
+        );
+        assert!(
+            !rest.contains("Waiting for you to approve in the browser... (expires in 15:00)\n"),
+            "the waiting line never ends in a newline on a TTY"
+        );
+        let last = rest.rsplit('\r').next().expect("a final redraw");
+        assert_eq!(
+            last.trim_end_matches(' '),
+            "\u{2705} Connected as admin@nolgia.ai\n"
+        );
+    }
+
+    /// The account line is a courtesy: when `GET /me` fails the login still
+    /// succeeded and still says so.
+    #[tokio::test]
+    async fn login_narration_says_connected_without_an_email_when_me_fails() {
+        let server = MockServer::start().await;
+        let auth = manager(&server, MemoryStore::default());
+        mount_direct_link_device(&server, 900).await;
+        mount_token(&server, "access-1", Some("refresh-1")).await;
+
+        let (outcome, printed) = login_screen(&auth, false).await;
+
+        outcome.expect("login succeeds");
+        assert!(printed.ends_with("\u{2705} Connected\n"), "got {printed:?}");
+    }
+
+    /// A code that runs out: the waiting line shows 0:00, the login fails
+    /// with `Expired`, and on a TTY the row is cleared so the error that
+    /// follows starts on a clean line.
+    #[tokio::test]
+    async fn login_narration_on_expiry_clears_the_waiting_line() {
+        let server = MockServer::start().await;
+        let auth = manager(&server, MemoryStore::default());
+        mount_direct_link_device(&server, 0).await;
+
+        let (outcome, printed) = login_screen(&auth, true).await;
+
+        assert!(matches!(outcome, Err(AuthError::Expired)));
+        let waiting = format!("\r{WAITING_PREFIX}0:00)");
+        assert!(printed.contains(&waiting), "got {printed:?}");
+        let last = printed.rsplit('\r').next().expect("a final redraw");
+        assert_eq!(
+            last.trim_end_matches(' '),
+            "",
+            "row is blanked, got {last:?}"
+        );
+        assert!(
+            LOGIN_EXPIRED_MESSAGE.contains("expired")
+                && LOGIN_EXPIRED_MESSAGE.contains("nolgia auth login"),
+            "the expiry message says so and how to retry"
+        );
+    }
+
+    /// Piped output on expiry: the waiting line was printed once, with a
+    /// newline, and nothing else is added.
+    #[tokio::test]
+    async fn login_narration_on_expiry_when_not_a_tty_adds_nothing() {
+        let server = MockServer::start().await;
+        let auth = manager(&server, MemoryStore::default());
+        mount_direct_link_device(&server, 0).await;
+
+        let (outcome, printed) = login_screen(&auth, false).await;
+
+        assert!(matches!(outcome, Err(AuthError::Expired)));
+        assert!(
+            printed.ends_with(&format!("{WAITING_PREFIX}0:00)\n")),
+            "got {printed:?}"
+        );
+    }
+
+    #[test]
+    fn login_prompt_link_prefers_the_direct_link() {
+        let mut prompt = LoginPrompt {
+            user_code: "YKKQ-RXKS".into(),
+            verification_uri: "https://nolgia.ai/device".into(),
+            verification_uri_complete: Some("https://nolgia.ai/device?code=YKKQ-RXKS".into()),
+            expires_in: 900,
+        };
+        assert_eq!(prompt.link(), "https://nolgia.ai/device?code=YKKQ-RXKS");
+        prompt.verification_uri_complete = None;
+        assert_eq!(prompt.link(), "https://nolgia.ai/device");
+    }
+
+    #[test]
+    fn remaining_time_rounds_up_to_the_next_second() {
+        assert_eq!(format_remaining(Duration::from_secs(900)), "15:00");
+        assert_eq!(format_remaining(Duration::from_millis(899_500)), "15:00");
+        assert_eq!(format_remaining(Duration::from_secs(59)), "0:59");
+        assert_eq!(format_remaining(Duration::from_secs(0)), "0:00");
+    }
+
+    /// The clipboard suffix rides on the code line only when a copy happened.
+    #[test]
+    fn prompt_marks_the_code_copied_only_when_it_was() {
+        let prompt = LoginPrompt {
+            user_code: "YKKQ-RXKS".into(),
+            verification_uri: "https://nolgia.ai/device".into(),
+            verification_uri_complete: Some("https://nolgia.ai/device?code=YKKQ-RXKS".into()),
+            expires_in: 900,
+        };
+        let mut copied = LoginScreen::new(Vec::new(), true);
+        copied.prompt(&prompt, true);
+        assert_eq!(
+            String::from_utf8(copied.into_inner()).unwrap(),
+            "Open: https://nolgia.ai/device?code=YKKQ-RXKS\n\n  Code: YKKQ-RXKS  (copied to clipboard)\n\n"
+        );
+        let mut plain = LoginScreen::new(Vec::new(), true);
+        plain.prompt(&prompt, false);
+        assert_eq!(
+            String::from_utf8(plain.into_inner()).unwrap(),
+            "Open: https://nolgia.ai/device?code=YKKQ-RXKS\n\n  Code: YKKQ-RXKS\n\n"
+        );
+    }
+
     #[tokio::test]
     async fn login_starts_device_flow_polls_and_stores_tokens() {
         let server = MockServer::start().await;
@@ -994,7 +1503,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        let outcome = auth.login().await.expect("login succeeds");
+        let outcome = login(&auth).await.expect("login succeeds");
 
         assert_eq!(outcome.prompt.user_code, "ABCD-EFGH");
         assert_eq!(
@@ -1034,7 +1543,7 @@ mod tests {
         )
         .await;
 
-        let outcome = auth.login().await.expect("login succeeds after pending");
+        let outcome = login(&auth).await.expect("login succeeds after pending");
 
         assert_eq!(outcome.tokens.access_token, "access-after-pending");
     }
@@ -1053,7 +1562,7 @@ mod tests {
             .await;
         mount_token(&server, "access-after-slow", Some("refresh-after-slow")).await;
 
-        let outcome = auth.login().await.expect("login succeeds after slow_down");
+        let outcome = login(&auth).await.expect("login succeeds after slow_down");
 
         assert_eq!(outcome.tokens.access_token, "access-after-slow");
     }
@@ -1072,7 +1581,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        let err = auth.login().await.expect_err("login expires");
+        let err = login(&auth).await.expect_err("login expires");
 
         assert!(matches!(err, AuthError::Expired));
     }
@@ -1087,7 +1596,7 @@ mod tests {
 
         mount_device(&server, 900, 1).await;
 
-        let err = auth.login().await.expect_err("login canceled");
+        let err = login(&auth).await.expect_err("login canceled");
 
         assert!(matches!(err, AuthError::Canceled));
     }
@@ -1363,7 +1872,7 @@ mod tests {
         );
 
         mount_device(&server, 900, 1).await;
-        let login = tokio::spawn(async move { auth.login().await });
+        let login = tokio::spawn(async move { login(&auth).await });
 
         tokio::time::timeout(Duration::from_secs(2), notify.notified())
             .await
