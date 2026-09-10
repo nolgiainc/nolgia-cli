@@ -7198,6 +7198,12 @@ paths:
         id published by `GET /models`, and the no-em-dash rule on copy). At
         least one field must be provided. Writes a `catalog_audit` row
         (`update_preset_page`) naming the fields the call carried.
+
+        `intake` (guided intake flows, 2026-09-10) is the fifth page field and
+        the way a LIVE preset gets its flow authored: omitted preserves, `null`
+        clears, an object is validated against the preset's stored target and
+        card options (see `PresetIntake` for the rules) and refused with a
+        `400` whose detail names the step id and the reason.
       parameters:
         - $ref: '#/components/parameters/PresetSlug'
       requestBody:
@@ -7206,6 +7212,82 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/UpdatePresetPageRequest'
+            examples:
+              imagePresetIntake:
+                summary: An image preset asking for a logo, a brief and a style
+                value:
+                  intake:
+                    version: 1
+                    lucky: { enabled: true, label: 'Just make one' }
+                    steps:
+                      - id: 'mark'
+                        kind: 'asset'
+                        label: 'Your current mark or sketch'
+                        help: 'Optional. A logo, a sketch or a reference we should stay close to.'
+                        required: false
+                        modality: 'image'
+                        role: 'logo'
+                        max: 1
+                        accept: ['upload', 'library']
+                        binds_to: 'reference_asset_ids'
+                      - id: 'brand'
+                        kind: 'text'
+                        label: 'What is the brand?'
+                        help: 'The name, what it sells and the feeling it should give.'
+                        required: true
+                        placeholder: 'Ember, a small coffee roaster: warm, quiet, honest'
+                        max_chars: 600
+                        binds_to: 'prompt_slot:THE BRAND'
+                      - id: 'style'
+                        kind: 'choice'
+                        label: 'Pick a style'
+                        required: true
+                        default: 'wordmark'
+                        options:
+                          - { value: 'wordmark', label: 'Wordmark', description: 'The name set in type, nothing else.' }
+                          - { value: 'emblem', label: 'Emblem', description: 'A badge or crest the name sits inside.' }
+                          - { value: 'monogram', label: 'Monogram', description: 'Initials drawn as one mark.' }
+                        binds_to: 'prompt_slot:THE STYLE'
+                    submit: { kind: 'generate' }
+              studioIntentIntake:
+                summary: A studio intent (Color grade footage) attaching footage or a timeline to the agent brief
+                value:
+                  intake:
+                    version: 1
+                    lucky: { enabled: true, label: 'Just grade it' }
+                    steps:
+                      - id: 'footage'
+                        kind: 'asset'
+                        label: 'The footage to grade'
+                        help: 'Drop the clips, or pick them from your library.'
+                        required: false
+                        modality: 'video'
+                        role: 'footage'
+                        min: 0
+                        max: 6
+                        accept: ['upload', 'library']
+                        binds_to: 'attach'
+                      - id: 'timeline'
+                        kind: 'timeline'
+                        label: 'Or pick a Studio timeline'
+                        required: false
+                        binds_to: 'attach'
+                      - id: 'look'
+                        kind: 'choice'
+                        label: 'What look are you after?'
+                        required: true
+                        options:
+                          - { value: 'teal-orange', label: 'Teal and orange' }
+                          - { value: 'film', label: 'Soft film' }
+                          - { value: 'match', label: 'Match a reference' }
+                        binds_to: 'attach'
+                      - id: 'notes'
+                        kind: 'text'
+                        label: 'Anything the grade must keep?'
+                        required: false
+                        max_chars: 800
+                        binds_to: 'brief'
+                    submit: { kind: 'agent', note: 'Your agent grades the footage and hands back a timeline.' }
       responses:
         '200':
           description: The updated preset.
@@ -7218,6 +7300,59 @@ paths:
         '401':
           $ref: '#/components/responses/ProblemResponse'
         '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /presets/{slug}/intake/context:
+    get:
+      tags: [Presets]
+      operationId: getPresetIntakeContext
+      summary: Everything the app needs to render a preset's guided intake flow in one read (signed in).
+      description: |
+        Returns the preset's resolved `intake` (its own, or its parent's when
+        it has none) together with what the flow renders against: the target
+        endpoint and model, the model's capability limits (reference image
+        max, element/video/audio reference max, inpaint mask, start and end
+        frame, character and face-reference support), the card's option chips,
+        the labelled slots found in the baked prompt (`THE MARK`, `THE STYLE`,
+        ...) and a credit estimate for ONE run at the default tier, priced by
+        the same pricer the generate endpoints reserve with (a studio intent
+        quotes the flat agent-turn rate; its generations bill separately).
+
+        Signed in only (JWT or PAT). `404` when the preset does not exist, is
+        private and the caller is not an admin, or has no intake to resolve.
+      parameters:
+        - $ref: '#/components/parameters/PresetSlug'
+      responses:
+        '200':
+          description: The resolved intake and its rendering context.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PresetIntakeContext'
+              examples:
+                imagePreset:
+                  summary: A logo design preset on gpt-image-2.5-flare
+                  value:
+                    slug: 'logo-design'
+                    intake_from_parent: false
+                    intake:
+                      version: 1
+                      lucky: { enabled: true, label: 'Just make one' }
+                      steps:
+                        - { id: 'mark', kind: 'asset', label: 'Your current mark or sketch', help: 'Optional. A logo, a sketch or a reference we should stay close to.', required: false, modality: 'image', role: 'logo', min: 0, max: 1, accept: ['upload', 'library'], binds_to: 'reference_asset_ids' }
+                        - { id: 'brand', kind: 'text', label: 'What is the brand?', help: 'The name, what it sells and the feeling it should give.', required: true, placeholder: 'Ember, a small coffee roaster: warm, quiet, honest', max_chars: 600, binds_to: 'prompt_slot:THE BRAND' }
+                        - { id: 'style', kind: 'choice', label: 'Pick a style', required: true, multiple: false, default: 'wordmark', options: [{ value: 'wordmark', label: 'Wordmark' }, { value: 'emblem', label: 'Emblem' }, { value: 'monogram', label: 'Monogram' }], binds_to: 'prompt_slot:THE STYLE' }
+                      submit: { kind: 'generate' }
+                    target: { kind: 'create_image', model: 'gpt-image-2.5-flare', endpoint: 'POST /generate/image' }
+                    model: { id: 'gpt-image-2.5-flare', modality: 'image', reference_images_max: 4, element_refs_max: 4, video_refs_max: 0, audio_refs_max: 0, inpaint_mask: true, start_frame: true, end_frame: false, character: true, face_reference: true, aura_compatible: true }
+                    options: [{ label: 'Wordmark', description: 'The name set in type, nothing else.' }]
+                    prompt_slots: ['THE BRAND', 'THE STYLE']
+                    estimate: { credits: 22, model: 'gpt-image-2.5-flare', basis: 'one_generation', quality: 'native' }
+        '401':
           $ref: '#/components/responses/ProblemResponse'
         '404':
           $ref: '#/components/responses/ProblemResponse'
@@ -16786,6 +16921,26 @@ components:
             compatibility. Empty when none are set. Always emitted by the
             server.
           examples: [['veo-3.1', 'seedance-2.0-pro']]
+        intake:
+          allOf:
+            - $ref: '#/components/schemas/PresetIntake'
+          nullable: true
+          description: >-
+            The preset's guided intake flow (2026-09-10). On
+            `GET /presets/{slug}` and the write responses this is the RESOLVED
+            flow: the preset's own, or its parent's when a child has none
+            (`inherited.intake_from_parent` says which). On the admin catalog
+            list it is each row's OWN stored flow, so a console edits what is
+            stored; the public list omits it (use `has_intake` to badge). Null
+            or absent when no flow resolves: the app offers the one-tap
+            starter only.
+        has_intake:
+          type: boolean
+          description: >-
+            `true` when a guided flow resolves for this preset (its own, or an
+            inherited one), so the catalog can badge guided presets without a
+            detail read. Always emitted by the server; optional in the schema
+            so existing client fixtures stay valid.
         parent_slug:
           type: string
           nullable: true
@@ -17088,6 +17243,16 @@ components:
             one). Omit to keep an existing preset's list (defaults to none on
             first create); send [] explicitly to clear it.
           examples: [['veo-3.1', 'gpt-image-2']]
+        intake:
+          allOf:
+            - $ref: '#/components/schemas/PresetIntake'
+          nullable: true
+          description: >-
+            The guided intake flow. Omit to keep an existing preset's flow
+            (none on first create); send `null` to clear it; send an object to
+            validate it against the target THIS body declares (and the card
+            options this body carries, or the stored ones when omitted) and
+            write it. Refused with `400` naming the step id and the reason.
         parent_slug:
           type: string
           pattern: '^$|^[a-z0-9][a-z0-9-]{0,63}$'
@@ -17184,6 +17349,551 @@ components:
             `true` when the child's `guardrails` equal the parent's exactly
             (the authoring convention for a family); `false` when the child
             carries guardrails of its own.
+        intake_from_parent:
+          type: boolean
+          description: >-
+            `true` when the `intake` served for this child is its PARENT's
+            (the child has none of its own and inherits at read time);
+            `false` when the child carries its own flow, or no flow resolves.
+            Always emitted by the server for a child; optional in the schema
+            so existing client fixtures stay valid.
+
+    PresetIntakeStepKind:
+      type: string
+      enum: [asset, character, timeline, text, choice, data]
+      x-enum-varnames: [PresetIntakeStepKindAsset, PresetIntakeStepKindCharacter, PresetIntakeStepKindTimeline, PresetIntakeStepKindText, PresetIntakeStepKindChoice, PresetIntakeStepKindData]
+      description: >-
+        The kinds of step a guided intake renders: `asset` (drop zone or
+        library pick), `character` (the caller's characters), `timeline` (the
+        caller's Studio compositions), `text`, `choice` (chips or cards) and
+        `data` (a pasted or uploaded table).
+
+    PresetIntakeAssetBinding:
+      type: string
+      enum: [reference_asset_ids, face_reference_asset_id, video_asset_ids, audio_asset_ids, mask_asset_id, image_url, end_image_asset_id, element_ids, attach]
+      x-enum-varnames: [PresetIntakeAssetBindingReferenceAssetIds, PresetIntakeAssetBindingFaceReferenceAssetId, PresetIntakeAssetBindingVideoAssetIds, PresetIntakeAssetBindingAudioAssetIds, PresetIntakeAssetBindingMaskAssetId, PresetIntakeAssetBindingImageUrl, PresetIntakeAssetBindingEndImageAssetId, PresetIntakeAssetBindingElementIds, PresetIntakeAssetBindingAttach]
+      description: >-
+        Where an ASSET step's picks go. Every value but `attach` is a field of
+        the preset's target endpoint and is legal only where that endpoint has
+        it AND the target model supports it (`GET /models`): `reference_asset_ids`,
+        `face_reference_asset_id` (needs `image.aura_compatible`),
+        `mask_asset_id` (needs `image.inpaint_mask`) and `image_url` on
+        `create_image`; `image_url` (start frame), `end_image_asset_id`
+        (`references.end_frame`), `video_asset_ids` (`references.video_refs_max`
+        > 0), `audio_asset_ids` (`references.audio_refs_max` > 0) and
+        `element_ids` (`references.element_refs_max` > 0) on `create_video`;
+        `element_ids` also on `create_image` within `image.reference_images_max`.
+        `attach` means "attached to the agent brief, not a generation field": it
+        is always legal, and it is the ONLY legal asset binding on a
+        `studio_intent` target.
+
+    PresetIntakeLucky:
+      type: object
+      additionalProperties: false
+      required: [enabled, label]
+      description: The one-tap path ("recommended starter"), always secondary to the guided flow.
+      properties:
+        enabled:
+          type: boolean
+          description: Whether the app offers the one-tap path at all.
+        label:
+          type: string
+          maxLength: 60
+          description: The link copy. Defaults to "Just make one" on write when omitted or blank.
+          examples: ['Just make one']
+
+    PresetIntakeSubmit:
+      type: object
+      additionalProperties: false
+      required: [kind]
+      description: >-
+        How the collected inputs run. `generate` calls the target endpoint
+        directly with the bound fields (legal on `create_*` targets only);
+        `agent` opens a guardrailed session with a structured brief and is
+        REQUIRED for `studio_intent` targets.
+      properties:
+        kind:
+          type: string
+          enum: [generate, agent]
+          x-enum-varnames: [PresetIntakeSubmitKindGenerate, PresetIntakeSubmitKindAgent]
+        note:
+          type: string
+          maxLength: 400
+          description: Customer copy shown on the review screen next to the Create button.
+
+    PresetIntakeChoiceOption:
+      type: object
+      additionalProperties: false
+      required: [value, label]
+      description: One answer of a choice step.
+      properties:
+        value:
+          type: string
+          minLength: 1
+          maxLength: 80
+          description: Stable machine value, unique within the step; what the binding receives.
+        label:
+          type: string
+          minLength: 1
+          maxLength: 80
+        description:
+          type: string
+          maxLength: 300
+
+    PresetIntakeAssetStep:
+      type: object
+      additionalProperties: false
+      required: [id, kind, label, required, modality, role, binds_to]
+      description: >-
+        A drop zone (upload, paste, camera on mobile) and/or a library pick,
+        filtered by `modality`. `min`/`max` default to `0`/`1` (`min` is at
+        least 1 when `required`); on write `max` must fit what the target model
+        accepts on `binds_to`, and the maxima of every asset step sharing a
+        budget are summed against it (on `create_image`, `reference_asset_ids`,
+        `image_url`, `face_reference_asset_id`, `element_ids` and a
+        `character_id` step share `image.reference_images_max`; on
+        `create_video`, `element_ids` and `character_id` share
+        `references.element_refs_max`). A `mask_asset_id` step needs the image
+        reference steps to add up to exactly 1; an `end_image_asset_id` step
+        needs an `image_url` step.
+      properties:
+        id:
+          type: string
+          pattern: '^[a-z0-9][a-z0-9_-]{0,39}$'
+          description: Stable id, unique within the intake; the key the submit payload uses.
+        kind:
+          type: string
+          enum: [asset]
+          x-enum-varnames: [PresetIntakeAssetStepKindAsset]
+        label:
+          type: string
+          minLength: 1
+          maxLength: 120
+        help:
+          type: string
+          maxLength: 400
+        required:
+          type: boolean
+        modality:
+          type: string
+          enum: [image, video, audio, any]
+          x-enum-varnames: [PresetIntakeAssetModalityImage, PresetIntakeAssetModalityVideo, PresetIntakeAssetModalityAudio, PresetIntakeAssetModalityAny]
+          description: What the library filter shows and the drop zone accepts. Must agree with the binding (`video_asset_ids` takes video, `audio_asset_ids` audio, every other field image; `any` is accepted everywhere).
+        role:
+          type: string
+          enum: [logo, product, reference, footage, audio, face, style, photo, data]
+          x-enum-varnames: [PresetIntakeAssetRoleLogo, PresetIntakeAssetRoleProduct, PresetIntakeAssetRoleReference, PresetIntakeAssetRoleFootage, PresetIntakeAssetRoleAudio, PresetIntakeAssetRoleFace, PresetIntakeAssetRoleStyle, PresetIntakeAssetRolePhoto, PresetIntakeAssetRoleData]
+          description: What the picks ARE to the preset, so the app can word the drop zone and the agent brief can name them.
+        min:
+          type: integer
+          minimum: 0
+          description: Fewest picks accepted. Defaults to 0, or 1 when `required`.
+        max:
+          type: integer
+          minimum: 1
+          maximum: 12
+          description: Most picks accepted. Defaults to 1. Bindings that take one value (`face_reference_asset_id`, `mask_asset_id`, `image_url`, `end_image_asset_id`) require 1.
+        accept:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            enum: [upload, library]
+          description: Which sources the step offers. Defaults to both.
+        binds_to:
+          $ref: '#/components/schemas/PresetIntakeAssetBinding'
+
+    PresetIntakeCharacterStep:
+      type: object
+      additionalProperties: false
+      required: [id, kind, label, required, binds_to]
+      description: >-
+        One or more of the caller's characters (the compact grid capped at six
+        with a searchable side panel). `binds_to` is `character_id` (the
+        endpoint's character field; `max` must be 1 and the target model must
+        carry a character reference: `image.aura_compatible` with a reference
+        slot on `create_image`, `references.element_refs_max` > 0 on
+        `create_video`), `prompt_slot:<NAME>` (the character's description
+        fills a labelled slot of the baked prompt) or `attach`.
+      properties:
+        id:
+          type: string
+          pattern: '^[a-z0-9][a-z0-9_-]{0,39}$'
+        kind:
+          type: string
+          enum: [character]
+          x-enum-varnames: [PresetIntakeCharacterStepKindCharacter]
+        label:
+          type: string
+          minLength: 1
+          maxLength: 120
+        help:
+          type: string
+          maxLength: 400
+        required:
+          type: boolean
+        max:
+          type: integer
+          minimum: 1
+          maximum: 4
+          description: Most characters accepted. Defaults to 1.
+        binds_to:
+          type: string
+          pattern: "^(character_id|prompt_slot:[A-Z][A-Z0-9']*( [A-Z][A-Z0-9']*){0,4}|attach)$"
+          examples: ['character_id', 'prompt_slot:THE CHARACTERS']
+
+    PresetIntakeTimelineStep:
+      type: object
+      additionalProperties: false
+      required: [id, kind, label, required, binds_to]
+      description: >-
+        One of the caller's Studio compositions (poster and duration; "Open
+        Studio" when they have none). `binds_to` is `composition_id` (needs
+        `submit.kind: agent`; no generate endpoint takes a composition) or
+        `attach`.
+      properties:
+        id:
+          type: string
+          pattern: '^[a-z0-9][a-z0-9_-]{0,39}$'
+        kind:
+          type: string
+          enum: [timeline]
+          x-enum-varnames: [PresetIntakeTimelineStepKindTimeline]
+        label:
+          type: string
+          minLength: 1
+          maxLength: 120
+        help:
+          type: string
+          maxLength: 400
+        required:
+          type: boolean
+        binds_to:
+          type: string
+          enum: [composition_id, attach]
+          x-enum-varnames: [PresetIntakeTimelineBindingCompositionId, PresetIntakeTimelineBindingAttach]
+
+    PresetIntakeTextStep:
+      type: object
+      additionalProperties: false
+      required: [id, kind, label, required, binds_to]
+      description: >-
+        Free text. `binds_to` is `prompt_slot:<NAME>` (fills the labelled slot
+        `<NAME>:` of the baked prompt; the slot must exist), `prompt` (replaces
+        the whole prompt; `create_*` targets only), `brief` (the agent's first
+        message; needs `submit.kind: agent`) or `attach`.
+      properties:
+        id:
+          type: string
+          pattern: '^[a-z0-9][a-z0-9_-]{0,39}$'
+        kind:
+          type: string
+          enum: [text]
+          x-enum-varnames: [PresetIntakeTextStepKindText]
+        label:
+          type: string
+          minLength: 1
+          maxLength: 120
+        help:
+          type: string
+          maxLength: 400
+        required:
+          type: boolean
+        placeholder:
+          type: string
+          maxLength: 200
+        max_chars:
+          type: integer
+          minimum: 1
+          maximum: 8000
+          description: Defaults to 2000.
+        binds_to:
+          type: string
+          pattern: "^(prompt_slot:[A-Z][A-Z0-9']*( [A-Z][A-Z0-9']*){0,4}|prompt|brief|attach)$"
+          examples: ['prompt_slot:THE MARK', 'brief']
+
+    PresetIntakeChoiceStep:
+      type: object
+      additionalProperties: false
+      required: [id, kind, label, required, options, binds_to]
+      description: >-
+        Chips or cards. `binds_to` is `option:<key>` (the pick selects one of
+        the CARD's option chips; `<key>` must match a card option by label or
+        by its slug), `prompt_slot:<NAME>` (the pick's value fills a labelled
+        slot of the baked prompt), `param:<field>` (the pick sets a request
+        parameter of the target endpoint such as `aspect_ratio`,
+        `duration_seconds` or `quality`; `create_*` targets only, and
+        `multiple` must be false) or `attach`.
+      properties:
+        id:
+          type: string
+          pattern: '^[a-z0-9][a-z0-9_-]{0,39}$'
+        kind:
+          type: string
+          enum: [choice]
+          x-enum-varnames: [PresetIntakeChoiceStepKindChoice]
+        label:
+          type: string
+          minLength: 1
+          maxLength: 120
+        help:
+          type: string
+          maxLength: 400
+        required:
+          type: boolean
+        multiple:
+          type: boolean
+          description: Whether more than one option may be picked. Defaults to false.
+        default:
+          type: string
+          description: The preselected option `value`, if any.
+        options:
+          type: array
+          minItems: 1
+          maxItems: 24
+          items:
+            $ref: '#/components/schemas/PresetIntakeChoiceOption'
+        binds_to:
+          type: string
+          pattern: "^(option:.+|prompt_slot:[A-Z][A-Z0-9']*( [A-Z][A-Z0-9']*){0,4}|param:[a-z][a-z0-9_]{0,39}|attach)$"
+          examples: ['option:Chrome', 'prompt_slot:THE STYLE', 'param:aspect_ratio']
+
+    PresetIntakeDataStep:
+      type: object
+      additionalProperties: false
+      required: [id, kind, label, required, binds_to]
+      description: >-
+        A pasted or uploaded table (live preview, header detection). `binds_to`
+        is `prompt_slot:<NAME>` (the table, rendered as text, fills a labelled
+        slot of the baked prompt) or `attach`.
+      properties:
+        id:
+          type: string
+          pattern: '^[a-z0-9][a-z0-9_-]{0,39}$'
+        kind:
+          type: string
+          enum: [data]
+          x-enum-varnames: [PresetIntakeDataStepKindData]
+        label:
+          type: string
+          minLength: 1
+          maxLength: 120
+        help:
+          type: string
+          maxLength: 400
+        required:
+          type: boolean
+        formats:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            enum: [paste, csv]
+          description: Defaults to both.
+        max_rows:
+          type: integer
+          minimum: 1
+          maximum: 500
+          description: Defaults to 50.
+        max_cols:
+          type: integer
+          minimum: 1
+          maximum: 50
+          description: Defaults to 12.
+        binds_to:
+          type: string
+          pattern: "^(prompt_slot:[A-Z][A-Z0-9']*( [A-Z][A-Z0-9']*){0,4}|attach)$"
+          examples: ['prompt_slot:THE DATA']
+
+    PresetIntakeStep:
+      description: One step of a guided intake, discriminated on `kind`. Each renders one screen (mobile) or one card (desktop).
+      oneOf:
+        - $ref: '#/components/schemas/PresetIntakeAssetStep'
+        - $ref: '#/components/schemas/PresetIntakeCharacterStep'
+        - $ref: '#/components/schemas/PresetIntakeTimelineStep'
+        - $ref: '#/components/schemas/PresetIntakeTextStep'
+        - $ref: '#/components/schemas/PresetIntakeChoiceStep'
+        - $ref: '#/components/schemas/PresetIntakeDataStep'
+      discriminator:
+        propertyName: kind
+        mapping:
+          asset: '#/components/schemas/PresetIntakeAssetStep'
+          character: '#/components/schemas/PresetIntakeCharacterStep'
+          timeline: '#/components/schemas/PresetIntakeTimelineStep'
+          text: '#/components/schemas/PresetIntakeTextStep'
+          choice: '#/components/schemas/PresetIntakeChoiceStep'
+          data: '#/components/schemas/PresetIntakeDataStep'
+
+    PresetIntake:
+      type: object
+      additionalProperties: false
+      required: [version, steps, submit]
+      description: |
+        A preset's guided intake flow (founder decision 2026-09-10): the
+        ordered inputs the preset needs from a customer, so the app asks for
+        them (files, library picks, characters, a timeline, a few questions)
+        and only then runs the thing. The one-tap starter stays as the
+        secondary `lucky` path. Stored on `presets.intake`; a child preset
+        inherits its parent's at read time unless it carries its own.
+
+        Validated on write against the preset's TARGET, refusing with a `400`
+        whose detail names the step id and the reason: `version` is 1; 1 to 8
+        steps with unique ids; each kind's required fields present; every
+        `binds_to` a field the target endpoint accepts AND the target model
+        supports (`video_asset_ids` needs `references.video_refs_max` > 0,
+        `mask_asset_id` needs `image.inpaint_mask`, `character_id` and
+        `face_reference_asset_id` only where the endpoint takes them and the
+        model carries the reference, `prompt_slot:<NAME>` needs the labelled
+        slot `<NAME>:` in the baked prompt, `option:<key>` needs a matching
+        card option, `param:<field>` needs a parameter of the endpoint;
+        `attach` is always legal); asset maxima summed within the model's
+        reference limits; `submit.kind` `agent` for `studio_intent` targets,
+        where every asset binding must be `attach`. Customer copy (labels,
+        help, placeholders, options, the lucky label, the note) follows the
+        no-em-dash rule like the card copy.
+      properties:
+        version:
+          type: integer
+          enum: [1]
+        lucky:
+          $ref: '#/components/schemas/PresetIntakeLucky'
+        steps:
+          type: array
+          minItems: 1
+          maxItems: 8
+          items:
+            $ref: '#/components/schemas/PresetIntakeStep'
+        submit:
+          $ref: '#/components/schemas/PresetIntakeSubmit'
+
+    PresetIntakeContextTarget:
+      type: object
+      additionalProperties: false
+      required: [kind]
+      description: The preset's target as the flow submits to it.
+      properties:
+        kind:
+          $ref: '#/components/schemas/PresetTargetKind'
+        model:
+          type: string
+          description: The target model id (`target.params.model`) for a `create_*` target.
+          examples: ['gpt-image-2.5-flare']
+        intent:
+          type: string
+          description: The studio intent (`target.params.intent`) for a `studio_intent` target.
+        endpoint:
+          type: string
+          description: The generate endpoint a `generate` submit calls, for display and routing.
+          examples: ['POST /generate/image']
+
+    PresetIntakeModelLimits:
+      type: object
+      additionalProperties: false
+      required: [id, modality, reference_images_max, element_refs_max, video_refs_max, audio_refs_max, inpaint_mask, start_frame, end_frame, character, face_reference, aura_compatible]
+      description: >-
+        The target model's capability limits the flow renders against, read
+        through the same predicates the write path validates with and the
+        generate endpoints enforce, so the context never advertises a slot the
+        API would refuse. Zero / false means the input is not available on this
+        model.
+      properties:
+        id:
+          type: string
+        modality:
+          $ref: '#/components/schemas/Modality'
+        reference_images_max:
+          type: integer
+          description: Reference images per request on `create_image` (`image.reference_images_max`); 0 on video models.
+        element_refs_max:
+          type: integer
+          description: Element images per request (`references.element_refs_max` on video; the reference budget on image).
+        video_refs_max:
+          type: integer
+          description: Reference videos per request (`references.video_refs_max`); 0 where unsupported.
+        audio_refs_max:
+          type: integer
+          description: Reference audio tracks per request (`references.audio_refs_max`); 0 where unsupported.
+        inpaint_mask:
+          type: boolean
+          description: Whether `mask_asset_id` is honored (`image.inpaint_mask`).
+        start_frame:
+          type: boolean
+          description: Whether `image_url` is accepted (a start frame on video; a reference image on image).
+        end_frame:
+          type: boolean
+          description: Whether `end_image_asset_id` is accepted (`references.end_frame`).
+        character:
+          type: boolean
+          description: Whether `character_id` is accepted on this model.
+        face_reference:
+          type: boolean
+          description: Whether `face_reference_asset_id` is accepted (image models with Aura and a reference slot).
+        aura_compatible:
+          type: boolean
+
+    PresetIntakeEstimate:
+      type: object
+      additionalProperties: false
+      required: [credits, model, basis]
+      description: >-
+        The credit estimate for ONE run at the default tier, priced by the same
+        pricer the generate endpoints reserve with: the target's baked
+        duration, quality and audio flags where it carries them, the model's
+        defaults otherwise. A `studio_intent` quotes the flat agent-turn rate
+        (`basis: agent_turn`); the generations the agent then makes bill
+        separately.
+      properties:
+        credits:
+          type: integer
+        model:
+          type: string
+          description: The model (or `agent-turn`) the estimate is priced on.
+        basis:
+          type: string
+          enum: [one_generation, agent_turn]
+          x-enum-varnames: [PresetIntakeEstimateBasisOneGeneration, PresetIntakeEstimateBasisAgentTurn]
+        duration_seconds:
+          type: integer
+          description: The clip length the estimate assumes (video targets).
+        quality:
+          type: string
+          description: The quality tier the estimate assumes, when the model has one.
+
+    PresetIntakeContext:
+      type: object
+      additionalProperties: false
+      required: [slug, intake, intake_from_parent, target, options, prompt_slots]
+      description: What `GET /presets/{slug}/intake/context` returns; see that operation.
+      properties:
+        slug:
+          type: string
+        intake:
+          $ref: '#/components/schemas/PresetIntake'
+        intake_from_parent:
+          type: boolean
+          description: '`true` when `intake` is the parent''s (the preset has none of its own).'
+        target:
+          $ref: '#/components/schemas/PresetIntakeContextTarget'
+        model:
+          allOf:
+            - $ref: '#/components/schemas/PresetIntakeModelLimits'
+          nullable: true
+          description: The target model's limits; null for a `studio_intent` target or a model the registry does not know.
+        options:
+          type: array
+          items:
+            $ref: '#/components/schemas/PresetOption'
+          description: The card's option chips, what `option:<key>` bindings resolve against.
+        prompt_slots:
+          type: array
+          items:
+            type: string
+          description: The labelled slots found in the baked prompt, in order of first appearance (`THE MARK`, `THE STYLE`); empty for a `studio_intent`.
+          examples: [['THE MARK', 'THE STYLE']]
+        estimate:
+          allOf:
+            - $ref: '#/components/schemas/PresetIntakeEstimate'
+          nullable: true
 
     PresetSuggestionsRequest:
       type: object
@@ -17330,6 +18040,16 @@ components:
             the registry on write. `[]` clears the list.
           items:
             type: string
+        intake:
+          allOf:
+            - $ref: '#/components/schemas/PresetIntake'
+          nullable: true
+          description: >-
+            The guided intake flow (2026-09-10). Omitted preserves the stored
+            flow, `null` clears it, an object is validated against the
+            preset's STORED target and card options and written. This is how a
+            LIVE preset gets its flow authored. Refused with `400` naming the
+            step id and the reason.
 
     UpdateAgentDeploymentRequest:
       type: object
