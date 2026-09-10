@@ -346,9 +346,16 @@ async fn image(args: ImageArgs, ctx: &CommandContext) -> Result<()> {
         .map(GenerateImageRequestQuality::try_from)
         .transpose()
         .map_err(|e| anyhow::anyhow!("--quality: {e}"))?;
+    // `prompt` became optional and newtyped in the spec when the
+    // `image_enhance` models landed (they re-render a reference from its own
+    // pixels and have no prompt slot). `nolgia gen image` still REQUIRES one,
+    // so the flag is unchanged and the value is wrapped rather than made
+    // optional here.
+    let prompt = nolgia_client::types::GenerateImageRequestPrompt::try_from(args.prompt)
+        .map_err(|e| anyhow::anyhow!("--prompt: {e}"))?;
     let body: GenerateImageRequest = GenerateImageRequest::builder()
         .model(args.model)
-        .prompt(args.prompt)
+        .prompt(Some(prompt))
         .quality(quality)
         .aspect_ratio(args.aspect_ratio)
         .aura(args.aura)
