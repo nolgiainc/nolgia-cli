@@ -2343,6 +2343,87 @@ fn auth_help_lists_device_flow_commands() {
         .stdout(predicate::str::contains("whoami"));
 }
 
+/// `auth login --no-browser` against a code that is already out of time:
+/// the link leads, the code sits on its own line, the waiting line prints
+/// once (stdout is a pipe here), and the failure says the code expired and
+/// how to get a new one. No browser is opened and no token poll is made.
+#[tokio::test]
+async fn auth_login_no_browser_prints_link_and_code_then_reports_expiry() {
+    let api = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/auth/device"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "device_code": "dev-1",
+            "user_code": "YKKQ-RXKS",
+            "verification_uri": "https://nolgia.ai/device",
+            "verification_uri_complete": "https://nolgia.ai/device?code=YKKQ-RXKS",
+            "expires_in": 0,
+            "interval": 1
+        })))
+        .expect(1)
+        .mount(&api)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/v1/auth/device/token"))
+        .respond_with(ResponseTemplate::new(400).set_body_json(json!({ "error": "expired_token" })))
+        .expect(0)
+        .mount(&api)
+        .await;
+
+    cmd()
+        .arg("--api-url")
+        .arg(api.uri())
+        .args(["auth", "login", "--no-browser"])
+        .assert()
+        .failure()
+        .stdout(predicate::eq(
+            "Open: https://nolgia.ai/device?code=YKKQ-RXKS\n\
+             \n\
+             \x20 Code: YKKQ-RXKS\n\
+             \n\
+             Waiting for you to approve in the browser... (expires in 0:00)\n",
+        ))
+        .stderr(predicate::str::contains("expired before it was approved"))
+        .stderr(predicate::str::contains("run `nolgia auth login`"));
+    api.verify().await;
+}
+
+/// `--json` keeps stdout for the document: the narration moves to stderr.
+#[tokio::test]
+async fn auth_login_json_keeps_stdout_clean_of_narration() {
+    let api = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/auth/device"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "device_code": "dev-1",
+            "user_code": "YKKQ-RXKS",
+            "verification_uri": "https://nolgia.ai/device",
+            "verification_uri_complete": "https://nolgia.ai/device?code=YKKQ-RXKS",
+            "expires_in": 0,
+            "interval": 1
+        })))
+        .mount(&api)
+        .await;
+
+    cmd()
+        .arg("--api-url")
+        .arg(api.uri())
+        .args(["--json", "auth", "login", "--no-browser"])
+        .assert()
+        .failure()
+        .stdout(predicate::eq(""))
+        .stderr(predicate::str::contains("Code: YKKQ-RXKS"));
+}
+
+#[test]
+fn auth_login_help_documents_no_browser() {
+    cmd()
+        .args(["auth", "login", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--no-browser"));
+}
+
 fn write_token_file(config_home: &std::path::Path, access_token: &str) {
     let dir = config_home.join("nolgia");
     std::fs::create_dir_all(&dir).unwrap();

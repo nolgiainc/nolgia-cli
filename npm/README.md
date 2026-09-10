@@ -51,7 +51,7 @@ nolgia auth token
 
 For CI or agents, prefer a personal access token in `NOLGIA_TOKEN` or a secret manager. `--token` is also accepted, but command-line arguments can appear in shell history and process listings. The npm package is release-versioned, and this README ships inside the package: the behavior described here is whatever the `version` in its `package.json` installed, which is the same version `nolgia --version` reports. Current releases default to the file-backed token store (see `NOLGIA_TOKEN_STORE` below) and read the OS keyring once to migrate a login made before that store existed; releases predating the file store used the keyring only. Confirm the installed binary's behavior with `nolgia --version` and its [release notes](https://github.com/nolgiainc/nolgia-cli/releases).
 
-`--json` is a global flag for commands that implement structured output; it is not a universal output contract. Generation with `--no-wait` prints a JSON job object, while `gen video --cost-only`, `auth token`, `completion`, and `skills show` remain text. `auth login` and `auth status`/`whoami` also print human text around any JSON response. A script can capture a job UUID and then wait for it:
+`--json` is a global flag for commands that implement structured output; it is not a universal output contract. Generation with `--no-wait` prints a JSON job object, while `gen video --cost-only`, `auth token`, `completion`, and `skills show` remain text. `auth status`/`whoami` also print human text around any JSON response; `auth login --json` narrates on stderr so stdout holds only the JSON result. A script can capture a job UUID and then wait for it:
 
 ```bash
 job_uuid=$(nolgia gen video --prompt "..." --no-wait | jq -r .job_id)
