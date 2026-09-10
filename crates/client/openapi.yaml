@@ -12143,7 +12143,10 @@ components:
           description: Plain-language label, for example `Video generation · seedance-2.5 · 5 s` or `Refund · Agent turn`. Never contains an em dash.
         model:
           type: string
-          description: Catalog model id when the row charges or refunds a generation. Label it client-side.
+          description: >
+            Catalog model id when the row charges or refunds a generation, and
+            the agent brain (for example `kimi-k3`) when it charges or refunds
+            an agent turn. Label it client-side.
         preset:
           type: string
           description: Preset slug when the generation was launched from a preset.
@@ -12155,6 +12158,22 @@ components:
           type: string
           format: uuid
           description: The agent chat session behind an `agent_turn` charge or its refund.
+        tokens:
+          type: integer
+          format: int64
+          description: >
+            Tokens the agent turn behind this row reported, across every
+            iteration of its reasoning loop. Present only on an `agent_turn`
+            row whose turn cost more than the published per-turn rate — for a
+            turn billed at the flat rate the rate is the whole explanation.
+        provider_cost_usd:
+          type: number
+          format: double
+          description: >
+            Measured provider cost in US dollars of the agent turn behind this
+            row. Present on the same rows as `tokens`. An agent turn bills
+            `max(flat_rate(model), ceil(provider_cost_usd / 0.01))`, so this is
+            what accounts for a charge larger than the published rate.
         render_id:
           type: string
           format: uuid
@@ -13062,6 +13081,10 @@ components:
           # /agent/messages/{id}/feedback). Absent on user messages and on
           # replies the caller has not rated.
           $ref: '#/components/schemas/AgentMessageFeedback'
+        cost:
+          # What this turn cost, present on completed agent replies once the
+          # turn has been priced. See AgentTurnCost.
+          $ref: '#/components/schemas/AgentTurnCost'
         created_at:
           type: string
           format: date-time
@@ -13069,6 +13092,55 @@ components:
           type: string
           format: date-time
           description: When the agent reply completed or failed. Absent while pending and on user messages.
+
+    AgentTurnCost:
+      type: object
+      additionalProperties: false
+      required: [credits, model, metered]
+      description: >
+        What one agent chat turn cost. A turn is billed on its ACTUAL provider
+        cost and never less than the published per-turn rate for the brain it
+        ran on: `credits = max(flat_rate(model), ceil(provider_cost_usd /
+        0.01))`. Most turns bill the flat rate, and for those `metered` is
+        `false` and the token and cost fields are absent — the published rate
+        is the whole explanation of the charge. A turn that reasoned for many
+        iterations bills what it burned, and `metered` is `true` with the
+        numbers that account for it.
+
+
+        Absent on user messages, on pending replies, on failed replies (a
+        failed turn is refunded in full), and on any turn that was not billed
+        at all.
+      properties:
+        credits:
+          type: integer
+          description: >
+            Credits this turn actually charged, in total. On the rare turn
+            whose metered price exceeded the balance, this is what the account
+            could cover, not what the turn priced at.
+        model:
+          type: string
+          description: The brain the turn ran on, for example `kimi-k3`. Label it client-side.
+        metered:
+          type: boolean
+          description: >
+            `true` when `credits` came from the turn's measured provider cost
+            rather than the flat per-turn rate — that is, when the turn cost
+            more than its published rate.
+        tokens:
+          type: integer
+          format: int64
+          description: >
+            Tokens the run reported across every iteration of its reasoning
+            loop. Absent when the turn was not metered. It covers the main
+            agent loop; delegated subagents and auxiliary passes are not
+            included in the pod's report.
+        provider_cost_usd:
+          type: number
+          format: double
+          description: >
+            Measured provider cost of `tokens` at the brain's rate, in US
+            dollars. Absent when the turn was not metered.
 
     AgentMessageFeedbackRating:
       type: string
