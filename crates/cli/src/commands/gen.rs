@@ -53,6 +53,22 @@ pub struct ImageArgs {
     /// same model's ordinary generation costs; a mask changes no price.
     #[arg(long, value_name = "PATH_OR_UUID", requires = "input")]
     pub mask: Option<String>,
+    /// How much detail the model spends DRAWING the image, on models that
+    /// publish a render-quality ladder (`nolgia models get <model>`).
+    ///
+    /// This is a SECOND axis and not a rename of --quality: --quality is the
+    /// native/2k/4k UPSCALE ladder, which re-renders the finished image
+    /// larger, while this changes how the picture is drawn in the first place.
+    /// They compose, and a request may carry both.
+    ///
+    /// `auto` (the default) is the model's own choice at the base rate.
+    /// `low`/`medium`/`high` spend LESS and cost the same, so they buy speed,
+    /// not savings. `xhigh` and `max` spend substantially more and ADD credits
+    /// PER IMAGE — the exact figure is in `nolgia models get <model>`, and the
+    /// CLI prints it before submitting. They exist only on the GPT Image 2.5
+    /// models.
+    #[arg(long, value_name = "VALUE")]
+    pub render_quality: Option<String>,
     #[arg(long)]
     pub out: Option<PathBuf>,
     /// Quality/resolution tier (model-specific; tiers and per-tier credits
@@ -307,6 +323,24 @@ async fn image(args: ImageArgs, ctx: &CommandContext) -> Result<()> {
     if args.mask.is_some() {
         super::models::precheck_inpaint_mask(ctx, &args.model.to_string()).await?;
     }
+    // The render-quality adder is announced BEFORE anything is uploaded or
+    // submitted. It is per IMAGE, and that is the part that surprises people:
+    // four images at max pay it four times.
+    let render_quality = args
+        .render_quality
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty());
+    if let Some(value) = render_quality {
+        let added =
+            super::models::precheck_render_quality(ctx, &args.model.to_string(), value).await?;
+        if added > 0 {
+            eprintln!(
+                "render quality {value}: +{added} credits per image, on top of whatever \
+                 --quality costs"
+            );
+        }
+    }
     // Everything the mask has to satisfy is checked BEFORE either file is
     // uploaded: a refusal should cost neither an upload nor a round trip.
     let mask_bytes = match args.mask.as_deref() {
@@ -353,9 +387,14 @@ async fn image(args: ImageArgs, ctx: &CommandContext) -> Result<()> {
     // optional here.
     let prompt = nolgia_client::types::GenerateImageRequestPrompt::try_from(args.prompt)
         .map_err(|e| anyhow::anyhow!("--prompt: {e}"))?;
+    let render_quality_value = render_quality
+        .map(nolgia_client::types::GenerateImageRequestRenderQuality::try_from)
+        .transpose()
+        .map_err(|e| anyhow::anyhow!("--render-quality: {e}"))?;
     let body: GenerateImageRequest = GenerateImageRequest::builder()
         .model(args.model)
         .prompt(Some(prompt))
+        .render_quality(render_quality_value)
         .quality(quality)
         .aspect_ratio(args.aspect_ratio)
         .aura(args.aura)
