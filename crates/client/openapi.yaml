@@ -1431,6 +1431,306 @@ paths:
         default:
           $ref: '#/components/responses/ProblemResponse'
 
+  /.well-known/oauth-authorization-server:
+    get:
+      tags: [Auth]
+      operationId: getAuthorizationServerMetadata
+      summary: OAuth 2.0 authorization server metadata (RFC 8414).
+      description: >
+        Unauthenticated by definition: an MCP connector fetches this before it
+        holds any credential. It is the second hop of a connector handshake —
+        the first is the MCP server's own protected-resource metadata
+        (RFC 9728) at `https://mcp.nolgia.ai/.well-known/oauth-protected-resource`,
+        whose `authorization_servers` entry points here.
+
+
+        `code_challenge_methods_supported` carrying `S256` is not decorative:
+        a connector that cannot find it treats this server as unsupported and
+        refuses to connect at all.
+      security: []
+      responses:
+        '200':
+          description: Authorization server metadata.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthAuthorizationServerMetadata'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /oauth/register:
+    post:
+      tags: [Auth]
+      operationId: registerOAuthClient
+      summary: Dynamic client registration for MCP connectors (RFC 7591).
+      description: >
+        Open registration, which is what "dynamic" means: an assistant that has
+        never seen this server registers itself rather than asking a human for
+        a client id. Every client registered here is a PUBLIC client with no
+        secret whose only power is to send a user to a consent screen that user
+        must approve while signed in, so a client id on its own grants nothing.
+
+
+        The response is authoritative (RFC 7591 §3.2.1): a request asking for
+        more than this server implements — a refresh grant, a confidential
+        `token_endpoint_auth_method` — succeeds and is answered with the
+        narrowed set it actually got. Only a request with no overlap at all is
+        refused.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OAuthClientRegistrationRequest'
+      responses:
+        '201':
+          description: Client registered.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthClientRegistration'
+        '400':
+          description: The registration metadata is unusable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthErrorResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /oauth/authorize:
+    get:
+      tags: [Auth]
+      operationId: startOAuthAuthorization
+      summary: Begin an OAuth 2.1 authorization-code flow (browser redirect).
+      description: >
+        Validates the connector's request, parks it, and redirects the browser
+        to the web consent page, which hosts sign-in and the Allow/Deny step.
+        Nothing is decided here — the user has not been seen yet.
+
+
+        PKCE is mandatory: `code_challenge` with `code_challenge_method=S256`.
+        An invalid `client_id` or `redirect_uri` is answered as a direct
+        problem response rather than a redirect, because redirecting to an
+        unvalidated URI is the open-redirect this rule exists to prevent;
+        every other error is delivered to the validated `redirect_uri` as an
+        OAuth error carrying `iss` (RFC 9207).
+      security: []
+      parameters:
+        - name: response_type
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [code]
+        - name: client_id
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: redirect_uri
+          in: query
+          required: false
+          description: >
+            Must match one the client registered. For a loopback redirect the
+            port is ignored (RFC 8252 §7.3), because a native client binds an
+            ephemeral port it could not know at registration time.
+          schema:
+            type: string
+            format: uri
+        - name: code_challenge
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: code_challenge_method
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [S256]
+        - name: state
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: scope
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: resource
+          in: query
+          required: false
+          description: >
+            RFC 8707 resource indicator — the MCP server the token is for.
+            Recorded on the authorization for audit; see
+            `OAuthTokenResponse` for what the issued credential is scoped to.
+          schema:
+            type: string
+            format: uri
+      responses:
+        '303':
+          description: Redirect to the consent page, or to the client's redirect URI carrying an OAuth error.
+          headers:
+            Location:
+              schema:
+                type: string
+                format: uri
+        '400':
+          description: The client or redirect URI could not be validated, so no redirect was safe.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthErrorResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /oauth/authorize/request:
+    get:
+      tags: [Auth]
+      operationId: getOAuthAuthorizationRequest
+      summary: Read a pending authorization so the consent page can render it.
+      description: >
+        Requires the user's own bearer, so an unauthenticated caller cannot
+        enumerate pending authorizations.
+      parameters:
+        - name: request_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The pending authorization request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthAuthorizationRequest'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /oauth/authorize/decision:
+    post:
+      tags: [Auth]
+      operationId: decideOAuthAuthorization
+      summary: Record the signed-in user's Allow or Deny for a pending authorization.
+      description: >
+        Answers with the URL the browser must be sent to; the API never
+        redirects here itself, because the consent page is a fetch client.
+        Approving mints a single-use authorization code (only its digest is
+        stored) and the response URL carries `code`, `state` and `iss`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OAuthAuthorizationDecisionRequest'
+      responses:
+        '200':
+          description: Decision recorded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthAuthorizationDecisionResponse'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /oauth/token:
+    post:
+      tags: [Auth]
+      operationId: exchangeOAuthToken
+      summary: Redeem a single-use authorization code for an access token.
+      description: >
+        Form-encoded per RFC 6749; a JSON body is also accepted because some
+        MCP clients send one. The PKCE `code_verifier` is verified against the
+        challenge recorded at authorization time.
+
+
+        The issued access token is a normal personal API token (`nol_...`).
+        That is the load-bearing decision of this whole flow: a connector's
+        credential rides the same billing channel, the same per-user cap and
+        the same revocation UI as one created by hand, and no new
+        authentication path exists anywhere in the API. Consequently there are
+        no refresh tokens and no `expires_in` — the token lives until it is
+        revoked.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/OAuthTokenRequest'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OAuthTokenRequest'
+      responses:
+        '200':
+          description: Access token issued.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthTokenResponse'
+        '400':
+          description: The grant could not be redeemed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthErrorResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /oauth/revoke:
+    post:
+      tags: [Auth]
+      operationId: revokeOAuthToken
+      summary: Revoke an access token issued to a connector (RFC 7009).
+      description: >
+        Answers `200` for an unknown, malformed or already-revoked token, as
+        RFC 7009 §2.2 requires: any other answer would make this endpoint an
+        oracle for guessing tokens.
+
+
+        Honouring revocation matters more here than on a typical authorization
+        server. The access token is a personal API token and an account may
+        hold only ten, so a connector that re-authorizes on each reconnect —
+        normal behaviour — would otherwise walk the user into "maximum active
+        api keys reached" and strand them until they pruned the list by hand.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/OAuthRevocationRequest'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OAuthRevocationRequest'
+      responses:
+        '200':
+          description: Revocation processed. Returned whether or not a token was actually revoked.
+        '400':
+          description: The request could not be parsed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthErrorResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
   /generate/image:
     post:
       tags: [Generate]
@@ -1487,6 +1787,17 @@ paths:
         already exists. Send a distinct `Idempotency-Key` header to declare a
         deliberate new generation of an identical prompt; repeat the same key
         to make your own retries collapse onto one job.
+
+        **Text to speech is billed by the length of `prompt`**, in characters,
+        not per request. `GET /models` publishes the meter for each voice as
+        `cost.unit: per_character` with `cost.characters_per_credit` and
+        `cost.minimum_credits`, and the charge is
+
+          max(minimum_credits, ceil(characters / characters_per_credit))
+
+        so a caller can price a script exactly before submitting it. Music and
+        sound-effects models are billed per track (`cost.unit: per_generation`)
+        and their prompt length does not change the price.
       requestBody:
         required: true
         content:
@@ -8577,6 +8888,19 @@ components:
           items:
             type: string
             examples: ['16:9']
+        inpaint_mask:
+          type: boolean
+          description: >-
+            Mirrors `image.inpaint_mask` from `GET /models`: this model can
+            edit only PART of an image, guided by a mask. It is published here
+            — on an endpoint that otherwise carries pricing only — for the
+            same reason `aspect_ratios` is: a public page has to be able to
+            say what a model can do before anyone signs in, and the answer
+            must come from the catalog rather than from a second hand-kept
+            list. It is a capability flag, never a price: a masked edit costs
+            exactly what the same model's ordinary generation costs. Absent on
+            every non-image model, and on any model that cannot take a mask.
+          examples: [true]
 
     ProviderStatusList:
       type: object
@@ -8767,6 +9091,12 @@ components:
             model with native audio on by default (most video models), this
             includes `audio_surcharge`; subtract it for the silent
             (generate_audio=false) price.
+
+            When unit is per_character this is the headline price of a
+            1,000-character script - exact for that length, and the figure to
+            compare voices on. It is NOT a per-character rate and must not be
+            scaled: use `characters_per_credit` for the charge on any other
+            length.
           examples: [42]
         unit:
           $ref: '#/components/schemas/ModelCostUnit'
@@ -8791,14 +9121,42 @@ components:
             `credits` assumes. The actual charge scales with the requested duration
             as ceil(credits * duration_seconds / baseline_seconds).
           examples: [5]
+        characters_per_credit:
+          type: integer
+          nullable: true
+          minimum: 1
+          description: |
+            Present only when unit is per_character. How many characters of
+            prompt text one credit buys. The charge for a request is
+
+              max(minimum_credits, ceil(characters / characters_per_credit))
+
+            counted in Unicode characters, not bytes - the same count the
+            prompt's maxLength is enforced in. The arithmetic is exact and
+            integer, so a client can show the price of a script as it is typed
+            without asking the API.
+          examples: [180]
+        minimum_credits:
+          type: integer
+          nullable: true
+          minimum: 1
+          description: |
+            Present only when unit is per_character. The charge for a request
+            at or below the minimum billable length (200 characters, about one
+            spoken sentence) - a short line is priced as if it were exactly
+            that long. It is itself the ordinary rate applied to that length,
+            not a surcharge.
+          examples: [2]
 
     ModelCostUnit:
       type: string
       description: |
         Billing dimension for a model's credit cost. per_image multiplies by the
         requested image count, per_clip scales with video duration against
-        baseline_seconds, per_generation is a flat charge per request.
-      enum: [per_image, per_clip, per_generation]
+        baseline_seconds, per_character scales with the length of the prompt
+        against characters_per_credit, per_generation is a flat charge per
+        request.
+      enum: [per_image, per_clip, per_character, per_generation]
 
     QualityCapabilities:
       type: object
@@ -9048,6 +9406,26 @@ components:
           minimum: 1
           maximum: 4
           example: 4
+        inpaint_mask:
+          type: boolean
+          description: |
+            Whether this model can edit PART of an image: the request may name
+            a mask (`mask_asset_id`), a PNG with an alpha channel and the same
+            dimensions as the single reference image, and only its see-through
+            areas are repainted. The rest of the picture is left alone.
+
+            True on the GPT Image family, false everywhere else — including
+            other reference-capable models, whose providers have no mask
+            concept and would repaint the whole image instead. A
+            `mask_asset_id` sent to a model publishing `false` is rejected
+            with a 400 before any credit hold rather than silently ignored,
+            so clients should offer the mask control only where this is true.
+            Masked edits cost exactly what the same model's ordinary
+            generation costs; a mask changes no price.
+
+            Absent on responses from an API build older than this field: treat
+            as false (hide the control).
+          example: true
         aura_compatible:
           type: boolean
           description: |
@@ -9260,6 +9638,27 @@ components:
         take the five alias-shaped aspect ratios (16:9, 4:3, 1:1, 3:4, 9:16);
         `seed` reaches the provider on `ideogram-v4` and `qwen-image-3` only
         (Reve and Seedream publish no seed).
+
+        Seven models reach the catalog through OpenRouter, and all seven are
+        TEXT-TO-IMAGE ONLY: they publish `reference_images_max` of 0 and
+        reject a reference image up front, because the provider route that
+        serves them does not currently execute image editing. `mai-image-2.6`,
+        `mai-image-2.6-flash`, `mai-image-2.5` and `mai-image-2.5-pro` are
+        Microsoft MAI-Image on Azure, four of the strongest text-to-image
+        models in the catalog; they carry the shared `native`/`2k`/`4k`
+        upscaler tiers, since the family has no native resolution knob, and
+        render one image per request. `riverflow-v2.5-pro` and
+        `riverflow-v2.5-fast` (Sourceful Riverflow V2.5) are the catalog's
+        strongest typography and layout models, with native `1k`/`2k` output
+        and `4k` on pro; both are SLOW (a 1k pro render measures over two
+        minutes) and return one image per request. `seedream-4.5` (ByteDance
+        Seedream) renders native `2k` and `4k` at one flat rate, so both tiers
+        cost the same credits.
+
+        All seven take five aspect ratios (16:9, 3:2, 1:1, 2:3, 9:16) and
+        honor neither `seed`, `negative_prompt` nor `guidance_scale`, which
+        their provider route does not carry.
+
       enum:
         - gpt-image-2.5-sunburst
         - gpt-image-2.5-flare
@@ -9298,6 +9697,15 @@ components:
         - stable-diffusion-3.5
         - kling-image-v3
         - minimax-image-01
+        - mai-image-2.6
+        - mai-image-2.6-flash
+        - mai-image-2.5
+        - mai-image-2.5-pro
+        - riverflow-v2.5-pro
+        - riverflow-v2.5-fast
+        - qwen-image-3-pro
+        - seedream-5-0-lite
+        - seedream-4.5
 
     AudioModel:
       type: string
@@ -9305,7 +9713,7 @@ components:
         Audio model identifier (TTS, music, or SFX).
         `fal-ai/elevenlabs/tts/eleven-v3-conversational` is the realtime
         Eleven v3 variant: the same voices as `eleven-v3` at a lower
-        per-generation cost.
+        per-character rate.
       enum:
         - fal-ai/kokoro/american-english
         - fal-ai/dia-tts
@@ -9631,6 +10039,31 @@ components:
           items:
             type: string
             format: uuid
+        mask_asset_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: >-
+            Edit only PART of the reference image. The id of one of your own
+            image assets holding a MASK: a PNG with an alpha channel, the same
+            pixel dimensions as the reference image, whose TRANSPARENT areas
+            mark the region the model may repaint. Everything the mask leaves
+            opaque is preserved.
+
+            Accepted only on models publishing `image.inpaint_mask: true` on
+            `GET /models` (the GPT Image family), and only alongside exactly
+            one reference image — `image_url`, one entry in `image_urls`, or
+            one `reference_asset_ids` entry, including any reference a
+            `character_id`, `face_reference_asset_id` or `element_ids` attaches.
+            A mask on an unsupported model, with the wrong number of
+            references, or on a non-PNG asset is rejected with a 400 before
+            any credit hold, so a rejected request never costs credits; a mask
+            with no alpha channel or the wrong dimensions fails the job with
+            the same explanation and a full refund.
+
+            A masked edit costs exactly what the same model's ordinary
+            generation costs — a mask changes no price.
+          examples: ['9a3e1a1a-6c1e-4a4f-9f3e-2d4b6c8e0a11']
         quality:
           type: string
           nullable: true
@@ -9783,7 +10216,10 @@ components:
           type: string
           minLength: 1
           maxLength: 4000
-          description: For TTS this is the text to speak; for music/SFX it is the description.
+          description: |
+            For TTS this is the text to speak; for music/SFX it is the
+            description. On a text-to-speech model it is also what the request
+            is BILLED BY: see the endpoint description.
         voice:
           type: string
           nullable: true
@@ -12176,6 +12612,28 @@ components:
           type: string
           nullable: true
 
+    CreditTransactionMeter:
+      type: object
+      additionalProperties: false
+      description: >
+        Meter recorded when the hold was taken, also returned on its refund.
+        Absent for flat-rate and historical unmetered transactions. The rate
+        and minimum are historical values, not the current model price.
+      required: [unit, quantity]
+      properties:
+        unit:
+          type: string
+          description: Billable dimension, matching cost.unit on GET /models (per_character for text to speech).
+        quantity:
+          type: integer
+          description: Number of billable units in the original hold, including on refund rows.
+        units_per_credit:
+          type: integer
+          description: Units one credit bought at the time of the hold.
+        minimum_credits:
+          type: integer
+          description: Minimum credit charge at the time of the hold.
+
     CreditTransaction:
       type: object
       additionalProperties: false
@@ -12247,6 +12705,8 @@ components:
           description: The render behind a `render` charge or its refund.
         member:
           $ref: '#/components/schemas/CreditTransactionMember'
+        meter:
+          $ref: '#/components/schemas/CreditTransactionMeter'
 
     CreditTransactionPage:
       type: object
@@ -16263,6 +16723,273 @@ components:
           type: string
           format: date-time
           description: When the embedded ticket stops being redeemable (~120s). The cookie session it mints lasts 12h.
+
+    OAuthAuthorizationServerMetadata:
+      type: object
+      description: RFC 8414 authorization server metadata. Additional members may appear.
+      required: [issuer, authorization_endpoint, token_endpoint, response_types_supported, code_challenge_methods_supported]
+      properties:
+        issuer:
+          type: string
+          format: uri
+          description: >
+            Must equal, byte for byte, the entry a connector read from the MCP
+            server's protected-resource metadata. Clients compare it exactly
+            and will not normalize a trailing slash or a differing case.
+          examples: ['https://api.nolgia.ai']
+        authorization_endpoint:
+          type: string
+          format: uri
+          examples: ['https://api.nolgia.ai/oauth/authorize']
+        token_endpoint:
+          type: string
+          format: uri
+          examples: ['https://api.nolgia.ai/oauth/token']
+        registration_endpoint:
+          type: string
+          format: uri
+          examples: ['https://api.nolgia.ai/oauth/register']
+        revocation_endpoint:
+          type: string
+          format: uri
+          examples: ['https://api.nolgia.ai/oauth/revoke']
+        response_types_supported:
+          type: array
+          items:
+            type: string
+          examples: [['code']]
+        grant_types_supported:
+          type: array
+          items:
+            type: string
+          examples: [['authorization_code']]
+        code_challenge_methods_supported:
+          type: array
+          description: Always contains `S256`. PKCE is required on every authorization.
+          items:
+            type: string
+          examples: [['S256']]
+        token_endpoint_auth_methods_supported:
+          type: array
+          description: Always `["none"]` — every client here is a public client with no secret.
+          items:
+            type: string
+          examples: [['none']]
+        revocation_endpoint_auth_methods_supported:
+          type: array
+          items:
+            type: string
+          examples: [['none']]
+        scopes_supported:
+          type: array
+          items:
+            type: string
+          examples: [['mcp']]
+        service_documentation:
+          type: string
+          format: uri
+          examples: ['https://nolgia.com/mcp']
+        authorization_response_iss_parameter_supported:
+          type: boolean
+          description: >
+            RFC 9207. `iss` is returned on every authorization response,
+            success and error alike, which is what lets a client detect a
+            mix-up between two authorization servers.
+          examples: [true]
+
+    OAuthClientRegistrationRequest:
+      type: object
+      required: [redirect_uris]
+      properties:
+        client_name:
+          type: string
+          maxLength: 200
+          examples: ['ChatGPT']
+        redirect_uris:
+          type: array
+          minItems: 1
+          maxItems: 10
+          description: >
+            Absolute, fragment-free URIs. `https` is required unless the host
+            is a loopback literal, which is how a native client receives its
+            callback.
+          items:
+            type: string
+            format: uri
+          examples: [['https://claude.ai/api/mcp/auth_callback']]
+        grant_types:
+          type: array
+          items:
+            type: string
+          examples: [['authorization_code']]
+        response_types:
+          type: array
+          items:
+            type: string
+          examples: [['code']]
+        token_endpoint_auth_method:
+          type: string
+          description: Anything other than `none` is narrowed to `none` in the response, not refused.
+          examples: ['none']
+        scope:
+          type: string
+          examples: ['mcp']
+        client_uri:
+          type: string
+          maxLength: 500
+        logo_uri:
+          type: string
+          maxLength: 500
+
+    OAuthClientRegistration:
+      type: object
+      description: >
+        The registered client. No `client_secret` is ever issued; the absence
+        of that member is what tells a client it is a public client.
+      required: [client_id, client_id_issued_at, redirect_uris, grant_types, response_types, token_endpoint_auth_method]
+      properties:
+        client_id:
+          type: string
+          examples: ['mcp_x7Qd...']
+        client_id_issued_at:
+          type: integer
+          format: int64
+          description: Seconds since the Unix epoch.
+        client_name:
+          type: string
+        redirect_uris:
+          type: array
+          items:
+            type: string
+            format: uri
+        grant_types:
+          type: array
+          items:
+            type: string
+          examples: [['authorization_code']]
+        response_types:
+          type: array
+          items:
+            type: string
+          examples: [['code']]
+        token_endpoint_auth_method:
+          type: string
+          examples: ['none']
+        scope:
+          type: string
+          examples: ['mcp']
+
+    OAuthAuthorizationRequest:
+      type: object
+      description: A pending authorization, as the consent page renders it.
+      required: [request_id, redirect_uri, scope, expires_at]
+      properties:
+        request_id:
+          type: string
+        client_name:
+          type: string
+          description: Self-reported by the client at registration; render it as untrusted text.
+          examples: ['ChatGPT']
+        client_uri:
+          type: string
+        logo_uri:
+          type: string
+        redirect_uri:
+          type: string
+          format: uri
+        scope:
+          type: string
+          examples: ['mcp']
+        resource:
+          type: string
+          description: RFC 8707 resource indicator the client asked for, if any.
+        expires_at:
+          type: string
+          format: date-time
+
+    OAuthAuthorizationDecisionRequest:
+      type: object
+      additionalProperties: false
+      required: [request_id, approve]
+      properties:
+        request_id:
+          type: string
+        approve:
+          type: boolean
+
+    OAuthAuthorizationDecisionResponse:
+      type: object
+      additionalProperties: false
+      required: [redirect_to]
+      properties:
+        redirect_to:
+          type: string
+          format: uri
+          description: >
+            Where the browser must be sent. On approval it carries `code`,
+            `state` and `iss`; on denial, `error=access_denied`.
+
+    OAuthTokenRequest:
+      type: object
+      required: [grant_type, code, code_verifier]
+      properties:
+        grant_type:
+          type: string
+          enum: [authorization_code]
+        code:
+          type: string
+          description: Single use. A replay is refused with `invalid_grant`, indistinguishably from an unknown code.
+        code_verifier:
+          type: string
+          minLength: 43
+          maxLength: 128
+        client_id:
+          type: string
+          description: May instead be carried as the HTTP Basic username.
+        redirect_uri:
+          type: string
+          format: uri
+        resource:
+          type: string
+          format: uri
+
+    OAuthTokenResponse:
+      type: object
+      required: [access_token, token_type]
+      properties:
+        access_token:
+          type: string
+          description: >
+            A personal API token (`nol_...`), listed and revocable in
+            /settings/api-tokens like any other.
+          examples: ['nol_1a2b3c4d...']
+        token_type:
+          type: string
+          examples: ['Bearer']
+        scope:
+          type: string
+          examples: ['mcp']
+
+    OAuthRevocationRequest:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+        token_type_hint:
+          type: string
+          examples: ['access_token']
+
+    OAuthErrorResponse:
+      type: object
+      description: An RFC 6749 §5.2 error body. Distinct from the Problem responses used elsewhere.
+      required: [error]
+      properties:
+        error:
+          type: string
+          examples: ['invalid_grant']
+        error_description:
+          type: string
 
     DeviceAuthRequest:
       type: object
