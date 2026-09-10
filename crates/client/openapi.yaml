@@ -9549,10 +9549,14 @@ components:
             model is sent. A reference above it is downscaled to exactly this
             edge (aspect ratio preserved) before the provider sees it, so
             sending a larger image costs nothing extra and changes nothing
-            but the pixels the model works from; a reference too large to
-            decode at all (over 4096x4096) is rejected up front with a 400
-            naming the fix. Clients that resize before upload should size to
-            this edge.
+            but the pixels the model works from. References needing resizing
+            fail asynchronously if they exceed 16,777,216 pixels (4096x4096
+            worth of pixels) or use 16-bit color. The request returns 202
+            Accepted before the worker downloads and checks the reference;
+            poll the accepted job for its failure message. Its reserved
+            credits are refunded. This is not a synchronous HTTP 400.
+            Clients should resize to this edge or export 8-bit images before
+            uploading.
 
             Published only by models that bound the reference. The Microsoft
             MAI-Image family bills input image tokens per pixel with no
@@ -9591,9 +9595,13 @@ components:
             dimensions as the single reference image, and only its see-through
             areas are repainted. The rest of the picture is left alone.
 
-            True on the GPT Image family, false everywhere else — including
-            other reference-capable models, whose providers have no mask
-            concept and would repaint the whole image instead. A
+            True on `gpt-image-2`, `gpt-image-2.5-sunburst` and
+            `gpt-image-2.5-flare`, false everywhere else. `gpt-image-1.5` and
+            `gpt-image-1` are false on purpose: they accept a mask upstream
+            but were measured to repaint the whole picture around it, which
+            is the silent substitution this flag exists to prevent. The other
+            reference-capable models are false because their providers have
+            no mask concept and would repaint the whole image instead. A
             `mask_asset_id` sent to a model publishing `false` is rejected
             with a 400 before any credit hold rather than silently ignored,
             so clients should offer the mask control only where this is true.
@@ -10306,8 +10314,8 @@ components:
             opaque is preserved.
 
             Accepted only on models publishing `image.inpaint_mask: true` on
-            `GET /models` (the GPT Image family), and only alongside exactly
-            one reference image — `image_url`, one entry in `image_urls`, or
+            `GET /models` (`gpt-image-2` and the GPT Image 2.5 pair), and only
+            alongside exactly one reference image — `image_url`, one entry in `image_urls`, or
             one `reference_asset_ids` entry, including any reference a
             `character_id`, `face_reference_asset_id` or `element_ids` attaches.
             A mask on an unsupported model, with the wrong number of
@@ -10315,6 +10323,20 @@ components:
             any credit hold, so a rejected request never costs credits; a mask
             with no alpha channel or the wrong dimensions fails the job with
             the same explanation and a full refund.
+
+            The mask is guidance the model follows, not a hard clip, and the
+            prompt decides what it does with it. Describe the WHOLE picture
+            you want, including what should now fill the see-through area
+            ("a desk with a red mug on the left and a potted fern in the
+            centre"), not just the change ("add a fern"): a prompt that names
+            only the change returns the see-through area painted flat black
+            with the change placed elsewhere. Paint the full footprint of the
+            new content with some margin, because an object larger than its
+            window spills past the edge, and keep a fair share of the image
+            opaque — a mask that leaves almost everything see-through is
+            also returned black on the 2.5 models. The preserved area is
+            re-rendered rather than copied, so expect it to match to the eye,
+            not byte for byte.
 
             A masked edit costs exactly what the same model's ordinary
             generation costs — a mask changes no price.
