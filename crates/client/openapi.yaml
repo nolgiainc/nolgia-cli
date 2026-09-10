@@ -16643,7 +16643,11 @@ components:
       type: string
       enum: [image, video, audio]
       x-enum-varnames: [PresetExampleKindImage, PresetExampleKindVideo, PresetExampleKindAudio]
-      description: Media kind of an example's source, recorded when its durable media is derived.
+      description: >-
+        Media kind of an example's source, recorded when its durable media is
+        derived. `image` and `video` examples carry a poster; an `audio`
+        example carries only `media_url` (a durable copy of the track) and is
+        rendered as a player.
 
     PresetExampleInput:
       type: object
@@ -16686,11 +16690,12 @@ components:
         One example output as served on the preset. `poster_url` /
         `media_url` are DERIVED durable media on the preset-media CDN path
         (WebP poster at most 1280x720; for video a silent, faststart preview
-        clip at most 720p), content-addressed and immutably cached like the
-        card poster. Both are `null` until the derivation that every preset
-        write kicks has landed (seconds to a minute), and stay `null` for a
-        source that cannot be derived (an audio asset, a render that has not
-        succeeded, a deleted asset): clients skip or placeholder such an
+        clip at most 720p; for audio a byte-identical copy of the track under
+        its own container, with no poster), content-addressed and immutably
+        cached like the card poster. Both are `null` until the derivation
+        that every preset write kicks has landed (seconds to a minute), and
+        stay `null` for a source that cannot be derived (a render that has
+        not succeeded, a deleted asset): clients skip or placeholder such an
         example, and must never resolve the raw asset themselves.
       properties:
         asset_id:
@@ -16714,17 +16719,24 @@ components:
         poster_url:
           type: string
           nullable: true
-          description: Durable WebP poster (at most 1280x720) for the example; `null` until derived.
+          description: >-
+            Durable WebP poster (at most 1280x720) for an `image` or `video`
+            example; `null` until derived, and always `null` for an `audio`
+            example, which has no frame to take one from.
           examples: ['https://nolgia.ai/preset-media/v2/3f/3f9c…/poster.webp']
         media_url:
           type: string
           nullable: true
           description: >-
-            Durable silent preview clip for a `video` example (full source
-            duration, at most 720p, faststart); `null` for image examples
-            (the poster IS the media) and until derived. Load with
-            `preload="none"` and `poster_url` as the poster.
-          examples: ['https://nolgia.ai/preset-media/v2/3f/3f9c…/preview.mp4']
+            Durable playable media for the example. For a `video` example a
+            silent preview clip (full source duration, at most 720p,
+            faststart): load with `preload="none"` and `poster_url` as the
+            poster. For an `audio` example a durable copy of the track in its
+            source container (`preview.mp3`, `preview.wav`, ...): render it
+            with a native audio player, `preload="metadata"`, no autoplay.
+            `null` for image examples (the poster IS the media) and until
+            derived.
+          examples: ['https://nolgia.ai/preset-media/v2/3f/3f9c…/preview.mp4', 'https://nolgia.ai/preset-media/v2/3f/3f9c…/preview.mp3']
 
     UpsertPresetRequest:
       type: object
