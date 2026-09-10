@@ -35,8 +35,24 @@ pub struct ImageArgs {
     pub model: String,
     #[arg(long)]
     pub prompt: String,
-    #[arg(long)]
-    pub input: Option<PathBuf>,
+    /// The image to edit: a local file (uploaded to /assets) or the UUID of
+    /// an existing asset. Rides as `reference_asset_ids`, so the server
+    /// re-signs it at execution time and a queued job never runs with an
+    /// expired URL. Needs a model that accepts reference images
+    /// (`reference images` in `nolgia models get <model>`).
+    #[arg(long, value_name = "PATH_OR_UUID")]
+    pub input: Option<String>,
+    /// Edit only PART of --input: a PNG with an alpha channel, the same pixel
+    /// dimensions as the image, whose TRANSPARENT areas are the region the
+    /// model may repaint. Everything the mask leaves opaque is preserved.
+    /// Takes a local file (uploaded to /assets) or an asset UUID.
+    ///
+    /// Only on models whose catalog entry publishes `inpaint mask`
+    /// (`nolgia models get <model>`) — the GPT Image family — and only
+    /// alongside exactly one --input. A masked edit costs exactly what the
+    /// same model's ordinary generation costs; a mask changes no price.
+    #[arg(long, value_name = "PATH_OR_UUID", requires = "input")]
+    pub mask: Option<String>,
     #[arg(long)]
     pub out: Option<PathBuf>,
     /// Quality/resolution tier (model-specific; tiers and per-tier credits
@@ -167,6 +183,17 @@ pub struct VideoArgs {
     /// prompt as @Image1..@Image9.
     #[arg(long = "element", value_name = "ASSET_ID")]
     pub elements: Vec<uuid::Uuid>,
+    /// Reference audio track: an audio asset UUID or a local file (uploaded
+    /// to /assets first). Repeatable, up to the model's `audio refs` in
+    /// `nolgia models get <model>`.
+    ///
+    /// This is how lip sync is reached: `heygen-avatar-iv` takes one portrait
+    /// (--input) plus the voice track it speaks, and the clip is BILLED on
+    /// that track's stored duration — which is why the API takes an asset id
+    /// and refuses a raw URL, and why --duration-seconds should be left off
+    /// on such a model (the length comes from the audio).
+    #[arg(long = "audio-ref", value_name = "PATH_OR_UUID")]
+    pub audio_refs: Vec<String>,
     /// Final frame for start+end frame pinning (models with end-frame
     /// support): an image asset UUID or a local file (uploaded). Requires
     /// --input (the start frame).
@@ -277,6 +304,42 @@ async fn image(args: ImageArgs, ctx: &CommandContext) -> Result<()> {
     if let Some(ratio) = args.aspect_ratio.as_ref() {
         super::models::precheck_image_aspect_ratio(ctx, &args.model.to_string(), ratio).await?;
     }
+    if args.mask.is_some() {
+        super::models::precheck_inpaint_mask(ctx, &args.model.to_string()).await?;
+    }
+    // Everything the mask has to satisfy is checked BEFORE either file is
+    // uploaded: a refusal should cost neither an upload nor a round trip.
+    let mask_bytes = match args.mask.as_deref() {
+        Some(mask) if Path::new(mask).exists() => Some(read_mask_png(Path::new(mask))?),
+        _ => None,
+    };
+    if let Some(mask) = &mask_bytes
+        && let Some(input) = args.input.as_deref()
+        && Path::new(input).exists()
+    {
+        let image = png_dimensions(&fs::read(input).with_context(|| format!("reading {input}"))?);
+        if let Some((width, height)) = image
+            && (width, height) != (mask.width, mask.height)
+        {
+            anyhow::bail!(
+                "--mask is {}x{} but --input is {width}x{height} — a mask must match its image \
+                 exactly, because the transparent pixels ARE the region to repaint. Re-export \
+                 the mask at the image's size.",
+                mask.width,
+                mask.height
+            );
+        }
+    }
+
+    let reference_asset_ids = match args.input.as_deref() {
+        Some(input) => vec![resolve_reference_asset(input, "--input", ctx).await?],
+        None => Vec::new(),
+    };
+    let mask_asset_id = match args.mask.as_deref() {
+        Some(mask) => Some(resolve_reference_asset(mask, "--mask", ctx).await?),
+        None => None,
+    };
+
     let quality = args
         .quality
         .as_deref()
@@ -291,6 +354,8 @@ async fn image(args: ImageArgs, ctx: &CommandContext) -> Result<()> {
         .aura(args.aura)
         .face_reference_asset_id(args.face_reference_asset_id)
         .character_id(args.character_id)
+        .reference_asset_ids(reference_asset_ids)
+        .mask_asset_id(mask_asset_id)
         .project_id(args.project_id)
         .try_into()
         .context("building image request")?;
@@ -374,25 +439,24 @@ async fn video(args: VideoArgs, ctx: &CommandContext) -> Result<()> {
              --duration-seconds {shot_total}."
         );
     }
-    let uses_capability_flags = args.quality.is_some()
-        || args.bitrate.is_some()
-        || args.end_frame.is_some()
-        || !args.video_refs.is_empty()
-        || !args.elements.is_empty();
-    if uses_capability_flags {
-        super::models::precheck_video_options(
-            ctx,
-            &args.model.to_string(),
-            &super::models::VideoOptions {
-                quality: args.quality.as_deref(),
-                bitrate: args.bitrate,
-                video_refs: args.video_refs.len(),
-                elements: args.elements.len(),
-                end_frame: args.end_frame.is_some(),
-            },
-        )
-        .await?;
-    }
+    // The precheck runs unconditionally now rather than only when a
+    // capability flag is present: a model with a MINIMUM reference-audio count
+    // (a lip sync route) has to be told it is MISSING one, and an absence is
+    // invisible to a "did the caller pass a flag" gate. It still fails open on
+    // an unreachable catalog or an unknown model.
+    super::models::precheck_video_options(
+        ctx,
+        &args.model.to_string(),
+        &super::models::VideoOptions {
+            quality: args.quality.as_deref(),
+            bitrate: args.bitrate,
+            video_refs: args.video_refs.len(),
+            elements: args.elements.len(),
+            audio_refs: args.audio_refs.len(),
+            end_frame: args.end_frame.is_some(),
+        },
+    )
+    .await?;
     let image_url = match args.input.as_ref() {
         Some(input) => Some(resolve_input_image(input, ctx).await?),
         None => None,
@@ -401,6 +465,13 @@ async fn video(args: VideoArgs, ctx: &CommandContext) -> Result<()> {
         Some(end_frame) => Some(resolve_end_frame(end_frame, ctx).await?),
         None => None,
     };
+    // Each --audio-ref resolves to an ASSET ID, never a URL: the API bills a
+    // lip sync clip on the track's STORED duration, so it only accepts a
+    // track it can measure.
+    let mut audio_asset_ids = Vec::with_capacity(args.audio_refs.len());
+    for audio_ref in &args.audio_refs {
+        audio_asset_ids.push(resolve_audio_reference(audio_ref, ctx).await?);
+    }
     let quality = args
         .quality
         .as_deref()
@@ -436,6 +507,9 @@ async fn video(args: VideoArgs, ctx: &CommandContext) -> Result<()> {
     }
     if !args.elements.is_empty() {
         builder = builder.element_asset_ids(Some(args.elements));
+    }
+    if !audio_asset_ids.is_empty() {
+        builder = builder.audio_asset_ids(Some(audio_asset_ids));
     }
     let body: GenerateVideoRequest = builder.try_into().context("building video request")?;
     let job = match ctx.client().generate_video().body(body).send().await {
@@ -572,6 +646,119 @@ async fn resolve_input_image(input: &str, ctx: &CommandContext) -> Result<String
         return Ok(asset.signed_url);
     }
     upload_input_image(&PathBuf::from(input), ctx).await
+}
+
+/// A reference image given as either an asset UUID or a local file path,
+/// resolved to the ASSET ID rather than a signed URL.
+///
+/// The id is what `reference_asset_ids` and `mask_asset_id` take, and it is
+/// the better half of the contract: the server re-signs the underlying object
+/// at execution time, so a job that waits out a backlog never dispatches with
+/// an expired credential. A signed URL minted here would have to outlive the
+/// queue.
+async fn resolve_reference_asset(
+    input: &str,
+    flag: &str,
+    ctx: &CommandContext,
+) -> Result<uuid::Uuid> {
+    if !Path::new(input).exists() {
+        return uuid::Uuid::parse_str(input).with_context(|| {
+            format!("{flag}: {input:?} is neither an asset UUID nor an existing file")
+        });
+    }
+    Ok(upload_image_asset(&PathBuf::from(input), ctx, None)
+        .await?
+        .id)
+}
+
+/// --audio-ref accepts an audio asset UUID or a local file path (uploaded
+/// first), and always resolves to the ASSET ID.
+///
+/// The id is not a convenience here, it is the contract: a lip sync clip is
+/// billed on the voice track's STORED duration, so the API refuses a raw
+/// `audio_urls` entry on those models — it cannot measure what it does not
+/// hold. Uploading a local file first is exactly what makes the flag usable
+/// from a shell.
+async fn resolve_audio_reference(input: &str, ctx: &CommandContext) -> Result<uuid::Uuid> {
+    if !Path::new(input).exists() {
+        return uuid::Uuid::parse_str(input).with_context(|| {
+            format!("--audio-ref: {input:?} is neither an asset UUID nor an existing file")
+        });
+    }
+    Ok(upload_asset_file(&PathBuf::from(input), ctx, None)
+        .await?
+        .id)
+}
+
+/// The mask contract, checked on the bytes before anything is uploaded.
+///
+/// PNG is not our requirement, it is what carries the alpha channel that says
+/// which pixels may change: a JPEG mask has no transparency at all, so it
+/// would either fail upstream or repaint everything. Colour type 4 (grey+alpha)
+/// and 6 (truecolour+alpha) are the two that carry a real PER-PIXEL channel;
+/// a `tRNS` chunk on colour type 0/2/3 is a single transparent colour or a
+/// palette table, and a painter that exports one has almost certainly
+/// flattened the user's strokes.
+///
+/// The 33-byte IHDR header answers every question the contract asks, so
+/// nothing is decoded: a 4096x4096 RGBA decode is 64 MiB of pixels for two
+/// integers and a byte.
+struct MaskPng {
+    width: u32,
+    height: u32,
+}
+
+fn read_mask_png(path: &Path) -> Result<MaskPng> {
+    let bytes = fs::read(path).with_context(|| format!("reading {}", path.display()))?;
+    let Some(header) = png_header(&bytes) else {
+        anyhow::bail!(
+            "--mask: {} is not a PNG — an edit mask must be a PNG, because only PNG carries the \
+             alpha channel that marks the region to repaint",
+            path.display()
+        );
+    };
+    if !matches!(header.colour_type, 4 | 6) {
+        anyhow::bail!(
+            "--mask: {} is a PNG with no alpha channel (colour type {}) — the see-through areas \
+             are what gets repainted, so export it as an RGBA PNG with transparency enabled \
+             rather than a flat black-and-white image",
+            path.display(),
+            header.colour_type
+        );
+    }
+    Ok(MaskPng {
+        width: header.width,
+        height: header.height,
+    })
+}
+
+struct PngHeader {
+    width: u32,
+    height: u32,
+    colour_type: u8,
+}
+
+/// Reads a PNG's IHDR chunk: 8-byte signature, 4-byte length, "IHDR", then a
+/// 13-byte payload of width, height, bit depth and colour type. Returns None
+/// for anything that is not a PNG.
+fn png_header(bytes: &[u8]) -> Option<PngHeader> {
+    const IHDR_END: usize = 8 + 8 + 13;
+    if bytes.len() < IHDR_END || &bytes[..8] != b"\x89PNG\r\n\x1a\n" || &bytes[12..16] != b"IHDR" {
+        return None;
+    }
+    Some(PngHeader {
+        width: u32::from_be_bytes(bytes[16..20].try_into().ok()?),
+        height: u32::from_be_bytes(bytes[20..24].try_into().ok()?),
+        colour_type: bytes[25],
+    })
+}
+
+/// Dimensions of a reference image, when it is a PNG we can read. None for
+/// every other format, which is not an error: the server re-checks the real
+/// pixels either way, and refusing a JPEG reference here would be inventing a
+/// rule the API does not have.
+fn png_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
+    png_header(bytes).map(|h| (h.width, h.height))
 }
 
 /// --end-frame accepts an image asset UUID (sent as `end_image_asset_id`)

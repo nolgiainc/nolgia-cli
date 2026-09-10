@@ -5,6 +5,28 @@ the matching GitHub release.
 
 ## Unreleased
 
+- **`gen image` can edit part of a picture.** `--input` names the image to
+  edit (a local file or an asset UUID, sent as `reference_asset_ids` so the
+  server re-signs it after a queue backlog) and `--mask` names a PNG whose
+  transparent areas are the only pixels the model may repaint. Everything the
+  mask leaves opaque is preserved. Only the GPT Image family takes one, and
+  the CLI checks the catalog's `inpaint mask` flag before submitting rather
+  than after; the mask's format, alpha channel and dimensions are checked on
+  the bytes before either file is uploaded, so a mistake costs neither an
+  upload nor a round trip. A masked edit costs exactly what an ordinary
+  generation on the same model costs.
+
+  `--input` on `gen image` was previously declared and silently ignored.
+
+- **`gen video --audio-ref` reaches lip sync.** It takes an audio asset UUID
+  or a local file (uploaded first) and rides as `audio_asset_ids`, which is
+  what `heygen-avatar-iv` needs: one portrait as `--input` plus the voice
+  track it speaks. The clip is billed on that track's stored duration, so the
+  API accepts only an asset it can measure and derives the length itself —
+  leave `--duration-seconds` off. A model that takes no reference audio, and a
+  lip sync model given none, are both refused by name before the request.
+  (#168)
+
 ## v0.2.25
 
 - **The generated API client is refreshed against the current platform
