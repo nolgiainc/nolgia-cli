@@ -3,7 +3,7 @@
 Release notes for the Nolgia CLI. Each `## vX.Y.Z` section becomes the body of
 the matching GitHub release.
 
-## Unreleased
+## v0.2.26
 
 - **`nolgia auth login` is easier to follow.** The approval link now comes
   first, since it is what people click, and the CLI opens it in your default
@@ -59,6 +59,28 @@ the matching GitHub release.
   leave `--duration-seconds` off. A model that takes no reference audio, and a
   lip sync model given none, are both refused by name before the request.
   (#168)
+
+- **`gen video` no longer defaults to a dead route.** With no `--model`, a
+  video request went to `fal-ai/kling-video/v3/text-to-video`, whose provider
+  account has been empty since 2026-08-30, and surfaced as an upstream
+  timeout because the CLI forwards model ids verbatim by design. The default
+  is now `seedance-2.5`, the same id the API's own default moved to. The
+  bundled `nolgia-platform`, `nolgia-ugc-ads` and `nolgia-video-prompting`
+  skills move their Kling routing examples to `minimax-h3`. Kling ids typed
+  explicitly are still passed through unchanged.
+
+- **The generated API client is refreshed against the current platform
+  contract.** The `nolgia-client` crate now covers the MCP OAuth surface
+  (`/.well-known/oauth-authorization-server`, dynamic client registration at
+  `/oauth/register`, the authorization request, page and decision endpoints
+  under `/oauth/authorize`, token exchange at `/oauth/token` and revocation at
+  `/oauth/revoke`), the public model price list at `/pricing/models`, preset
+  page editing at `/presets/{slug}/page`, preset launch attribution for
+  admins, and the color preset list. Two of those operations accept both a
+  form body and a JSON body; the code generator cannot express that yet, so
+  `crates/client/build.rs` narrows them to JSON at codegen time while the
+  vendored spec stays byte-identical to the published one. Every change is
+  additive, so a v0.2.25 client keeps working against the same API.
 
 ## v0.2.25
 
