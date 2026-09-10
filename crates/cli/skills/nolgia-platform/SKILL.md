@@ -46,7 +46,7 @@ nolgia gen video --prompt "drone shot over a rocky coastline at dawn" \
   --out clip.mp4
 
 # Image-to-video (character/product consistency): --input uploads the file
-nolgia gen video --model fal-ai/kling-video/v3/pro/image-to-video \
+nolgia gen video --model minimax-h3 \
   --input portrait.png --prompt "she turns to camera and smiles" --out talk.mp4
 
 # Reference-to-video (remix existing footage; Seedance 2.0 Pro):
@@ -73,7 +73,7 @@ SECONDS]` extracts a still (default: last frame) to chain clips.
 
 | Model | Duration | Best for |
 |---|---|---|
-| `fal-ai/kling-video/v3/text-to-video` (`/master`, `/pro`) | 3–15s | drafts, volume, UGC |
+| `minimax-h3` | 5–15s | photoreal humans, identity across shots, native speech |
 | `fal-ai/bytedance/seedance/v2/pro/text-to-video` | 4–15s | cinematic, **multi-shot**, native audio |
 | `veo-3.1` / `veo-3.1-fast` | 4/6/8s only | hero quality / fast previz |
 

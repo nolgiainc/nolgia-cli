@@ -38,7 +38,7 @@ nolgia gen audio --prompt "<the 15s script>" --out vo.mp3
 ## 3. Talking-head base clip (15s, 9:16 — set it explicitly)
 
 ```bash
-nolgia gen video --model fal-ai/kling-video/v3/pro/image-to-video \
+nolgia gen video --model minimax-h3 \
   --input marcus.png --aspect-ratio 9:16 --duration-seconds 15 \
   --prompt "speaking to camera, natural mouth movement, small hand gestures, handheld selfie energy" \
   --out marcus_base.mp4
