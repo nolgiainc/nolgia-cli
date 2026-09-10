@@ -9239,7 +9239,12 @@ components:
         `nano-banana-2-lite` (Gemini 3.1 Flash Lite Image) the budget tier,
         both with the ten Gemini aspect ratios and reference-image editing.
         `grok-imagine-image-2.0` is the newest Grok Imagine image model, same
-        1k/2k tiers and aspect ratios as `grok-imagine-image`.
+        1k/2k tiers and aspect ratios as `grok-imagine-image`. The tiers are
+        not priced alike across the three Grok image models: xAI charges one
+        rate at both resolutions on `grok-imagine-image`, but more at 2k on
+        `grok-imagine-image-quality` and `grok-imagine-image-2.0`, where 2k is
+        a premium tier. Read the per-tier credits from `GET /models` rather
+        than assuming the base rate applies to every tier.
 
         Four fal-hosted families ship as ONE id each; the server dispatches
         the family's edit route whenever a reference image rides the request
