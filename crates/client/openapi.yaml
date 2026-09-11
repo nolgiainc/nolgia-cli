@@ -9899,6 +9899,12 @@ components:
           type: string
           nullable: true
           maxLength: 255
+          description: >
+            Original filename. Its stem (the extension is dropped) becomes the
+            asset's `display_name`, exactly as it does on the signed-upload
+            route, so the file is recognisable in a later listing. Omit it and
+            the asset gets the generic automatic name for its modality.
+          examples: ['brand-wordmark.png']
         project_id:
           type: string
           format: uuid
@@ -11493,8 +11499,9 @@ components:
           maxLength: 200
           description: >
             Human-readable display name. Always present in responses; empty
-            string when unset. Set it at upload time (`POST /assets/uploads`)
-            or later via `PATCH /assets/{id}`.
+            string when unset. Set it at upload time from `filename`, on either
+            upload route (`POST /assets` and `POST /assets/uploads`), or later
+            via `PATCH /assets/{id}`.
           examples: ['Hero shot v2']
         prompt:
           type: string
@@ -17420,6 +17427,81 @@ components:
           type: string
           maxLength: 400
           description: Customer copy shown on the review screen next to the Create button.
+        scene:
+          $ref: '#/components/schemas/PresetIntakeScene'
+
+    PresetIntakeScene:
+      type: object
+      additionalProperties: false
+      required: [model, prompt]
+      description: >-
+        ONE scene from an `agent` preset, renderable in a single generation.
+
+
+        An agent preset is a production: several shots, a timeline, captions,
+        an identity held across cuts. That needs a NOLGIA Agent session or the
+        Studio, and neither is reachable from a surface that can only call a
+        tool and read the answer, so a chat client had no way to finish one and
+        simply stopped at the brief.
+
+
+        This is the representative scene it can finish: the preset's own visual
+        language as a prompt, with the customer's answers appended as the
+        brief, rendered in one call. It does NOT replace the production and
+        must never be described as one. It exists so a conversation ends with
+        something the person can watch, next to the brief that runs the whole
+        thing.
+
+
+        Asset answers still attach: any `attach`-bound asset rides as a
+        reference on the scene call, up to the scene model's own limit.
+      properties:
+        model:
+          type: string
+          minLength: 1
+          maxLength: 120
+          description: >-
+            The model the scene renders on. Validated against the catalog and
+            against the preset's output type, exactly like a `create_*` target.
+          examples: ['seedance-2.5']
+        prompt:
+          type: string
+          minLength: 1
+          maxLength: 3000
+          description: >-
+            The scene's visual language, written by the preset author. The
+            customer's answers are appended to it at run time, so this is a
+            direction and not a complete prompt; leave room under the model's
+            own prompt ceiling for them.
+        aspect_ratio:
+          type: string
+          maxLength: 16
+          description: Aspect ratio for the scene, when the preset wants one regardless of the intake's own choice step.
+        duration_seconds:
+          type: integer
+          minimum: 1
+          maximum: 60
+          description: Clip length for a video scene. Omitted leaves the model's default.
+        reference_field:
+          type: string
+          enum: [element_ids, reference_asset_ids, video_asset_ids, image_url]
+          description: >-
+            Where the customer's asset answers ride on the scene request. There
+            is no safe default here and it is deliberately not guessed: the same
+            picture is `element_ids` on one video model and `reference_asset_ids`
+            on another, and a colour grade needs `video_asset_ids` because it
+            works on footage rather than from a still. Validated against the
+            scene model's declared reference capacity, so a field the model does
+            not accept is refused at write time. Omitted means the scene takes
+            no references and any asset answers stay in the brief alone.
+        note:
+          type: string
+          maxLength: 400
+          description: >-
+            Customer copy returned with the scene, saying what it is and what
+            the full production adds. A default is supplied when this is empty,
+            because a scene that does not explain itself reads as the preset
+            underdelivering.
 
     PresetIntakeChoiceOption:
       type: object
