@@ -10203,6 +10203,11 @@ components:
         `veo-3.1-fast`, 720p default and a 1080p tier. HappyHorse 1.1
         (`happyhorse-1.1`) and HappyHorse 1.0 (`happyhorse-1.0`) render silent
         5 to 15 second clips at 720p/1080p from text or a start image.
+        SeeGen HappyHorse R2V (`happyhorse-1.1-r2v`) renders 3 to 15 second
+        clips with audio from 1 to 9 required reference images. SeeGen
+        HappyHorse Video Edit (`happyhorse-1.0-video-edit`) rewrites one
+        required 2 to 15 second source clip, with up to 5 optional reference
+        images; both SeeGen routes offer 720p/1080p and an honored seed.
         Seedance 1.5 Pro (`seedance-1-5-pro`) is the budget Seedance flagship:
         4 to 12 second clips at 480p/720p/1080p with the same start/end frame
         and reference-image surface as 2.5, and the one Seedance route whose
@@ -10243,6 +10248,8 @@ components:
         - wan-2.6
         - happyhorse-1.1
         - happyhorse-1.0
+        - happyhorse-1.1-r2v
+        - happyhorse-1.0-video-edit
         - seedance-2.5
         - seedance-2.0-fast
         - seedance-2.0-mini
