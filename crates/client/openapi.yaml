@@ -4012,7 +4012,8 @@ paths:
           Text fidelity is approximate: authored CSS is NOT applied.
 
         The canvas size comes from `data-width`/`data-height` on the root
-        container (default 1080x1920). Everything else — styled `<div>`s,
+        container, else the composition's `meta.width`/`meta.height`, else
+        1920x1080. Everything else — styled `<div>`s,
         GSAP-only animation, unknown tags, unresolvable media — is skipped
         and recorded in the render's `warnings` array.
       parameters:
@@ -8033,6 +8034,26 @@ components:
           allOf:
             - $ref: '#/components/schemas/UserOrganization'
           description: The organization the user is currently working in, or `null` in the personal space.
+
+        generation_limits:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/GenerationLimits'
+          description: Current shared generation concurrency across image, audio, and video.
+
+    GenerationLimits:
+      type: object
+      additionalProperties: false
+      required: [concurrent_max, concurrent_active]
+      properties:
+        concurrent_max:
+          type: integer
+          minimum: 1
+          description: Maximum generations this account may run at once on its effective plan.
+        concurrent_active:
+          type: integer
+          minimum: 0
+          description: Generations currently running across image, audio, and video.
 
     # --- Organizations -------------------------------------------------------
 
@@ -12781,6 +12802,13 @@ components:
           maxLength: 160
           description: Server-built human-readable one-liner.
           examples: ['Video generation succeeded (fal-ai/kling-video/v3)']
+        error_detail:
+          type: string
+          nullable: true
+          maxLength: 220
+          description: >
+            User-facing failure reason for `generation.failed`; absent for
+            every other event kind.
         refs:
           $ref: '#/components/schemas/ActivityEventRefs'
 
