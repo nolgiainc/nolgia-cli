@@ -718,6 +718,7 @@ mod tests {
             active_organization,
             created_at: chrono::Utc::now(),
             email: "ada@nolgia.ai".into(),
+            generation_limits: None,
             id: Uuid::nil(),
             image_url: None,
             name: None,
