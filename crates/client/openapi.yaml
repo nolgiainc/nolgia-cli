@@ -5499,7 +5499,9 @@ paths:
 
         Connect sequence: `retry:` hint, then (given `Last-Event-ID`) the
         replayed `message` frames, then a `session_status` snapshot frame per
-        currently-active session of the caller's, then a `ready` frame whose
+        session of the caller's that has an agent turn (running, queued, or
+        settled with its `last_turn_work_observed`, so a verdict missed while
+        disconnected is restored; NOL-813), then a `ready` frame whose
         `id:` is the session's current watermark and whose `replay` field
         reports `none` (no usable Last-Event-ID; hydrate via
         `GET /agent/messages`), `complete` (fully caught up) or `truncated`
@@ -14458,6 +14460,16 @@ components:
         state:
           type: string
           enum: [running, queued, idle]
+        last_turn_work_observed:
+          type: boolean
+          nullable: true
+          description: >
+            The session's `last_turn_work_observed` as of this flip: the
+            `work_observed` verdict of the reply whose write produced the
+            frame. Null while the turn is pending or when unknown. The
+            verdict is written moments after the reply settles, so an
+            `idle` flip may arrive twice: first with null, then carrying
+            the verdict (NOL-813).
 
     AgentSessionStepEvent:
       type: object
@@ -14545,6 +14557,18 @@ components:
             signal (NOL-150). Sessions run independently: several sessions
             may be `pending` at once (up to the concurrent execution cap
             executing, the rest queued — see `last_turn_queued`).
+        last_turn_work_observed:
+          type: boolean
+          nullable: true
+          description: >
+            Whether the session's newest agent turn produced work: the
+            `work_observed` verdict of that turn's reply (`false` means it
+            completed without calling a tool or producing an asset, `true`
+            means it did). Null while the last turn is pending or when
+            unknown (a failed turn, a turn the platform did not evaluate,
+            a session with no agent turns yet). Lets a sessions list say
+            "replied" instead of "ready" for a chat that only answered,
+            without opening its transcript (NOL-813).
         last_turn_queued:
           type: boolean
           nullable: true
