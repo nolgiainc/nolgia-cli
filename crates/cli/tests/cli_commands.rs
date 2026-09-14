@@ -2212,6 +2212,31 @@ async fn account_me_outputs_email() {
     run_ok(&api, &["account", "me"]).stdout(predicate::str::contains("ada@nolgia.ai"));
 }
 
+/// The spec added a nullable `generation_limits` object to `User` (shared
+/// generation concurrency). The `User` schema is `additionalProperties: false`
+/// and the generated client is strict about it, so the CLI must deserialize the
+/// field when present and pass it through `--json` unchanged. Text output stays
+/// `id email`.
+#[tokio::test]
+async fn account_me_json_carries_generation_limits() {
+    let api = MockServer::start().await;
+    let mut user = user_json();
+    user["generation_limits"] = json!({"concurrent_max": 4, "concurrent_active": 1});
+    Mock::given(method("GET"))
+        .and(path("/v1/me"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(user))
+        .mount(&api)
+        .await;
+    let out = run_ok(&api, &["--json", "account", "me"])
+        .get_output()
+        .stdout
+        .clone();
+    let value: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    assert_eq!(value["email"], "ada@nolgia.ai");
+    assert_eq!(value["generation_limits"]["concurrent_max"], 4);
+    assert_eq!(value["generation_limits"]["concurrent_active"], 1);
+}
+
 #[tokio::test]
 async fn account_usage_combines_jobs_and_assets() {
     let api = MockServer::start().await;
