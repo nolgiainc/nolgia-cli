@@ -1472,10 +1472,13 @@ paths:
 
 
         The response is authoritative (RFC 7591 §3.2.1): a request asking for
-        more than this server implements — a refresh grant, a confidential
-        `token_endpoint_auth_method` — succeeds and is answered with the
-        narrowed set it actually got. Only a request with no overlap at all is
-        refused.
+        more than this server implements, such as a confidential
+        `token_endpoint_auth_method`, succeeds and is answered with the
+        narrowed set it actually got. When provided, `grant_types` must include
+        `authorization_code`; `response_types` must include `code`. The
+        `grant_types` answered are the ones the token endpoint enforces for
+        this client: list `refresh_token` to be issued refresh tokens, since
+        an omitted `grant_types` registers `authorization_code` alone.
       security: []
       requestBody:
         required: true
@@ -1653,20 +1656,36 @@ paths:
     post:
       tags: [Auth]
       operationId: exchangeOAuthToken
-      summary: Redeem a single-use authorization code for an access token.
+      summary: Exchange an authorization code or refresh token for an access token.
       description: >
         Form-encoded per RFC 6749; a JSON body is also accepted because some
-        MCP clients send one. The PKCE `code_verifier` is verified against the
-        challenge recorded at authorization time.
+        MCP clients send one. The `authorization_code` grant requires `code`
+        and a PKCE `code_verifier` matching the challenge recorded at
+        authorization time. The `refresh_token` grant requires `refresh_token`
+        instead, without a code or PKCE verifier. Identify the client with
+        `client_id` in the body or the HTTP Basic username.
 
 
-        The issued access token is a normal personal API token (`nol_...`).
-        That is the load-bearing decision of this whole flow: a connector's
-        credential rides the same billing channel, the same per-user cap and
-        the same revocation UI as one created by hand, and no new
-        authentication path exists anywhere in the API. Consequently there are
-        no refresh tokens and no `expires_in` — the token lives until it is
-        revoked.
+        The issued access token is a normal personal API token (`nol_...`),
+        using the same billing channel, per-user cap and revocation UI as one
+        created by hand. There is no `expires_in`: the access token remains
+        valid until revoked, including replacement during refresh rotation.
+
+
+        Both successful grants return an access token, plus a refresh token
+        when the client registered for the `refresh_token` grant, issued
+        atomically with consumption of the code or refresh token. A client
+        registered for `authorization_code` alone is refused the refresh grant
+        with `unauthorized_client`.
+        A temporary issuance failure returns `503 temporarily_unavailable`
+        with `Retry-After`, without issuing a PAT or consuming the code or
+        refresh token. Retry the same grant after the indicated delay.
+
+
+        Refresh tokens are single use and bound to the client. Store the
+        replacement returned by each refresh rather than reusing the previous
+        token. Replaying a spent refresh token revokes its family and associated
+        access tokens; the connector must authorize again.
       security: []
       requestBody:
         required: true
@@ -1690,6 +1709,24 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/OAuthErrorResponse'
+        '503':
+          description: >
+            Temporarily unavailable. Token issuance was rolled back without
+            issuing a PAT or consuming the authorization code or refresh token.
+            Retry the same grant after the Retry-After delay.
+          headers:
+            Retry-After:
+              description: Seconds to wait before retrying.
+              schema:
+                type: integer
+                examples: [5]
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthErrorResponse'
+              example:
+                error: temporarily_unavailable
+                error_description: the token operation failed; retry the request
         default:
           $ref: '#/components/responses/ProblemResponse'
 
@@ -1697,18 +1734,24 @@ paths:
     post:
       tags: [Auth]
       operationId: revokeOAuthToken
-      summary: Revoke an access token issued to a connector (RFC 7009).
+      summary: Revoke an access or refresh token issued to a connector (RFC 7009).
       description: >
         Answers `200` for an unknown, malformed or already-revoked token, as
         RFC 7009 §2.2 requires: any other answer would make this endpoint an
         oracle for guessing tokens.
 
 
-        Honouring revocation matters more here than on a typical authorization
-        server. The access token is a personal API token and an account may
-        hold only ten, so a connector that re-authorizes on each reconnect —
-        normal behaviour — would otherwise walk the user into "maximum active
-        api keys reached" and strand them until they pruned the list by hand.
+        Possession of the refresh token is sufficient for revocation; no
+        `client_id` is required. If supplied in the body or HTTP Basic username,
+        the client identifier must match the refresh token's client. A mismatch
+        returns a silent `200` without revoking anything. `token_type_hint` is
+        advisory and does not restrict which token type can be revoked.
+
+
+        Revoking a refresh token atomically revokes its entire refresh family
+        and associated personal API tokens. Database failures return
+        `503 temporarily_unavailable` with `Retry-After`, rather than falsely
+        acknowledging revocation. Retry after the indicated delay.
       security: []
       requestBody:
         required: true
@@ -1728,6 +1771,24 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/OAuthErrorResponse'
+        '503':
+          description: >
+            Temporarily unavailable. Revocation could not be completed due to
+            an infrastructure failure. Refresh-family revocation is atomic,
+            including associated PATs. Retry after the Retry-After delay.
+          headers:
+            Retry-After:
+              description: Seconds to wait before retrying.
+              schema:
+                type: integer
+                examples: [5]
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthErrorResponse'
+              example:
+                error: temporarily_unavailable
+                error_description: the token operation failed; retry the request
         default:
           $ref: '#/components/responses/ProblemResponse'
 
@@ -18287,7 +18348,7 @@ components:
           type: array
           items:
             type: string
-          examples: [['authorization_code']]
+          examples: [['authorization_code', 'refresh_token']]
         code_challenge_methods_supported:
           type: array
           description: Always contains `S256`. PKCE is required on every authorization.
@@ -18344,9 +18405,14 @@ components:
           examples: [['https://claude.ai/api/mcp/auth_callback']]
         grant_types:
           type: array
+          description: >
+            When supplied, must include `authorization_code` to establish the
+            connection; list `refresh_token` as well to be issued refresh
+            tokens. Omitted means `authorization_code` alone (RFC 7591 §2).
+            Unsupported grants are dropped from the response, not refused.
           items:
             type: string
-          examples: [['authorization_code']]
+          examples: [['authorization_code', 'refresh_token']]
         response_types:
           type: array
           items:
@@ -18389,9 +18455,13 @@ components:
             format: uri
         grant_types:
           type: array
+          description: >
+            The grants this client may use at the token endpoint: always
+            `authorization_code`, plus `refresh_token` when the registration
+            asked for it. Authoritative (RFC 7591 §3.2.1) and enforced.
           items:
             type: string
-          examples: [['authorization_code']]
+          examples: [['authorization_code', 'refresh_token']]
         response_types:
           type: array
           items:
@@ -18456,24 +18526,38 @@ components:
 
     OAuthTokenRequest:
       type: object
-      required: [grant_type, code, code_verifier]
+      description: >
+        For `authorization_code`, supply `code` and `code_verifier`.
+        For `refresh_token`, supply `refresh_token` instead.
+        Identify the client using `client_id` or the HTTP Basic username.
+      required: [grant_type]
       properties:
         grant_type:
           type: string
-          enum: [authorization_code]
+          enum: [authorization_code, refresh_token]
         code:
           type: string
-          description: Single use. A replay is refused with `invalid_grant`, indistinguishably from an unknown code.
+          description: >
+            Required for `authorization_code`. Single use. A replay is refused
+            with `invalid_grant`, indistinguishably from an unknown code.
         code_verifier:
           type: string
           minLength: 43
           maxLength: 128
+          description: Required for `authorization_code`; not needed for `refresh_token`.
+        refresh_token:
+          type: string
+          description: >
+            Required for `refresh_token`. The single-use refresh token from a
+            previous token response, issued to this client. A successful refresh
+            consumes it; use the replacement from the response for the next refresh.
         client_id:
           type: string
-          description: May instead be carried as the HTTP Basic username.
+          description: Identifies the client. May instead be carried as the HTTP Basic username.
         redirect_uri:
           type: string
           format: uri
+          description: For `authorization_code`, must match the authorization request when supplied.
         resource:
           type: string
           format: uri
@@ -18486,11 +18570,20 @@ components:
           type: string
           description: >
             A personal API token (`nol_...`), listed and revocable in
-            /settings/api-tokens like any other.
+            /settings/api-tokens like any other. No `expires_in` is returned:
+            it remains valid until revoked, including during refresh rotation.
           examples: ['nol_1a2b3c4d...']
         token_type:
           type: string
           examples: ['Bearer']
+        refresh_token:
+          type: string
+          description: >
+            Single-use refresh token bound to the client. Present on both
+            grants when the client registered for `refresh_token`; absent for
+            a client registered for `authorization_code` alone. On a refresh
+            response it replaces the submitted token, which must not be
+            reused. Access and refresh tokens are issued atomically.
         scope:
           type: string
           examples: ['mcp']
@@ -18501,9 +18594,17 @@ components:
       properties:
         token:
           type: string
+          description: Access token or refresh token to revoke. Possession is sufficient.
         token_type_hint:
           type: string
-          examples: ['access_token']
+          description: Advisory only; either token type is accepted regardless of the hint.
+          examples: ['access_token', 'refresh_token']
+        client_id:
+          type: string
+          description: >
+            Optional client identifier, also accepted as the HTTP Basic username.
+            If supplied when revoking a refresh token, it must match the token's
+            client; a mismatch returns a silent 200 without revoking anything.
 
     OAuthErrorResponse:
       type: object
