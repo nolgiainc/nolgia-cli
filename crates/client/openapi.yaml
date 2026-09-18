@@ -9592,7 +9592,8 @@ components:
           minimum: 0
           description: |
             Maximum reference audio tracks per request (`audio_asset_ids` +
-            `audio_urls` combined, each at most 15s). 0 when unsupported.
+            `audio_urls` combined; each at most `audio_refs_max_seconds`
+            where the model publishes one). 0 when unsupported.
         voice_refs_max:
           type: integer
           minimum: 1
@@ -10363,9 +10364,14 @@ components:
         480p/768p tiers. Seedance 2.5 (`seedance-2.5`): 4 to 30 second clips
         at 480p/720p/1080p (1080p at 16:9 and 9:16 only, see the tier's
         `quality.options[].aspect_ratios`) from text, a start and/or end
-        image, or up to 9 reference images, optional audio. Seedance 2.0 Fast and Mini
+        image, or references (up
+        to 9 images, 10 videos and 10 audio tracks on its SeeGen
+        omni-reference route: extend or edit a clip of up to 30 seconds),
+        optional audio. Seedance 2.0 Fast and Mini
         (`seedance-2.0-fast`, `seedance-2.0-mini`) are the budget Seedance
-        routes: the same modes as 2.5 on 4 to 15 second clips at 480p/720p.
+        routes: the same text, start/end-frame and image-reference modes as
+        2.5 (no reference video or audio) on 4 to 15 second clips at
+        480p/720p.
         Veo 3.1 Lite (`veo-3.1-lite`) is the budget Veo 3.1 tier with the
         same 4/6/8 second, start-frame and ingredient-image surface as
         `veo-3.1-fast`, 720p default and a 1080p tier. HappyHorse 1.1
@@ -11083,18 +11089,22 @@ components:
         video_asset_ids:
           type: array
           nullable: true
-          maxItems: 3
+          maxItems: 10
           description: >-
             Reference videos for models with `references.video_refs_max > 0`
-            on `GET /models` (`fal-ai/bytedance/seedance/v2/pro/reference-to-video`;
+            on `GET /models` (`seedance-2.5`: up to 10;
+            `fal-ai/bytedance/seedance/v2/pro/reference-to-video`: up to 3;
             `minimax-h3` takes none), given as ids of your video assets — the server
             resolves each to a signed URL and forwards them as the provider's
-            `video_urls`. Address them in the prompt as `@Video1`..`@Video3`
+            `video_urls`. Address them in the prompt as `@Video1`..`@VideoN`
             (optionally with `[0-3s]`-style timeline markers). Provider
-            constraints, enforced where asset metadata allows: at most 3
-            videos combined with `video_urls`, MP4/MOV, 2–15 seconds
-            combined; Seedance additionally requires 480p–720p input and 50MB
-            total. This is the recommended way to pass reference videos.
+            constraints, enforced where asset metadata allows: at most
+            `video_refs_max` videos combined with `video_urls` (never more
+            than 10), MP4/MOV, 50MB total. Seedance 2.5 takes 2–30 seconds
+            combined (extend or edit a clip of up to 30 seconds on its
+            SeeGen omni-reference route); Seedance 2.0 Pro r2v takes 2–15
+            seconds combined and additionally requires 480p–720p input. This
+            is the recommended way to pass reference videos.
 
 
             Pricing: on `flux-3-video`, attaching a reference video selects
@@ -11110,11 +11120,12 @@ components:
         video_urls:
           type: array
           nullable: true
-          maxItems: 3
+          maxItems: 10
           description: >-
             Raw https reference-video URLs, for callers that host media
-            outside Nolgia. Counted against the same 3-video cap as
-            `video_asset_ids` (external URLs cannot be validated for
+            outside Nolgia. Counted against the same per-model cap as
+            `video_asset_ids` (`references.video_refs_max`, never more than
+            10; external URLs cannot be validated for
             duration/size/resolution server-side — the provider rejects
             violations). Prefer `video_asset_ids`.
           items:
@@ -11149,26 +11160,29 @@ components:
         audio_asset_ids:
           type: array
           nullable: true
-          maxItems: 3
+          maxItems: 10
           description: >-
             Reference audio tracks for models with
-            `references.audio_refs_max > 0` on `GET /models` (`minimax-h3`;
-            Seedance 2.0 Pro r2v takes none, its primary route has no
-            reference-audio slot), given as ids of your audio assets —
-            resolved to signed URLs and forwarded as the provider's
-            `audio_urls`. At most 3 combined with
-            `audio_urls`; each track at most 15 seconds (enforced where the
-            asset's stored duration allows).
+            `references.audio_refs_max > 0` on `GET /models` (`seedance-2.5`:
+            up to 10 with no per-track ceiling; `minimax-h3`: up to 3, each
+            at most 15 seconds; Seedance 2.0 Pro r2v takes none, its primary
+            route has no reference-audio slot), given as ids of your audio
+            assets — resolved to signed URLs and forwarded as the provider's
+            `audio_urls`. At most `audio_refs_max` combined with `audio_urls`
+            (never more than 10); where the model publishes a per-track
+            ceiling (`references.audio_refs_max_seconds`) it is enforced
+            where the asset's stored duration allows.
           items:
             type: string
             format: uuid
         audio_urls:
           type: array
           nullable: true
-          maxItems: 3
+          maxItems: 10
           description: >-
-            Raw https reference-audio URLs. Counted against the same 3-track
-            cap as `audio_asset_ids`. Prefer `audio_asset_ids`.
+            Raw https reference-audio URLs. Counted against the same
+            per-model cap as `audio_asset_ids` (`references.audio_refs_max`,
+            never more than 10). Prefer `audio_asset_ids`.
           items:
             type: string
             format: uri
