@@ -11681,6 +11681,26 @@ components:
         prompt:
           type: string
           nullable: true
+          description: >
+            The prompt as the customer submitted it. On image generations
+            this is the primary prompt field: when the server enhanced the
+            prompt before rendering (the Aura realism layer, a character or
+            element description folded in), the customer's own words stay
+            here and the composed text is in `enhanced_prompt`. Video and
+            audio assets carry the prompt as dispatched.
+        enhanced_prompt:
+          type: string
+          nullable: true
+          description: >
+            Image generations only: the server-composed prompt that was
+            actually rendered, present only when it differs from `prompt`
+            (the Aura layer enhanced the prompt, or a character's or
+            element's canonical description was folded in). Null or absent
+            when the render used the customer's prompt verbatim, on video
+            and audio assets, and on assets generated before this field
+            existed. Lets a client show the enhanced prompt next to the
+            customer's own.
+          examples: ['a red fox in tall grass at golden hour, RENARD: a slender red fox with a white-tipped tail, shallow depth of field']
         signed_url:
           type: string
           format: uri
