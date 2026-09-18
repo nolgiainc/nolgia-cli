@@ -9680,6 +9680,18 @@ components:
           description: |
             Marks a premium (highest-quality, higher credit cost) tier so
             clients can present it distinctly from standard options.
+        aspect_ratios:
+          type: array
+          items:
+            type: string
+          description: |
+            When present, the tier renders at these aspect ratios ONLY (a
+            subset of the model's `video.aspect_ratios`); a request pairing
+            the tier with any other `aspect_ratio` is refused with a 400
+            before any credits are held. Absent when the tier renders at
+            every aspect ratio the model lists. Example: `seedance-2.5` 1080p
+            is published at 16:9 and 9:16 only.
+          examples: [['16:9', '9:16']]
 
     VideoCapabilities:
       type: object
@@ -10278,8 +10290,9 @@ components:
         image. MiniMax H3 Max (`minimax/h3-max/text-to-video` and
         `minimax/h3-max/image-to-video`) is the post-trained H3 variant with
         480p/768p tiers. Seedance 2.5 (`seedance-2.5`): 4 to 30 second clips
-        at 480p/720p from text, a start and/or end image, or up to 9
-        reference images, optional audio. Seedance 2.0 Fast and Mini
+        at 480p/720p/1080p (1080p at 16:9 and 9:16 only, see the tier's
+        `quality.options[].aspect_ratios`) from text, a start and/or end
+        image, or up to 9 reference images, optional audio. Seedance 2.0 Fast and Mini
         (`seedance-2.0-fast`, `seedance-2.0-mini`) are the budget Seedance
         routes: the same modes as 2.5 on 4 to 15 second clips at 480p/720p.
         Veo 3.1 Lite (`veo-3.1-lite`) is the budget Veo 3.1 tier with the
