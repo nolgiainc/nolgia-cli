@@ -12218,12 +12218,74 @@ components:
           description: Reference images (image assets) in display order, each with a fresh signed URL.
           items:
             $ref: '#/components/schemas/Asset'
+        motion_reference_assets:
+          type: array
+          maxItems: 3
+          description: |
+            Motion reference clips (video assets, display order, fresh signed
+            URLs): short walking or gesture footage of the subject. A video
+            generation that casts this character on a model with
+            `references.video_refs_max > 0` attaches these clips as reference
+            videos (`video_asset_ids`) up to the model's cap, so later
+            generations carry the subject's motion and body, not only the
+            face. Optional in the schema only so existing clients keep
+            parsing; the API always sends it (empty when none).
+          items:
+            $ref: '#/components/schemas/Asset'
+        wardrobe:
+          type: array
+          maxItems: 12
+          description: |
+            Named outfits stored on the character (the wardrobe sheet): each
+            carries up to 3 exact-garment reference images and costume notes.
+            A sheet generation picks one by name (`outfit` on
+            `POST /characters/{id}/sheets`) and its references ride as
+            `wearable_reference_asset_ids`. Always sent (empty when none).
+          items:
+            $ref: '#/components/schemas/CharacterWardrobeOutfit'
         created_at:
           type: string
           format: date-time
         updated_at:
           type: string
           format: date-time
+
+    CharacterWardrobeOutfit:
+      type: object
+      additionalProperties: false
+      required: [name]
+      description: |
+        One named outfit of a character's wardrobe. `name` identifies it
+        within the character (unique, case-insensitive); `reference_asset_ids`
+        name image assets owned by the caller showing the exact garments;
+        `notes` are costume notes folded into the sheet prompt after the
+        canonical description. On a read the API also sends
+        `reference_assets` (the same ids resolved to signed assets, deleted
+        assets dropped) and echoes `reference_asset_ids` and `notes`.
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+          examples: ['Flight suit']
+        reference_asset_ids:
+          type: array
+          maxItems: 3
+          description: IDs of existing image assets owned by the caller, in display order.
+          items:
+            type: string
+            format: uuid
+        notes:
+          type: string
+          maxLength: 500
+          description: Costume notes (fabric, fit, colour, accessories) for this outfit.
+        reference_assets:
+          type: array
+          readOnly: true
+          maxItems: 3
+          description: The outfit's reference images with fresh signed URLs (read only).
+          items:
+            $ref: '#/components/schemas/Asset'
 
     CharacterList:
       type: object
@@ -12272,6 +12334,23 @@ components:
           items:
             type: string
             format: uuid
+        motion_reference_asset_ids:
+          type: array
+          minItems: 0
+          maxItems: 3
+          description: |
+            IDs of existing VIDEO assets owned by the caller (short walking or
+            gesture clips), in display order. See
+            `Character.motion_reference_assets`.
+          items:
+            type: string
+            format: uuid
+        wardrobe:
+          type: array
+          maxItems: 12
+          description: Named outfits stored on the character. See `Character.wardrobe`.
+          items:
+            $ref: '#/components/schemas/CharacterWardrobeOutfit'
 
     UpdateCharacterRequest:
       type: object
@@ -12309,6 +12388,22 @@ components:
           items:
             type: string
             format: uuid
+        motion_reference_asset_ids:
+          type: array
+          nullable: true
+          minItems: 0
+          maxItems: 3
+          description: Replaces the full set of motion reference clips (video assets) when provided.
+          items:
+            type: string
+            format: uuid
+        wardrobe:
+          type: array
+          nullable: true
+          maxItems: 12
+          description: Replaces the full wardrobe (every named outfit) when provided.
+          items:
+            $ref: '#/components/schemas/CharacterWardrobeOutfit'
 
     CharacterSheetKind:
       type: string
@@ -12340,6 +12435,17 @@ components:
           items:
             type: string
             format: uuid
+        outfit:
+          type: string
+          nullable: true
+          maxLength: 80
+          description: |
+            The name of one of the character's wardrobe outfits
+            (`Character.wardrobe`). Its reference images ride as wearable
+            references alongside any `wearable_reference_asset_ids` (3 in
+            total, never trimmed: an overflow is a 400) and its notes are
+            folded into the sheet prompt after the canonical description.
+            An unknown name is a 400.
         project_id:
           type: string
           format: uuid
