@@ -3364,6 +3364,77 @@ paths:
         default:
           $ref: '#/components/responses/ProblemResponse'
 
+  /projects/{id}/characters:
+    get:
+      tags: [Projects]
+      operationId: listProjectCharacters
+      summary: List a project's cast (characters attached to every generation in the project).
+      description: >
+        The cast is the ordered set of the library's characters this project
+        pulls by default: composers auto-attach it when the project is
+        active, project-scoped agent sessions receive it as context, and
+        cloning a project copies it. Each member carries the full Character
+        with fresh signed reference URLs.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The project's cast in display order.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectCastList'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+    put:
+      tags: [Projects]
+      operationId: setProjectCharacters
+      summary: Replace a project's cast.
+      description: >
+        Replaces the whole cast with the given list, in the given order
+        (positions are renumbered from 0). Every character must exist in the
+        caller's library; duplicates keep their first position. An empty list
+        clears the cast.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetProjectCastRequest'
+      responses:
+        '200':
+          description: The replaced cast in display order.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectCastList'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
   /projects/{id}/renders:
     get:
       tags: [Projects]
@@ -12402,6 +12473,64 @@ components:
             `true` archives the project (idempotent; an existing archive
             timestamp is kept), `false` restores it. Omit to leave the archive
             state unchanged.
+
+    ProjectCastMember:
+      type: object
+      additionalProperties: false
+      required: [character_id, role, sort_order, character]
+      description: One character in a project's cast.
+      properties:
+        character_id:
+          type: string
+          format: uuid
+        role:
+          type: string
+          maxLength: 80
+          description: The part the character plays in this project (free text, may be empty).
+          examples: ['lead']
+        sort_order:
+          type: integer
+          minimum: 0
+          description: Display and auto-attach position, dense from 0.
+        character:
+          $ref: '#/components/schemas/Character'
+
+    ProjectCastList:
+      type: object
+      additionalProperties: false
+      required: [cast]
+      properties:
+        cast:
+          type: array
+          maxItems: 50
+          items:
+            $ref: '#/components/schemas/ProjectCastMember'
+
+    ProjectCastEntry:
+      type: object
+      additionalProperties: false
+      required: [character_id]
+      properties:
+        character_id:
+          type: string
+          format: uuid
+          description: A character in the caller's library.
+        role:
+          type: string
+          maxLength: 80
+          description: The part the character plays in this project; omitted or empty means none.
+
+    SetProjectCastRequest:
+      type: object
+      additionalProperties: false
+      required: [cast]
+      properties:
+        cast:
+          type: array
+          maxItems: 50
+          description: The full cast in display order; an empty list clears it.
+          items:
+            $ref: '#/components/schemas/ProjectCastEntry'
 
     AddProjectAssetsRequest:
       type: object
