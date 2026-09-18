@@ -1923,6 +1923,83 @@ paths:
         default:
           $ref: '#/components/responses/ProblemResponse'
 
+  /generate/video/enhance-prompt:
+    post:
+      tags: [Generate]
+      operationId: enhanceVideoPrompt
+      summary: Rewrite a video prompt for the model it will run on (signed in; 1 credit).
+      description: |
+        One-click, model-aware prompt enhancement for the video composer.
+        Sends the customer's plain prompt plus the run's settings (`model`,
+        `duration_seconds`, `has_references`, `generate_audio`, `aspect_ratio`)
+        to the cheapest brain in the roster with a system prompt built from a
+        per-model guidance table, and returns ONE rewritten prompt that is
+        runnable as it is on `POST /generate/video` plus short `notes` on what
+        changed. Seedance 2.5 (`seedance-2.5`) has its own entry (4 to 30
+        second single pass, native audio and speech, a timestamped shot plan
+        with one action and one camera move per beat, what to preserve, what
+        to avoid, no on-screen text); every other video model gets a generic
+        entry built from the model's published capabilities (durations,
+        audio, speech, aspect ratios, references, end frame). The rewrite
+        keeps the customer's subject, named references (`@Image1`,
+        `@Name`), brands and people, and never adds a real brand or person
+        the prompt did not name. Nothing is generated and nothing fires
+        automatically: the caller decides whether to use the result.
+
+        Billed like preset suggestions: a one-credit hold is taken before
+        the call (`402` when the account cannot cover it), the call runs with
+        strict JSON output (one retry on an invalid reply), and the hold
+        settles at `ceil(provider cost / $0.018)` with a floor of 1 credit,
+        refunded if the provider fails. The ledger row reads "Prompt
+        enhancement · {model}". Rate limited to 20 calls per minute per
+        account (`429`), shared with preset suggestions.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VideoPromptEnhanceRequest'
+            examples:
+              seedance:
+                summary: A plain scene for Seedance 2.5
+                value:
+                  model: seedance-2.5
+                  prompt: 'A barista pours latte art in a sunny cafe, slow and calm'
+                  duration_seconds: 8
+                  generate_audio: true
+                  aspect_ratio: '16:9'
+      responses:
+        '200':
+          description: The rewritten prompt, the notes and what the call charged.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VideoPromptEnhanceResponse'
+              examples:
+                seedance:
+                  summary: The rewrite for the example above
+                  value:
+                    prompt: 'A barista in a linen apron pours latte art at a sunlit wooden counter, morning light through a tall window, steam rising, a calm unhurried mood. Shot on Alexa Mini, 50mm at T2.0, Kodak Vision3 250D look, soft window light as the only source. [0-2s] Medium shot from across the counter, static tripod, the pitcher tilts and the first pour lands. [2-4s] Slow push-in to a tight close-up on the cup as the rosette forms. [4-6s] Macro rack focus from the pour to the barista''s steady hands. [6-8s] The pitcher lifts, the cup slides forward toward the lens, hold. Sound: the hiss of steam, the soft pour, quiet cafe room tone, no music. No on-screen text, no captions, no watermark.'
+                    notes:
+                      - 'Split the 8 seconds into four 2 second beats, one action and one camera move each.'
+                      - 'Named the light source and the lens instead of "sunny" so the model picks a consistent look.'
+                      - 'Audio is on, so the sound bed is described; no dialogue was added because your prompt has none.'
+                    guidance: seedance-2.5
+                    credits_charged: 1
+                    model: 'deepseek-v4-flash'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '402':
+          $ref: '#/components/responses/ProblemResponse'
+        '429':
+          $ref: '#/components/responses/ProblemResponse'
+        '502':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
   /restore/video:
     post:
       tags: [Generate]
@@ -3292,6 +3369,52 @@ paths:
       responses:
         '204':
           description: Project deleted.
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /projects/{id}/clone:
+    post:
+      tags: [Projects]
+      operationId: cloneProject
+      summary: Start the next episode of a project (series link).
+      description: >
+        Creates a new project in the caller's library from an existing one so
+        the next episode does not start over: the brief (`description`) and
+        the label set (`auto_tags`) are copied, the cast filed on the source
+        project is carried over when that table exists, and the new project's
+        `parent_project_id` names the series root. Cloning an episode files
+        the new project under the SAME root as its source, so a series stays
+        one level deep (root plus episodes). Assets, compositions and renders
+        are never copied: assets are shareable across projects already and
+        each episode starts with an empty timeline list. The default
+        "Library" project cannot be cloned (400). An unknown or foreign
+        project returns 404.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CloneProjectRequest'
+      responses:
+        '201':
+          description: Episode created; `parent_project_id` and `series` describe its place in the series.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
         '401':
           $ref: '#/components/responses/ProblemResponse'
         '404':
@@ -10434,6 +10557,77 @@ components:
         - runway-aleph-2
         - runway-gen-4.5
 
+    VideoPromptEnhanceRequest:
+      type: object
+      additionalProperties: false
+      required: [model, prompt]
+      description: >-
+        What the video composer is about to run: the prompt as typed and the
+        settings the rewrite must respect. Nothing here is submitted; it only
+        shapes the rewrite.
+      properties:
+        model:
+          $ref: '#/components/schemas/VideoModel'
+        prompt:
+          type: string
+          minLength: 1
+          maxLength: 4000
+          description: The prompt as the customer typed it, `@` references included.
+          examples: ['A barista pours latte art in a sunny cafe, slow and calm']
+        duration_seconds:
+          type: integer
+          minimum: 1
+          maximum: 60
+          description: The clip length the composer is set to; the shot plan is paced to it.
+        has_references:
+          type: boolean
+          description: >-
+            True when a start frame, end frame, reference image, reference
+            video or character is attached, so the rewrite describes action
+            and camera rather than re-describing what the references already
+            carry.
+        generate_audio:
+          type: boolean
+          description: >-
+            Whether the run will render audio. When true on a model with
+            native audio the rewrite describes the sound bed and keeps any
+            spoken line; when false no sound is described.
+        aspect_ratio:
+          $ref: '#/components/schemas/AspectRatio'
+
+    VideoPromptEnhanceResponse:
+      type: object
+      additionalProperties: false
+      required: [prompt, notes, guidance, credits_charged, model]
+      properties:
+        prompt:
+          type: string
+          maxLength: 4000
+          description: The rewritten prompt, runnable as it is on `POST /generate/video` for the requested model.
+        notes:
+          type: array
+          maxItems: 6
+          items:
+            type: string
+            maxLength: 200
+          description: Short plain-English notes on what the rewrite changed or what to check. May be empty.
+        guidance:
+          type: string
+          description: >-
+            Which guidance table entry shaped the rewrite: the model id when
+            the model has its own entry (`seedance-2.5`), else `generic`.
+          examples: ['seedance-2.5']
+        credits_charged:
+          type: integer
+          description: >-
+            Credits taken for this call: `ceil(provider cost / $0.018)` with a
+            floor of 1. On the current brain a call is 1 credit.
+          examples: [1]
+        model:
+          type: string
+          description: The brain that wrote the rewrite.
+          examples: ['deepseek-v4-flash']
+
     RestoreVideoModel:
       type: string
       description: |
@@ -12432,12 +12626,71 @@ components:
             When the project was archived; omitted while active. Archived
             projects are hidden from the default listing but behave normally
             otherwise.
+        parent_project_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: >
+            The series root this project is an episode of (set by
+            `POST /projects/{id}/clone`). Omitted for a project that is not
+            an episode. Always names a root: a series is one level deep.
+        series:
+          $ref: '#/components/schemas/ProjectSeries'
         created_at:
           type: string
           format: date-time
         updated_at:
           type: string
           format: date-time
+
+    ProjectSeries:
+      type: object
+      additionalProperties: false
+      required: [parent, episodes]
+      description: >
+        Where a project sits in its series. Present on every episode and on
+        a root that has at least one episode; omitted for a standalone
+        project. `parent` is the series root (Episode 1) and `episodes` lists
+        every project cloned from it, oldest first, including the project
+        itself when it is an episode.
+      properties:
+        parent:
+          $ref: '#/components/schemas/ProjectSeriesEntry'
+        episodes:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProjectSeriesEntry'
+
+    ProjectSeriesEntry:
+      type: object
+      additionalProperties: false
+      required: [id, name, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        archived_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: When this project was archived; omitted while active.
+
+    CloneProjectRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+          description: Name for the new episode.
+          examples: ['Neon Courier Episode 2']
 
     ProjectList:
       type: object
