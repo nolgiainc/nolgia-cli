@@ -4570,6 +4570,36 @@ paths:
         default:
           $ref: '#/components/responses/ProblemResponse'
 
+  /me/share-links:
+    get:
+      tags: [Sharing]
+      operationId: listMyShareLinks
+      summary: List every active share link in the caller's library, newest first.
+      description: >
+        The creator-side view of sharing (tester feedback, NOL-841): every
+        unrevoked, unexpired share link on assets and renders in the caller's
+        library scope, newest first, each with what it points at (the target's
+        title and a short-lived signed thumbnail when the media has one) and
+        how it has been doing (`access_count`, `last_accessed_at`), so a
+        "My links" page needs one call instead of one per asset. Scope follows
+        the library rule: the personal space lists the links the caller
+        created on personal media; organization context lists every link on
+        the organization's media whoever created it. Tokens are stored hashed,
+        so rows carry `token_prefix` and never the token or URL; revoke through
+        the asset or render revoke endpoint with the row's `id`. At most 200
+        rows.
+      responses:
+        '200':
+          description: Active share links across the caller's library, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyShareLinkList'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
   /share/{token}:
     parameters:
       - $ref: '#/components/parameters/ShareToken'
@@ -9290,6 +9320,58 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ShareLink'
+
+    MyShareLink:
+      type: object
+      additionalProperties: false
+      required: [id, kind, target_id, title, token_prefix, access_count, expires_at, created_at]
+      description: >
+        One active share link as the creator-side listing shows it: the link,
+        what it points at, and its view figures. Never carries the token or
+        the URL.
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          $ref: '#/components/schemas/ShareLinkKind'
+        target_id:
+          type: string
+          format: uuid
+          description: The shared asset's id, or the shared render's id; pair it with `kind` to revoke.
+        title:
+          type: string
+          description: The shared item's display title (the asset's name or trimmed prompt, or the composition's name for a render).
+        thumbnail_url:
+          type: string
+          format: uri
+          description: Freshly signed short-lived poster image of the shared media, when it has one. Never store it.
+        token_prefix:
+          type: string
+          description: The first characters of the token, for recognising the link.
+        access_count:
+          type: integer
+          description: Successful public resolutions so far.
+        last_accessed_at:
+          type: string
+          format: date-time
+          description: When the link was last resolved. Absent until the first visit.
+        expires_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+
+    MyShareLinkList:
+      type: object
+      additionalProperties: false
+      required: [links]
+      properties:
+        links:
+          type: array
+          items:
+            $ref: '#/components/schemas/MyShareLink'
 
     ShareLinkMeta:
       type: object
