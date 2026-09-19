@@ -40,6 +40,8 @@ tags:
     description: User-owned reusable subjects (name, description, reference images) for generation.
   - name: Locations
     description: User-owned reusable places (name, canonical description, reference images) for generation; the place-twin of a character.
+  - name: BrandKits
+    description: Reusable brand palettes, fonts, logos and never-rules for generation.
   - name: Projects
     description: User-owned groupings of assets; an asset can belong to multiple projects.
   - name: Collections
@@ -3274,6 +3276,132 @@ paths:
         default:
           $ref: '#/components/responses/ProblemResponse'
 
+  /brand-kits:
+    get:
+      tags: [BrandKits]
+      operationId: listBrandKits
+      summary: List the current user's brand kits, newest first.
+      description: Brand kits are scoped to the personal library or the active organization like locations.
+      responses:
+        '200':
+          description: Brand kits visible in the caller's library.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BrandKitList'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+    post:
+      tags: [BrandKits]
+      operationId: createBrandKit
+      summary: Create a reusable brand kit from brand rules and existing image assets.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BrandKitInput'
+      responses:
+        '201':
+          description: Brand kit created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BrandKit'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /brand-kits/{id}:
+    get:
+      tags: [BrandKits]
+      operationId: getBrandKit
+      summary: Fetch one of the current user's brand kits with fresh signed logo URLs.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Brand kit found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BrandKit'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+    put:
+      tags: [BrandKits]
+      operationId: replaceBrandKit
+      summary: Replace a brand kit's full contents.
+      description: Every omitted optional field resets to empty or none, including the logo and logo variants.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BrandKitInput'
+      responses:
+        '200':
+          description: Brand kit replaced.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BrandKit'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+    delete:
+      tags: [BrandKits]
+      operationId: deleteBrandKit
+      summary: Delete one of the current user's brand kits.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Brand kit deleted.
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
   /elements:
     get:
       tags: [Elements]
@@ -3791,6 +3919,71 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ProjectLocationList'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /projects/{id}/brand-kit:
+    get:
+      tags: [Projects]
+      operationId: getProjectBrandKit
+      summary: Fetch the brand kit linked to a project.
+      description: Returns the linked kit with fresh signed logo URLs, or a null brand_kit_id when unlinked.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The project's brand kit link.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectBrandKit'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+    put:
+      tags: [Projects]
+      operationId: setProjectBrandKit
+      summary: Replace a project's linked brand kit.
+      description: >
+        Links one kit from the caller's library, replacing any existing link.
+        A null or absent brand_kit_id unlinks it. Read-only organization
+        members cannot change the link. Cloning a project copies its link.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetProjectBrandKitRequest'
+      responses:
+        '200':
+          description: The replaced brand kit link.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectBrandKit'
         '400':
           $ref: '#/components/responses/ProblemResponse'
         '401':
@@ -11529,6 +11722,24 @@ components:
             silent drop. A location with no reference image contributes its
             description only. The job's persisted params echo `location_id`
             for audit.
+        brand_kit_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: >-
+            One of your brand kits (`GET /brand-kits`). When omitted, the kit
+            linked to the generation's project applies: the explicit
+            `project_id`, or the active agent session's project. The kit's
+            logo rides as a reference only where the model has a spare slot;
+            it never displaces a reference you, a character, a location or an
+            element attached, and is skipped on lanes where a reference
+            changes what the request means. Image enhance, expand and masked
+            requests never attach the logo. The compact brand block (palette
+            names and hex, font names, never-rules) is appended after your own
+            words, which are never replaced. Whether the logo rode is recorded
+            as `brand_logo_attached` in the asset's generation metadata.
+        brand_kit_mode:
+          $ref: '#/components/schemas/BrandKitMode'
         element_ids:
           type: array
           nullable: true
@@ -12087,6 +12298,27 @@ components:
             A location with no reference image contributes its description
             only. Not identity-scored (the Aura gate scores faces, not
             places).
+        brand_kit_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: >-
+            One of your brand kits (`GET /brand-kits`). When omitted, the kit
+            linked to the generation's project applies: the explicit
+            `project_id`, or the active agent session's project. The kit's
+            logo rides as a reference only where the model has a spare slot;
+            it never displaces a reference you, a character, a location or an
+            element attached, and is skipped on lanes where a reference
+            changes what the request means. Only lanes with optional element
+            image references, no required video or reference duration, and a
+            supported logo MIME type attach it; edit and extend tasks do not.
+            Regeneration with `source_video_asset_id` refuses an explicit kit
+            and skips an implied project kit. The compact brand block (palette
+            names and hex, font names, never-rules) is appended after your own
+            words, which are never replaced. Whether the logo rode is recorded
+            as `brand_logo_attached` in the asset's generation metadata.
+        brand_kit_mode:
+          $ref: '#/components/schemas/BrandKitMode'
         element_ids:
           type: array
           nullable: true
@@ -13087,6 +13319,244 @@ components:
           description: Replaces the full wardrobe (every named outfit) when provided.
           items:
             $ref: '#/components/schemas/CharacterWardrobeOutfit'
+
+    BrandPaletteRole:
+      type: string
+      enum: [primary, secondary, accent, background, text]
+
+    BrandPaletteColor:
+      type: object
+      additionalProperties: false
+      required: [hex, role]
+      properties:
+        hex:
+          type: string
+          pattern: '^#[0-9A-Fa-f]{6}$'
+        role:
+          $ref: '#/components/schemas/BrandPaletteRole'
+        name:
+          type: string
+          maxLength: 32
+
+    BrandFontRole:
+      type: string
+      enum: [heading, body, accent]
+
+    BrandFont:
+      type: object
+      additionalProperties: false
+      required: [family, role]
+      properties:
+        family:
+          type: string
+          minLength: 1
+          maxLength: 60
+        role:
+          $ref: '#/components/schemas/BrandFontRole'
+
+    BrandVisualAxis:
+      type: object
+      additionalProperties: false
+      required: [axis, value]
+      properties:
+        axis:
+          type: string
+          minLength: 1
+          maxLength: 40
+          examples: ['energy']
+        value:
+          type: string
+          minLength: 1
+          maxLength: 80
+          examples: ['calm, unhurried']
+
+    BrandKitLogoVariant:
+      type: object
+      additionalProperties: false
+      required: [asset_id, label, asset]
+      properties:
+        asset_id:
+          type: string
+          format: uuid
+        label:
+          type: string
+          maxLength: 40
+        asset:
+          $ref: '#/components/schemas/Asset'
+
+    BrandKitLogoVariantInput:
+      type: object
+      additionalProperties: false
+      required: [asset_id]
+      properties:
+        asset_id:
+          type: string
+          format: uuid
+        label:
+          type: string
+          maxLength: 40
+
+    BrandKit:
+      type: object
+      additionalProperties: false
+      required: [id, user_id, name, palette, fonts, tagline, voice_notes, visual_axes, forbidden, logo_variants, prompt_block, created_at, updated_at]
+      description: A reusable brand record whose compact rules and optional logo apply to image and video generation.
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        organization_id:
+          type: string
+          format: uuid
+          description: The organization whose shared library this brand kit belongs to. Omitted for a personal brand kit.
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        logo_asset_id:
+          type: string
+          format: uuid
+          description: The primary logo image asset. Omitted when none.
+        logo:
+          $ref: '#/components/schemas/Asset'
+          description: The primary logo asset with a fresh signed URL. Omitted when none.
+        palette:
+          type: array
+          maxItems: 8
+          items:
+            $ref: '#/components/schemas/BrandPaletteColor'
+        fonts:
+          type: array
+          maxItems: 4
+          items:
+            $ref: '#/components/schemas/BrandFont'
+        tagline:
+          type: string
+          maxLength: 140
+        voice_notes:
+          type: string
+          maxLength: 1000
+        visual_axes:
+          type: array
+          maxItems: 8
+          items:
+            $ref: '#/components/schemas/BrandVisualAxis'
+        forbidden:
+          type: array
+          maxItems: 12
+          items:
+            type: string
+            minLength: 1
+            maxLength: 120
+        logo_variants:
+          type: array
+          maxItems: 6
+          items:
+            $ref: '#/components/schemas/BrandKitLogoVariant'
+        prompt_block:
+          type: string
+          description: >
+            The exact brand block generations append to the prompt when this
+            kit applies and the logo rides. Empty when the kit has no palette,
+            fonts or forbidden rules and no logo.
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    BrandKitList:
+      type: object
+      additionalProperties: false
+      required: [brand_kits]
+      properties:
+        brand_kits:
+          type: array
+          items:
+            $ref: '#/components/schemas/BrandKit'
+
+    BrandKitInput:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        logo_asset_id:
+          type: string
+          format: uuid
+          nullable: true
+        logo_variants:
+          type: array
+          maxItems: 6
+          items:
+            $ref: '#/components/schemas/BrandKitLogoVariantInput'
+        palette:
+          type: array
+          maxItems: 8
+          items:
+            $ref: '#/components/schemas/BrandPaletteColor'
+        fonts:
+          type: array
+          maxItems: 4
+          items:
+            $ref: '#/components/schemas/BrandFont'
+        tagline:
+          type: string
+          maxLength: 140
+        voice_notes:
+          type: string
+          maxLength: 1000
+        visual_axes:
+          type: array
+          maxItems: 8
+          items:
+            $ref: '#/components/schemas/BrandVisualAxis'
+        forbidden:
+          type: array
+          maxItems: 12
+          items:
+            type: string
+            minLength: 1
+            maxLength: 120
+
+    BrandKitMode:
+      type: string
+      enum: [full, prompt_only, off]
+      description: >
+        Omission means full: append the brand block and attach the logo where
+        it fits. prompt_only appends only the brand block. off disables both
+        the explicit and project brand kit and cannot be combined with
+        brand_kit_id.
+
+    ProjectBrandKit:
+      type: object
+      additionalProperties: false
+      required: [brand_kit_id]
+      properties:
+        brand_kit_id:
+          type: string
+          format: uuid
+          nullable: true
+        brand_kit:
+          $ref: '#/components/schemas/BrandKit'
+
+    SetProjectBrandKitRequest:
+      type: object
+      additionalProperties: false
+      required: [brand_kit_id]
+      properties:
+        brand_kit_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: A brand kit in the caller's library; null or absent unlinks the current kit.
 
     Location:
       type: object
