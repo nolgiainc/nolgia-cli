@@ -12392,6 +12392,17 @@ components:
           maxLength: 128
           description: TTS voice id (model-specific).
           examples: ['af_bella']
+        character_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: >-
+            One of your characters. With no voice, the request speaks with the
+            character's catalog voice (its voice_id, which must be in THIS
+            request model's audio.voices); an explicit voice wins. A character
+            with no voice, a clip voice (text to speech cannot speak a clip,
+            voice cloning is not available), or a voice this model does not
+            publish is a 400. An unknown or foreign id is a 400.
         duration_seconds:
           type: integer
           nullable: true
@@ -12831,6 +12842,20 @@ components:
             unscored. `character_id` is the single-member sugar for
             `character_ids`.
           examples: ['5a2f7c58-9e5a-4f1a-9c7f-2f0b6c3d1e42']
+        use_character_voice:
+          type: boolean
+          nullable: true
+          description: >-
+            Attaches the lead character's (character_id, or the first of
+            character_ids) voice clip as a reference audio track
+            (audio_asset_ids, emitted after your own audio tracks and
+            audio_urls, taking the next @Audio slot) and adds a voice line to
+            the prompt. Only on models with references.audio_refs_max > 0.
+            Refused with a 400 when the model cannot take it, when there is no
+            room, when the clip is longer than references.audio_refs_max_seconds,
+            when the character has no clip voice, or without a character.
+            Never applied unless set: it can change the output and the cost
+            (a model billed on the voice track's length bills the clip's length).
         character_ids:
           type: array
           nullable: true
@@ -13704,6 +13729,9 @@ components:
             `wearable_reference_asset_ids`. Always sent (empty when none).
           items:
             $ref: '#/components/schemas/CharacterWardrobeOutfit'
+        voice:
+          $ref: '#/components/schemas/CharacterVoice'
+          description: Used by POST /generate/audio (character_id) and by video generation with use_character_voice true; absent when the character has no voice.
         preferred_models:
           $ref: '#/components/schemas/CharacterPreferredModels'
           description: Optional in the schema only so existing clients keep parsing; the API always sends it, with null fields when unset.
@@ -13810,6 +13838,111 @@ components:
         created_at:
           type: string
           format: date-time
+
+    CharacterVoiceKind:
+      type: string
+      enum: [catalog, clip]
+      x-enum-varnames: [CharacterVoiceKindCatalog, CharacterVoiceKindClip]
+      description: |
+        `catalog`: a voice from a text to speech model's published voice list
+        (`audio.voices` on `GET /models`). `clip`: one of your own audio assets,
+        3 to 30 seconds, used as a reference audio track on video models that
+        take reference audio.
+
+    CharacterVoiceInput:
+      type: object
+      additionalProperties: false
+      required: [kind]
+      description: |
+        A catalog voice requires non-empty, trimmed `tts_model` and `voice_id`.
+        The model must be a visible audio model with a published `audio.voices`
+        list on `GET /models`, and the voice id must appear in that list.
+        `clip_asset_id` must be absent; `speaker_consent` is not stored.
+        A clip voice requires `clip_asset_id`, one of your audio assets that
+        is not uploading and has a recorded duration of 3 to 30 seconds
+        (inclusive). `tts_model` and `voice_id` must be absent, and
+        `speaker_consent` must be true; the consent time is stored in UTC.
+        Optional `language` is trimmed and, when non-empty, must match
+        `^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8}){0,3}$`, such as en or en-US.
+      properties:
+        kind:
+          $ref: '#/components/schemas/CharacterVoiceKind'
+        tts_model:
+          type: string
+          nullable: true
+          maxLength: 128
+          description: Catalog only, an audio model id with a published voice list.
+        voice_id:
+          type: string
+          nullable: true
+          maxLength: 128
+          description: Catalog only, one of that model's audio.voices ids.
+        clip_asset_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Clip only, one of your audio assets, 3 to 30 seconds.
+        language:
+          type: string
+          nullable: true
+          maxLength: 35
+          description: Optional BCP 47 language tag such as en or en-US, what the character speaks.
+        speaker_consent:
+          type: boolean
+          nullable: true
+          description: 'Clip only and REQUIRED true: "this is my voice, or I have the speaker''s permission". Stored with the voice (consented_at).'
+
+    CharacterVoice:
+      type: object
+      additionalProperties: false
+      required: [kind]
+      description: |
+        The character's stored catalog or clip voice. Catalog voices include
+        the published voice label when available. Clip voices include speaker
+        consent and its timestamp, and a freshly signed clip asset when the
+        asset still exists. Deleting the asset does not remove the stored voice.
+      properties:
+        kind:
+          $ref: '#/components/schemas/CharacterVoiceKind'
+        tts_model:
+          type: string
+          nullable: true
+          maxLength: 128
+          description: Catalog only, an audio model id with a published voice list.
+        voice_id:
+          type: string
+          nullable: true
+          maxLength: 128
+          description: Catalog only, one of that model's audio.voices ids.
+        clip_asset_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Clip only, one of your audio assets, 3 to 30 seconds.
+        language:
+          type: string
+          nullable: true
+          maxLength: 35
+          description: Optional BCP 47 language tag such as en or en-US, what the character speaks.
+        speaker_consent:
+          type: boolean
+          nullable: true
+          description: 'Clip only and REQUIRED true: "this is my voice, or I have the speaker''s permission". Stored with the voice (consented_at).'
+        voice_label:
+          type: string
+          nullable: true
+          readOnly: true
+          description: The catalog voice's label from GET /models (read only).
+        consented_at:
+          type: string
+          format: date-time
+          nullable: true
+          readOnly: true
+          description: When the speaker consent was given (clip voices, read only).
+        clip_asset:
+          $ref: '#/components/schemas/Asset'
+          readOnly: true
+          description: The voice clip with a fresh signed URL (read only); omitted when the clip asset was deleted.
 
     CharacterPreferredModels:
       type: object
@@ -13935,6 +14068,11 @@ components:
           description: Named outfits stored on the character. See `Character.wardrobe`.
           items:
             $ref: '#/components/schemas/CharacterWardrobeOutfit'
+        voice:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/CharacterVoiceInput'
+          description: The character's voice; omitted or null means no voice.
         preferred_models:
           $ref: '#/components/schemas/CharacterPreferredModels'
           description: Models this character renders best on; clients use these as defaults when attached.
@@ -13991,6 +14129,11 @@ components:
           description: Replaces the full wardrobe (every named outfit) when provided.
           items:
             $ref: '#/components/schemas/CharacterWardrobeOutfit'
+        voice:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/CharacterVoiceInput'
+          description: Omitted leaves the voice unchanged, null clears it, an object replaces it (validated as on create).
         preferred_models:
           $ref: '#/components/schemas/CharacterPreferredModels'
           description: When provided, REPLACES both preferences (send {} or null fields to clear); omitted leaves them unchanged.
