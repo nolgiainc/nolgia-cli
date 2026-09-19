@@ -48,6 +48,10 @@ tags:
     description: Reusable brand palettes, fonts, logos and never-rules for generation.
   - name: Canvases
     description: Versioned node graph production plans for projects, shared by the web editor and NOLGIA Agent.
+  - name: Styles
+    description: "Saved styles: a reusable look, a prompt fragment plus reference images, applied with style_id."
+  - name: EditSessions
+    description: "Chained edit sessions: keep editing one image step by step, revert to any earlier step, estimate the cost of the chain."
   - name: Projects
     description: User-owned groupings of assets; an asset can belong to multiple projects.
   - name: Collections
@@ -3884,6 +3888,394 @@ paths:
       responses:
         '204':
           description: Product deleted.
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /styles:
+    get:
+      tags: [Styles]
+      operationId: listStyles
+      summary: List saved styles in your library, newest first.
+      responses:
+        '200':
+          description: List saved styles in your library, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SavedStyleList'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+    post:
+      tags: [Styles]
+      operationId: createStyle
+      summary: Create a saved style.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSavedStyleRequest'
+      responses:
+        '201':
+          description: Create a saved style.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SavedStyle'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /styles/{id}:
+    get:
+      tags: [Styles]
+      operationId: getStyle
+      summary: Fetch a saved style with fresh signed reference URLs.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Fetch a saved style with fresh signed reference URLs.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SavedStyle'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+    patch:
+      tags: [Styles]
+      operationId: updateStyle
+      summary: Update a saved style, replacing references only when provided.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateSavedStyleRequest'
+      responses:
+        '200':
+          description: Update a saved style, replacing references only when provided.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SavedStyle'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+    delete:
+      tags: [Styles]
+      operationId: deleteStyle
+      summary: Delete a saved style.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Delete a saved style.
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /edit-sessions:
+    get:
+      tags: [EditSessions]
+      operationId: listEditSessions
+      summary: List edit sessions in your library, newest first.
+      parameters:
+        - name: asset_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+          description: Sessions whose source image or any step output is this asset.
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of sessions to return, from 1 to 100. Returns up to 50 when omitted.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+        - name: cursor
+          in: query
+          required: false
+          description: Opaque next_cursor from a previous page.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List edit sessions in your library, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EditSessionList'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+    post:
+      tags: [EditSessions]
+      operationId: createEditSession
+      summary: Start an edit session from an image in your library.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateEditSessionRequest'
+      responses:
+        '201':
+          description: Start an edit session from an image in your library.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EditSession'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /edit-sessions/{id}:
+    get:
+      tags: [EditSessions]
+      operationId: getEditSession
+      summary: Fetch an edit session and its steps.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Fetch an edit session and its steps.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EditSession'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+    delete:
+      tags: [EditSessions]
+      operationId: deleteEditSession
+      summary: Delete the session and its step records, keeping all assets and jobs.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Delete the session and its step records, keeping all assets and jobs.
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /edit-sessions/{id}/steps:
+    post:
+      tags: [EditSessions]
+      operationId: appendEditStep
+      summary: Queue one image edit from the head, then poll the session or job.
+      description: Returns 402 when credits are insufficient, or 409 when the head is still generating, failed, or its image is unavailable.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AppendEditStepRequest'
+      responses:
+        '202':
+          description: Queue one image edit from the head, then poll the session or job.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EditSession'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '402':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        '503':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /edit-sessions/{id}/revert:
+    post:
+      tags: [EditSessions]
+      operationId: revertEditSession
+      summary: Move the head to an earlier step or the source, deleting nothing.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RevertEditSessionRequest'
+      responses:
+        '200':
+          description: Move the head to an earlier step or the source, deleting nothing.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EditSession'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /edit-sessions/{id}/estimate:
+    get:
+      tags: [EditSessions]
+      operationId: estimateEditSession
+      summary: Estimate the next step and show the charged chain total.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: model
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/ImageModel'
+        - name: quality
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: render_quality
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Estimate the next step and show the charged chain total.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EditSessionEstimate'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
         '401':
           $ref: '#/components/responses/ProblemResponse'
         '403':
@@ -13445,6 +13837,21 @@ components:
             drop; gallery images past the budget do not ride. A product with no
             image contributes its description only. The job's persisted params
             echo `product_id` for audit.
+        style_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: >-
+            One of your saved styles (`GET /styles`, NOL-921). Its prompt
+            fragment is appended after your own words, which are never
+            replaced, and its reference images ride as extra references
+            after every reference you, a location, a product or a character
+            attached, only within the model's remaining
+            `image.reference_images_max` budget: a style reference that does
+            not fit is left out rather than refused, because the style is a
+            look, not a subject. An unknown or foreign id is a 400. The job's
+            persisted params and the asset's generation metadata echo
+            `style_id`.
         element_ids:
           type: array
           nullable: true
@@ -16146,6 +16553,299 @@ components:
           items:
             type: string
             format: uuid
+
+    SavedStyle:
+      type: object
+      additionalProperties: false
+      required: [id, user_id, name, prompt_fragment, model_hint, reference_images, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        organization_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        prompt_fragment:
+          type: string
+          maxLength: 1000
+          description: 'Appended after your own prompt when style_id is passed, never replaces it.'
+        model_hint:
+          type: string
+          description: 'An ImageModel id the look renders best on, or empty. Clients default the picker to it, the API never switches models for you.'
+        reference_images:
+          type: array
+          items:
+            $ref: '#/components/schemas/Asset'
+          maxItems: 4
+          description: Reference images in display order with fresh signed URLs, appended within the model caps.
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    SavedStyleList:
+      type: object
+      additionalProperties: false
+      required: [styles]
+      properties:
+        styles:
+          type: array
+          items:
+            $ref: '#/components/schemas/SavedStyle'
+
+    CreateSavedStyleRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        prompt_fragment:
+          type: string
+          nullable: true
+          maxLength: 1000
+        model_hint:
+          type: string
+          nullable: true
+        reference_asset_ids:
+          type: array
+          nullable: true
+          maxItems: 4
+          items:
+            type: string
+            format: uuid
+
+    UpdateSavedStyleRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          nullable: true
+          minLength: 1
+          maxLength: 80
+        prompt_fragment:
+          type: string
+          nullable: true
+          maxLength: 1000
+        model_hint:
+          type: string
+          nullable: true
+        reference_asset_ids:
+          type: array
+          nullable: true
+          maxItems: 4
+          items:
+            type: string
+            format: uuid
+          description: Replaces the whole reference set.
+
+    EditSessionStep:
+      type: object
+      additionalProperties: false
+      required: [id, position, prompt, model, job_id, status, credits, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        position:
+          type: integer
+          minimum: 1
+        parent_step_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: The step this one edited from, or null for the source image.
+        prompt:
+          type: string
+        model:
+          type: string
+        quality:
+          type: string
+        render_quality:
+          type: string
+        style_id:
+          type: string
+          format: uuid
+          nullable: true
+        job_id:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/JobStatus'
+        error:
+          type: string
+          description: 'Present when the job failed.'
+        asset_id:
+          type: string
+          format: uuid
+          nullable: true
+        asset:
+          $ref: '#/components/schemas/Asset'
+        credits:
+          type: integer
+          description: The pricer quote for this step.
+        created_at:
+          type: string
+          format: date-time
+
+    EditSession:
+      type: object
+      additionalProperties: false
+      required: [id, user_id, title, source_asset_id, head_asset_id, steps, chain_credits, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        organization_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+          maxLength: 120
+        source_asset_id:
+          type: string
+          format: uuid
+        source_asset:
+          $ref: '#/components/schemas/Asset'
+          description: Absent when the source was trashed.
+        head_step_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Null means the source is the head.
+        head_asset_id:
+          type: string
+          format: uuid
+          description: The head output, or the source as a fallback while the output is unavailable.
+        head_asset:
+          $ref: '#/components/schemas/Asset'
+          description: Absent while the head is generating or its output is gone.
+        steps:
+          type: array
+          items:
+            $ref: '#/components/schemas/EditSessionStep'
+          description: Steps in position order.
+        chain_credits:
+          type: integer
+          description: Sum of queued, running and succeeded step quotes. Failed and canceled steps are refunded and excluded.
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    EditSessionList:
+      type: object
+      additionalProperties: false
+      required: [sessions]
+      properties:
+        sessions:
+          type: array
+          items:
+            $ref: '#/components/schemas/EditSession'
+        next_cursor:
+          type: string
+          description: Opaque cursor for the next page, present only when more sessions exist.
+
+    CreateEditSessionRequest:
+      type: object
+      additionalProperties: false
+      required: [source_asset_id]
+      properties:
+        source_asset_id:
+          type: string
+          format: uuid
+          description: An image asset in your library.
+        title:
+          type: string
+          nullable: true
+          maxLength: 120
+
+    AppendEditStepRequest:
+      type: object
+      additionalProperties: false
+      required: [prompt]
+      properties:
+        prompt:
+          type: string
+          minLength: 1
+          maxLength: 4000
+        model:
+          $ref: '#/components/schemas/ImageModel'
+          description: Defaults to the style model hint, then the previous step model, then gpt-image-2.
+        style_id:
+          type: string
+          format: uuid
+          nullable: true
+        quality:
+          type: string
+          nullable: true
+        render_quality:
+          type: string
+          nullable: true
+        project_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Files the output like POST /generate/image.
+
+    RevertEditSessionRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        step_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: A step in this session, or null to return to the source.
+
+    EditSessionEstimate:
+      type: object
+      additionalProperties: false
+      required: [model, quality, render_quality, next_step_credits, chain_credits, steps]
+      properties:
+        model:
+          type: string
+        quality:
+          type: string
+        render_quality:
+          type: string
+        next_step_credits:
+          type: integer
+        chain_credits:
+          type: integer
+        steps:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [step_id, model, credits, charged]
+            properties:
+              step_id:
+                type: string
+                format: uuid
+              model:
+                type: string
+              credits:
+                type: integer
+              charged:
+                type: boolean
 
     CharacterSheetKind:
       type: string
