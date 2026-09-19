@@ -29,8 +29,8 @@ use super::CommandContext;
 /// Per-clip fallback when an asset has no recorded duration (e.g. a still).
 const DEFAULT_CLIP_SECONDS: f64 = 5.0;
 /// A server render is capped at 15 minutes; wait a touch longer by default.
-const DEFAULT_RENDER_TIMEOUT_SECONDS: u64 = 900;
-const DEFAULT_POLL_INTERVAL_SECONDS: u64 = 5;
+pub(crate) const DEFAULT_RENDER_TIMEOUT_SECONDS: u64 = 900;
+pub(crate) const DEFAULT_POLL_INTERVAL_SECONDS: u64 = 5;
 
 #[derive(Subcommand, Debug)]
 pub enum CompositionsCommand {
@@ -289,7 +289,7 @@ async fn render(args: RenderArgs, ctx: &CommandContext) -> Result<()> {
 }
 
 /// What a render invocation resolved to.
-enum RenderOutcome {
+pub(crate) enum RenderOutcome {
     /// Submitted, not waited for.
     Submitted { render_id: Uuid },
     /// Waited to completion; carries the finished render row.
@@ -332,7 +332,7 @@ async fn trigger_render(
 
 /// Poll `GET /renders/{id}` until the render reaches a terminal state. Renders
 /// have no server-side long-poll (unlike jobs), so this is a client-side loop.
-async fn poll_render(
+pub(crate) async fn poll_render(
     render_id: Uuid,
     timeout: u64,
     poll_interval: u64,
@@ -369,7 +369,7 @@ async fn poll_render(
     }
 }
 
-async fn report_render(
+pub(crate) async fn report_render(
     composition_id: Uuid,
     outcome: RenderOutcome,
     ctx: &CommandContext,

@@ -35,6 +35,7 @@ fn help_lists_full_command_surface() {
         .stdout(predicate::str::contains("projects"))
         .stdout(predicate::str::contains("products"))
         .stdout(predicate::str::contains("compositions"))
+        .stdout(predicate::str::contains("render"))
         .stdout(predicate::str::contains("account"))
         .stdout(predicate::str::contains("billing"))
         .stdout(predicate::str::contains("pat"))
@@ -42,6 +43,263 @@ fn help_lists_full_command_surface() {
         .stdout(predicate::str::contains("color-presets"))
         .stdout(predicate::str::contains("motions"))
         .stdout(predicate::str::contains("masks"));
+}
+
+#[tokio::test]
+async fn render_blocks_submits_and_waits_for_the_asset() {
+    let api = MockServer::start().await;
+    let comp_id = Uuid::new_v4();
+    let render_id = Uuid::new_v4();
+    let final_asset = Uuid::new_v4();
+    Mock::given(method("POST"))
+        .and(path("/v1/renders/blocks"))
+        .and(body_json(json!({
+            "blocks": [
+                {"video_asset_id": ASSET_ID, "audio_asset_id": ELEMENT_ASSET_ID},
+                {"video_asset_id": ELEMENT_ASSET_ID, "audio_asset_id": ASSET_ID}
+            ],
+            "block_seconds": 12.5, "aspect_ratio": "9:16", "keep_video_audio": true,
+            "name": "narrated explainer", "project_id": PROJECT_ID
+        })))
+        .respond_with(
+            ResponseTemplate::new(202)
+                .set_body_json(render_json(render_id, comp_id, "queued", None)),
+        )
+        .expect(1)
+        .mount(&api)
+        .await;
+    let mut finished = render_json(render_id, comp_id, "succeeded", Some(final_asset));
+    finished["warnings"] = json!(["block 1: last frame held"]);
+    Mock::given(method("GET"))
+        .and(path(format!("/v1/renders/{render_id}")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(finished))
+        .expect(1)
+        .mount(&api)
+        .await;
+    Mock::given(method("GET"))
+        .and(path(format!("/v1/assets/{final_asset}")))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(video_clip_json(final_asset, "https://files/final.mp4")),
+        )
+        .expect(1)
+        .mount(&api)
+        .await;
+
+    let result = run_ok(
+        &api,
+        &[
+            "render",
+            "blocks",
+            "--pair",
+            &format!("{ASSET_ID}:{ELEMENT_ASSET_ID}"),
+            "--pair",
+            &format!("{ELEMENT_ASSET_ID}:{ASSET_ID}"),
+            "--block-seconds",
+            "12.5",
+            "--aspect",
+            "9:16",
+            "--keep-video-audio",
+            "--name",
+            "narrated explainer",
+            "--project",
+            PROJECT_ID,
+            "--wait",
+            "--poll-interval",
+            "1",
+            "--json",
+        ],
+    )
+    .stderr(predicate::str::contains(format!(
+        "render {render_id} submitted (2 blocks, 12.5s each)"
+    )));
+    let output: serde_json::Value = serde_json::from_slice(&result.get_output().stdout).unwrap();
+    assert_eq!(
+        output,
+        json!({
+            "render_id": render_id, "composition_id": comp_id, "asset_id": final_asset,
+            "status": "succeeded", "url": "https://files/final.mp4",
+            "warnings": ["block 1: last frame held"]
+        })
+    );
+}
+
+#[tokio::test]
+async fn render_blocks_without_wait_prints_the_render_id() {
+    let api = MockServer::start().await;
+    let comp_id = Uuid::new_v4();
+    let render_id = Uuid::new_v4();
+    Mock::given(method("POST"))
+        .and(path("/v1/renders/blocks"))
+        .and(body_json(json!({
+            "blocks": [{"video_asset_id": ASSET_ID, "audio_asset_id": ELEMENT_ASSET_ID}],
+            "block_seconds": 10.0, "aspect_ratio": "16:9", "keep_video_audio": false
+        })))
+        .respond_with(
+            ResponseTemplate::new(202)
+                .set_body_json(render_json(render_id, comp_id, "queued", None)),
+        )
+        .expect(1)
+        .mount(&api)
+        .await;
+
+    run_ok(
+        &api,
+        &[
+            "render",
+            "blocks",
+            "--pair",
+            &format!("{ASSET_ID}:{ELEMENT_ASSET_ID}"),
+        ],
+    )
+    .stdout(format!("{render_id} queued\n"))
+    .stderr(predicate::str::contains(format!(
+        "check it: nolgia compositions status {render_id}"
+    )));
+    assert_eq!(api.received_requests().await.unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn render_blocks_without_wait_reports_json_at_duration_limit() {
+    let api = MockServer::start().await;
+    let comp_id = Uuid::new_v4();
+    let render_id = Uuid::new_v4();
+    let block = json!({"video_asset_id": ASSET_ID, "audio_asset_id": ELEMENT_ASSET_ID});
+    Mock::given(method("POST"))
+        .and(path("/v1/renders/blocks"))
+        .and(body_json(json!({
+            "blocks": vec![block; 60], "block_seconds": 10.0,
+            "aspect_ratio": "1:1", "keep_video_audio": false
+        })))
+        .respond_with(
+            ResponseTemplate::new(202)
+                .set_body_json(render_json(render_id, comp_id, "queued", None)),
+        )
+        .expect(1)
+        .mount(&api)
+        .await;
+
+    let pair = format!("{ASSET_ID}:{ELEMENT_ASSET_ID}");
+    let mut args = vec!["render", "blocks", "--json", "--aspect", "1:1"];
+    for _ in 0..60 {
+        args.extend(["--pair", pair.as_str()]);
+    }
+    let result = run_ok(&api, &args);
+    let output: serde_json::Value = serde_json::from_slice(&result.get_output().stdout).unwrap();
+    assert_eq!(
+        output,
+        json!({
+            "render_id": render_id, "composition_id": comp_id, "status": "queued",
+            "blocks": 60, "block_seconds": 10.0, "duration_seconds": 600.0
+        })
+    );
+    assert_eq!(api.received_requests().await.unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn render_blocks_surfaces_the_refusal_detail() {
+    let api = MockServer::start().await;
+    let detail = format!(
+        "block 2 (video_asset_id {ELEMENT_ASSET_ID}, audio_asset_id {ASSET_ID}): the narration take is 13.20s, longer than 12.50s (1.25x the 10s block); shorten the take or raise block_seconds"
+    );
+    Mock::given(method("POST"))
+        .and(path("/v1/renders/blocks"))
+        .respond_with(ResponseTemplate::new(400).set_body_json(json!({
+            "type": "about:blank", "title": "Bad Request", "status": 400, "detail": detail
+        })))
+        .expect(1)
+        .mount(&api)
+        .await;
+
+    cmd()
+        .arg("--api-url")
+        .arg(api.uri())
+        .args([
+            "render",
+            "blocks",
+            "--pair",
+            &format!("{ASSET_ID}:{ELEMENT_ASSET_ID}"),
+            "--pair",
+            &format!("{ELEMENT_ASSET_ID}:{ASSET_ID}"),
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(detail));
+}
+
+#[test]
+fn render_blocks_rejects_malformed_pairs_locally() {
+    for pair in [
+        "broken",
+        "not-a-uuid:also-not",
+        &format!("{ASSET_ID}:bad"),
+        &format!("bad:{ASSET_ID}"),
+        &format!("{ASSET_ID}:{ELEMENT_ASSET_ID}:extra"),
+    ] {
+        cmd()
+            .args([
+                "--api-url",
+                "http://127.0.0.1:1",
+                "render",
+                "blocks",
+                "--pair",
+                &format!("{ASSET_ID}:{ELEMENT_ASSET_ID}"),
+                "--pair",
+                pair,
+            ])
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains(
+                "--pair 2 must be <video_asset_id>:<audio_asset_id> with two UUIDs",
+            ));
+    }
+}
+
+#[test]
+fn render_blocks_rejects_invalid_block_seconds_locally() {
+    for seconds in ["31", "1", "NaN", "inf"] {
+        cmd()
+            .args([
+                "--api-url",
+                "http://127.0.0.1:1",
+                "render",
+                "blocks",
+                "--pair",
+                &format!("{ASSET_ID}:{ELEMENT_ASSET_ID}"),
+                "--block-seconds",
+                seconds,
+            ])
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains(
+                "--block-seconds must be between 2 and 30",
+            ));
+    }
+}
+
+#[test]
+fn render_blocks_rejects_excessive_count_and_duration_locally() {
+    for (count, seconds, message) in [
+        (61, "2", "--pair requires 1 to 60 blocks"),
+        (21, "30", "total duration must not exceed 600 seconds"),
+    ] {
+        let mut command = cmd();
+        command.args([
+            "--api-url",
+            "http://127.0.0.1:1",
+            "render",
+            "blocks",
+            "--block-seconds",
+            seconds,
+        ]);
+        for _ in 0..count {
+            command.args(["--pair", &format!("{ASSET_ID}:{ELEMENT_ASSET_ID}")]);
+        }
+        command
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains(message));
+    }
 }
 
 /// `compositions create --render --wait` is the "assemble and compile" path:

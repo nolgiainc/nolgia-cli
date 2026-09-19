@@ -14,6 +14,7 @@ pub mod org;
 pub mod pat;
 pub mod products;
 pub mod projects;
+pub mod render;
 pub mod restore;
 pub mod skills;
 pub mod status;
