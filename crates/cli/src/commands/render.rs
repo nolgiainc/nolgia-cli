@@ -114,28 +114,31 @@ async fn blocks(args: BlocksArgs, ctx: &CommandContext) -> Result<()> {
     let render_id = render.id;
     eprintln!("render {render_id} submitted ({n} blocks, {seconds}s each)");
 
-    if args.wait {
-        let finished = poll_render(render_id, args.timeout, args.poll_interval, ctx).await?;
-        return report_render(
-            render.composition_id,
-            RenderOutcome::Finished(Box::new(finished)),
-            ctx,
-        )
-        .await;
-    }
-    match ctx.format() {
-        OutputFormat::Json => print_json(&serde_json::json!({
-            "render_id": render_id,
-            "composition_id": render.composition_id,
-            "status": "queued",
-            "blocks": n,
-            "block_seconds": seconds,
-            "duration_seconds": duration,
-        })),
-        OutputFormat::Text => {
-            println!("{render_id} queued");
-            eprintln!("check it: nolgia compositions status {render_id}");
-            Ok(())
+    crate::livejob::guard_render(render_id, async {
+        if args.wait {
+            let finished = poll_render(render_id, args.timeout, args.poll_interval, ctx).await?;
+            return report_render(
+                render.composition_id,
+                RenderOutcome::Finished(Box::new(finished)),
+                ctx,
+            )
+            .await;
         }
-    }
+        match ctx.format() {
+            OutputFormat::Json => print_json(&serde_json::json!({
+                "render_id": render_id,
+                "composition_id": render.composition_id,
+                "status": "queued",
+                "blocks": n,
+                "block_seconds": seconds,
+                "duration_seconds": duration,
+            })),
+            OutputFormat::Text => {
+                println!("{render_id} queued");
+                eprintln!("check it: nolgia compositions status {render_id}");
+                Ok(())
+            }
+        }
+    })
+    .await
 }

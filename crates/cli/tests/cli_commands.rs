@@ -125,6 +125,115 @@ async fn render_blocks_submits_and_waits_for_the_asset() {
 }
 
 #[tokio::test]
+async fn render_blocks_wait_preserves_accepted_work_and_terminal_failures() {
+    for scenario in [
+        "timeout",
+        "slow_poll",
+        "poll_error",
+        "asset_error",
+        "failed",
+    ] {
+        let api = MockServer::start().await;
+        let comp_id = Uuid::new_v4();
+        let render_id = Uuid::new_v4();
+        let asset_id = Uuid::new_v4();
+        Mock::given(method("POST"))
+            .and(path("/v1/renders/blocks"))
+            .respond_with(
+                ResponseTemplate::new(202)
+                    .set_body_json(render_json(render_id, comp_id, "queued", None)),
+            )
+            .expect(1)
+            .mount(&api)
+            .await;
+        let response = match scenario {
+            "poll_error" => ResponseTemplate::new(500),
+            "asset_error" => ResponseTemplate::new(200).set_body_json(render_json(
+                render_id,
+                comp_id,
+                "succeeded",
+                Some(asset_id),
+            )),
+            "failed" => {
+                let mut failed = render_json(render_id, comp_id, "failed", None);
+                failed["error"] = json!("narration is too long");
+                ResponseTemplate::new(200).set_body_json(failed)
+            }
+            _ => {
+                let response = ResponseTemplate::new(200)
+                    .set_body_json(render_json(render_id, comp_id, "queued", None));
+                if scenario == "slow_poll" {
+                    response.set_delay(std::time::Duration::from_secs(10))
+                } else {
+                    response
+                }
+            }
+        };
+        Mock::given(method("GET"))
+            .and(path(format!("/v1/renders/{render_id}")))
+            .respond_with(response)
+            .expect(1)
+            .mount(&api)
+            .await;
+        if scenario == "asset_error" {
+            Mock::given(method("GET"))
+                .and(path(format!("/v1/assets/{asset_id}")))
+                .respond_with(ResponseTemplate::new(500))
+                .expect(1)
+                .mount(&api)
+                .await;
+        }
+        let result = cmd()
+            .arg("--api-url")
+            .arg(api.uri())
+            .args([
+                "render",
+                "blocks",
+                "--pair",
+                &format!("{ASSET_ID}:{ELEMENT_ASSET_ID}"),
+                "--wait",
+                "--timeout",
+                "1",
+                "--poll-interval",
+                "5",
+                "--json",
+            ])
+            .timeout(std::time::Duration::from_secs(4))
+            .assert();
+        if scenario == "failed" {
+            result
+                .code(1)
+                .stderr(predicate::str::contains("narration is too long"));
+        } else {
+            let result = result
+                .code(75)
+                .stderr(predicate::str::contains(format!(
+                    "nolgia compositions status {render_id}"
+                )))
+                .stderr(predicate::str::contains("Error:").not())
+                .stderr(predicate::str::contains("billed").not());
+            let output: serde_json::Value =
+                serde_json::from_slice(&result.get_output().stdout).unwrap();
+            assert_eq!(output["render_id"], render_id.to_string());
+            assert_eq!(
+                output["outcome"],
+                if matches!(scenario, "timeout" | "slow_poll") {
+                    "still_running"
+                } else {
+                    "detached"
+                }
+            );
+            assert_eq!(
+                output["follow_up"],
+                json!([format!("nolgia compositions status {render_id}")])
+            );
+            assert!(output.get("job_id").is_none());
+            assert!(output.get("billed_twice").is_none());
+        }
+    }
+}
+
+#[tokio::test]
 async fn render_blocks_without_wait_prints_the_render_id() {
     let api = MockServer::start().await;
     let comp_id = Uuid::new_v4();

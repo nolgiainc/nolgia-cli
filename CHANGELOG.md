@@ -19,6 +19,13 @@ the matching GitHub release.
   16:9, 9:16 or 1:1, `--name` and `--project` file the result, and `--wait`
   prints the finished video URL. Renders cost no credits.
 
+  Waiting on a render now keeps the handle the way waiting on a job does: if
+  the wait times out, is interrupted, or cannot finish for any local reason,
+  the render id and the command to check it are printed and the exit status is
+  75 (work is live), not a bare failure. This applies to
+  `nolgia compositions render --wait` too. A render the server reports as
+  failed is still an ordinary failure.
+
 ## v0.2.27
 
 - **Linux arm64 and Windows arm64 binaries.** The release workflow now builds
