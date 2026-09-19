@@ -12,6 +12,7 @@ pub mod models;
 pub mod motions;
 pub mod org;
 pub mod pat;
+pub mod products;
 pub mod projects;
 pub mod restore;
 pub mod skills;

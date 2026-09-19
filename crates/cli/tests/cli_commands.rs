@@ -14,6 +14,7 @@ const CHARACTER_ID: &str = "44444444-4444-4444-8444-444444444444";
 const PROJECT_ID: &str = "55555555-5555-4555-8555-555555555555";
 const ASSET_ID: &str = "66666666-6666-4666-8666-666666666666";
 const ELEMENT_ASSET_ID: &str = "77777777-7777-4777-8777-777777777777";
+const PRODUCT_ID: &str = "88888888-8888-4888-8888-888888888888";
 const R2V_MODEL: &str = "fal-ai/bytedance/seedance/v2/pro/reference-to-video";
 const I2V_MODEL: &str = "fal-ai/bytedance/seedance/v2/pro/image-to-video";
 
@@ -32,6 +33,7 @@ fn help_lists_full_command_surface() {
         .stdout(predicate::str::contains("assets"))
         .stdout(predicate::str::contains("characters"))
         .stdout(predicate::str::contains("projects"))
+        .stdout(predicate::str::contains("products"))
         .stdout(predicate::str::contains("compositions"))
         .stdout(predicate::str::contains("account"))
         .stdout(predicate::str::contains("billing"))
@@ -2117,6 +2119,102 @@ fn characters_create_rejects_more_than_four_references() {
 }
 
 #[tokio::test]
+async fn products_list_outputs_products() {
+    let api = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/products"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json!({"products": [product_json()]})),
+        )
+        .mount(&api)
+        .await;
+    run_ok(&api, &["products", "list"])
+        .stdout(predicate::str::contains(PRODUCT_ID))
+        .stdout(predicate::str::contains("Trail Cup"))
+        .stdout(predicate::str::contains("Acme"))
+        .stdout(predicate::str::contains("29.00 USD"))
+        .stdout(predicate::str::contains("1 image"));
+}
+
+#[tokio::test]
+async fn products_import_sends_url_and_reports_images() {
+    let api = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/products/import"))
+        .and(body_json(
+            json!({"url": "https://shop.example.com/p/trail-cup"}),
+        ))
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({
+            "product": product_json(), "images_found": 8, "images_imported": 5
+        })))
+        .expect(1)
+        .mount(&api)
+        .await;
+    run_ok(
+        &api,
+        &["products", "import", "https://shop.example.com/p/trail-cup"],
+    )
+    .stdout(predicate::str::contains(PRODUCT_ID))
+    .stdout(predicate::str::contains("imported 5 of 8 images"));
+}
+
+#[tokio::test]
+async fn products_import_forwards_project_id() {
+    let api = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/products/import"))
+        .and(body_json(json!({
+            "url": "https://shop.example.com/p/trail-cup", "project_id": PROJECT_ID
+        })))
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({
+            "product": product_json(), "images_found": 8, "images_imported": 5
+        })))
+        .expect(1)
+        .mount(&api)
+        .await;
+    run_ok(
+        &api,
+        &[
+            "products",
+            "import",
+            "https://shop.example.com/p/trail-cup",
+            "--project-id",
+            PROJECT_ID,
+        ],
+    );
+}
+
+#[tokio::test]
+async fn products_get_shows_reference_images() {
+    let api = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path(format!("/v1/products/{PRODUCT_ID}")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(product_json()))
+        .mount(&api)
+        .await;
+    run_ok(&api, &["products", "get", PRODUCT_ID])
+        .stdout(predicate::str::contains(ASSET_ID))
+        .stdout(predicate::str::contains("https://files/product.png"))
+        .stdout(predicate::str::contains(
+            "https://shop.example.com/p/trail-cup",
+        ))
+        .stdout(predicate::str::contains("A blue enamel camping cup."))
+        .stdout(predicate::str::contains("(primary)"));
+}
+
+#[tokio::test]
+async fn products_delete_removes_product() {
+    let api = MockServer::start().await;
+    Mock::given(method("DELETE"))
+        .and(path(format!("/v1/products/{PRODUCT_ID}")))
+        .respond_with(ResponseTemplate::new(204))
+        .mount(&api)
+        .await;
+    run_ok(&api, &["products", "delete", PRODUCT_ID])
+        .stdout(predicate::str::contains(format!("deleted {PRODUCT_ID}")));
+}
+
+#[tokio::test]
 async fn projects_list_outputs_projects() {
     let api = MockServer::start().await;
     Mock::given(method("GET"))
@@ -3384,6 +3482,19 @@ fn character_json() -> serde_json::Value {
         "id": CHARACTER_ID, "user_id": USER_ID, "name": "Captain Nova",
         "description": "Silver-haired astronaut",
         "reference_assets": [asset_json("https://files/ref.png")],
+        "created_at": "2026-06-13T00:00:00Z", "updated_at": "2026-06-13T00:00:00Z"
+    })
+}
+
+fn product_json() -> serde_json::Value {
+    let mut image = asset_json("https://files/product.png");
+    image["id"] = json!(ASSET_ID);
+    json!({
+        "id": PRODUCT_ID, "user_id": USER_ID, "name": "Trail Cup",
+        "source_url": "https://shop.example.com/p/trail-cup",
+        "description": "Enamel camping cup", "canonical_description": "A blue enamel camping cup.",
+        "price": "29.00 USD", "brand": "Acme",
+        "primary_image_asset_id": ASSET_ID, "images": [image],
         "created_at": "2026-06-13T00:00:00Z", "updated_at": "2026-06-13T00:00:00Z"
     })
 }

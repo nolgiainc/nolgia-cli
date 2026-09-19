@@ -5,6 +5,10 @@ the matching GitHub release.
 
 ## Unreleased
 
+- **`nolgia products`** lists, imports, shows and deletes products imported from
+  a store link. `import <URL>` fetches a public product page once and stores up
+  to eight product images. `--project-id` files them into a project.
+
 ## v0.2.27
 
 - **Linux arm64 and Windows arm64 binaries.** The release workflow now builds

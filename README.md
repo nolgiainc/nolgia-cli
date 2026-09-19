@@ -271,6 +271,7 @@ Replace every `<PLACEHOLDER>` below with a real value; angle-bracket placeholder
 | `assets` | `list`, `get`, `delete`, `upload`, `tag`, `frame` |
 | `characters` | `list`, `get`, `create`, `update`, `delete` reusable characters |
 | `projects` | `list`, `get`, `create`, `update`, `delete`, `add-assets`, `remove-asset` |
+| `products` | `list`, `import <URL> [--project-id]`, `get`, `delete` products imported from a store link (reusable with `product_id` on the API) |
 | `account` | `me`, `usage` (identity and default-page job/asset item counts) |
 | `billing` | `subscription`, `credits`, `portal` |
 | `pat` | `create`, `list`, `revoke` personal access tokens |
