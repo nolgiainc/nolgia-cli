@@ -9854,6 +9854,90 @@ paths:
         default:
           $ref: '#/components/responses/ProblemResponse'
 
+  /presets/{slug}/assemble:
+    post:
+      tags: [Presets]
+      operationId: assemblePresetPrompt
+      summary: Assemble a preset's final generation prompt from intake answers.
+      description: |
+        Signed-in JWT or PAT callers can assemble a create_image, create_video
+        or create_audio preset, including one whose intake submits through an
+        agent. Studio-intent targets and targets without a model return 400;
+        private presets return 404 to non-admin callers.
+
+        Uses the resolved intake (own, otherwise parent's), its published model
+        limits, prompt slots and card options to decode and validate answers.
+        Fills the baked prompt, adds selected chips and references, then appends
+        the brief. Image URL bindings resolve fresh signed URLs within the
+        caller's library scope (404 outside it, 503 when resolution is unavailable).
+        Assembly never changes the target model or generates media.
+
+        Without authored prompt doctrine, returns slot_fill with zero credits,
+        no rate limit and no AI call. A count above one adds a note explaining
+        that variations need doctrine and returns no variants. With doctrine
+        (own non-empty value, otherwise parent's), returns doctrine and writes
+        the final prompt under that craft contract and the preset's guardrails,
+        using model-aware guidance. Returned prompts preserve the customer's
+        request and reference tokens and are checked for invalid placeholders,
+        unsupported syntax and unnamed brands or people. Invalid replies are
+        retried once; JSON mode falls back when unsupported. Negative prompts
+        are returned only when the target model supports them and they validate.
+        A count above one returns count minus one further complete prompts.
+
+        Doctrine calls share the suggestions rate-limit window (429, or 503
+        if unavailable), require an organization library writer, and reserve
+        one credit (402 if insufficient). Settlement meters provider cost with
+        a one-credit floor; provider or validation failure refunds the hold and
+        returns 502. The ledger label is "Prompt assembly" plus the preset slug.
+        params excludes prompt and negative_prompt and always retains the preset
+        target model, regardless of anything the writer returns.
+      parameters:
+        - $ref: '#/components/parameters/PresetSlug'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssemblePresetPromptRequest'
+            example:
+              answers:
+                subject: A ceramic teapot
+              brief: Soft morning light
+              count: 1
+      responses:
+        '200':
+          description: The assembled prompt, generate parameters and actual charge.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssemblePresetPromptResponse'
+              example:
+                prompt: 'THE SUBJECT: A ceramic teapot. Soft morning light'
+                params:
+                  model: gpt-image-2.5-flare
+                  num_images: 1
+                notes: ["Your answers were placed into the preset's own prompt as written."]
+                mode: slot_fill
+                credits_charged: 0
+                model: gpt-image-2.5-flare
+                endpoint: POST /generate/image
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '402':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '429':
+          $ref: '#/components/responses/ProblemResponse'
+        '502':
+          $ref: '#/components/responses/ProblemResponse'
+        '503':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
   /presets/{slug}/suggestions:
     post:
       tags: [Presets]
@@ -22774,6 +22858,13 @@ components:
       additionalProperties: false
       required: [slug, name, description, best_for, output_type, estimated_time, estimated_credits, recommended_models, target, sort_order, visibility, created_at, updated_at]
       properties:
+        prompt_doctrine:
+          type: string
+          nullable: true
+          description: Admin-only authored prompt doctrine. Omitted for all other callers.
+        has_prompt_doctrine:
+          type: boolean
+          description: Whether this preset or its parent has non-empty prompt doctrine.
         slug:
           type: string
           description: Stable identity of the preset; also the studio intent for agent-driven presets.
@@ -23129,6 +23220,15 @@ components:
         row's curated value instead of resetting it, and applies the default
         (`0` / `private` / `false`) only when the preset is first created.
       properties:
+        prompt_doctrine:
+          type: string
+          nullable: true
+          maxLength: 12000
+          description: >-
+            Admin authored craft doctrine: the contract blocks STYLE, OPTICS,
+            LIGHTING, REALISM LOCK and OUTPUT SETTINGS under which assembly writes
+            the final prompt. Omitted preserves; null or empty clears. A child
+            without its own inherits its parent's doctrine.
         slug:
           type: string
           pattern: '^[a-z0-9][a-z0-9-]{0,63}$'
@@ -23949,6 +24049,8 @@ components:
       required: [slug, intake, intake_from_parent, target, options, prompt_slots]
       description: What `GET /presets/{slug}/intake/context` returns; see that operation.
       properties:
+        assembly:
+          $ref: '#/components/schemas/PresetIntakeContextAssembly'
         slug:
           type: string
         intake:
@@ -23978,6 +24080,90 @@ components:
           allOf:
             - $ref: '#/components/schemas/PresetIntakeEstimate'
           nullable: true
+
+    PresetIntakeContextAssembly:
+      type: object
+      additionalProperties: false
+      required: [doctrine, doctrine_from_parent, hold_credits]
+      properties:
+        doctrine:
+          type: boolean
+        doctrine_from_parent:
+          type: boolean
+        hold_credits:
+          type: integer
+          description: One credit held when doctrine is present; zero otherwise.
+
+    AssemblePresetPromptRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        answers:
+          type: object
+          additionalProperties: true
+          description: Step id to an intake answer (text, string list, or table), using the same loose shapes as nolgia_run_preset.
+        brief:
+          type: string
+          maxLength: 2000
+        chips:
+          type: array
+          maxItems: 8
+          items:
+            type: string
+          description: Card option labels; unknown labels are refused and repeated selections are deduplicated.
+        reference_asset_ids:
+          type: array
+          maxItems: 8
+          items:
+            type: string
+            format: uuid
+          description: Extra library image references, mapped to reference_asset_ids for images or element_asset_ids for video; refused for audio.
+        count:
+          type: integer
+          minimum: 1
+          maximum: 4
+          description: How many prompts to write (1 to 4, 1 when omitted); more than one needs the preset's prompt doctrine.
+        project_id:
+          type: string
+          format: uuid
+
+    AssemblePresetPromptResponse:
+      type: object
+      additionalProperties: false
+      required: [prompt, params, notes, mode, credits_charged, model, endpoint]
+      properties:
+        prompt:
+          type: string
+        negative_prompt:
+          type: string
+        params:
+          type: object
+          additionalProperties: true
+          description: Generate body without prompt and negative_prompt. Its model is always the preset target model.
+        notes:
+          type: array
+          items:
+            type: string
+        mode:
+          type: string
+          enum: [slot_fill, doctrine]
+        credits_charged:
+          type: integer
+        model:
+          type: string
+          description: The preset target model, never the assembly writer model.
+        endpoint:
+          type: string
+          example: POST /generate/image
+        variants:
+          type: array
+          items:
+            type: string
+          description: Further complete prompts, count minus one, only when doctrine is present and count exceeds one.
+        writer_model:
+          type: string
+        doctrine_from_parent:
+          type: boolean
 
     PresetSuggestionsRequest:
       type: object
@@ -24093,6 +24279,15 @@ components:
         provided; an omitted field preserves what is stored, an explicit empty
         value clears it.
       properties:
+        prompt_doctrine:
+          type: string
+          nullable: true
+          maxLength: 12000
+          description: >-
+            Admin authored craft doctrine: the contract blocks STYLE, OPTICS,
+            LIGHTING, REALISM LOCK and OUTPUT SETTINGS under which assembly writes
+            the final prompt. Omitted preserves; null or empty clears. A child
+            without its own inherits its parent's doctrine.
         long_description:
           type: string
           maxLength: 8000
