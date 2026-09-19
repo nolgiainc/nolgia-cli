@@ -5995,15 +5995,31 @@ paths:
     post:
       tags: [Compositions]
       operationId: createCompositionRender
-      summary: Queue a server-side MP4 export of the composition's effective timeline.
+      summary: Queue a server-side MP4 or single-frame PNG export of the composition's effective timeline.
       description: |
         Enqueues a render of the composition's *effective* timeline — the
         authored HTML timing plus the `nolgia-edits.json` overlay (v1/v2) — to
-        an MP4 that is written back as a platform asset (tags `render` and
+        an MP4 by default or a single-frame PNG with `target: still`, written
+        back as a platform asset (tags `render` and
         `composition:<slug>`). Returns 202 immediately; poll
         `GET /renders/{id}` for completion. A Cloud Run job is triggered
         best-effort; if triggering fails the render stays `queued` and is
         picked up by the next scheduled job tick.
+
+        **Still target.** Set `target: still` to render one frame as PNG using
+        the same plan, clips, grades, masks, motion sampling, and text
+        rasterization as the MP4 at that frame. The result is an `image/png`
+        platform asset with the same `render` and `composition:<slug>` tags.
+        It is asynchronous exactly like MP4: receive 202 and poll
+        `GET /renders/{id}`. A still with `max_dimension` is a cheap way for
+        an agent to inspect what a mutation did at a named timestamp and
+        compare it against a reference at the same timestamp. Transparent
+        background omits the renderer's black backdrop and preserves real
+        PNG alpha wherever the timeline leaves the canvas uncovered.
+        Native still resolution is capped at 3840x2160; an oversized canvas
+        fails with its dimensions unless `max_dimension` brings it under
+        that cap. A timestamp past the end renders the last frame and adds
+        a warning naming the requested and rendered timestamps.
 
         **Supported timeline subset.** The renderer interprets *placement and
         visibility timing only* — it does not execute scripts or interpret
@@ -6060,8 +6076,12 @@ paths:
           the glyphs. An addition that carries no `textStyle` is rasterized
           with the default Studio style, centered on the canvas — the
           animated white-on-dark-pill treatment is reserved for authored
-          plain-text elements. Font families fall back
-          to Go fonts, so font fidelity is approximate. MP4 rendering rejects
+          plain-text elements. The 22 self-hosted Studio families are bundled
+          and resolved by family name from the CSS stack. Each is one static
+          instance, with synthetic emboldening or thinning for weight and a
+          synthetic oblique for italic (reported in warnings). An unknown
+          custom family falls back to Go fonts with a render warning; generic,
+          system, and web-safe fallback names do not warn. Rendering rejects
           plans with more than 300 visible text additions before rasterization.
         - Text additions with a valid `textStyle.width` or `textStyle.height`
           also preserve their text box layout, on the same static raster path
@@ -6073,9 +6093,11 @@ paths:
           visible as overflow. Without a width, the box uses intrinsic
           shrink-to-fit sizing from the space remaining to the right of x%,
           capped at 80% of the canvas width; without a height, the box fits the
-          wrapped lines. Font fidelity is approximate: bundled Go regular,
-          bold, italic, and bold-italic fonts stand in for `fontFamily`, with
-          weights of 600 or greater using bold. Authored CSS is NOT applied
+          wrapped lines. The same 22 bundled Studio families resolve from
+          the CSS stack, with synthetic weight and oblique italic from each
+          static instance. Unknown custom families use Go fallback fonts and
+          record a warning (generic, system, and web-safe names do not warn).
+          Authored CSS is NOT applied
           to either text rendering path.
 
         The canvas size comes from `data-width`/`data-height` on the root
@@ -19024,12 +19046,55 @@ components:
     CreateRenderRequest:
       type: object
       additionalProperties: false
-      description: Render request body. Empty today; `params` is reserved for future render options (fps, format, quality).
+      description: Render request body. Defaults to video; still options are allowed only with target still. Non-empty params are rejected with 400 because params remains reserved.
       properties:
+        target:
+          $ref: '#/components/schemas/RenderTarget'
+        still:
+          $ref: '#/components/schemas/RenderStillOptions'
         params:
           type: object
           nullable: true
           description: Reserved for future render options; must be empty or omitted today.
+
+    RenderTarget:
+      type: string
+      enum: [video, still]
+      default: video
+      description: 'Output target: video exports an MP4; still exports a single-frame PNG. Invalid values return 400 with "target must be video or still". With still and no still object, defaults are frame 0, opaque background, and native resolution.'
+
+    RenderStillOptions:
+      type: object
+      additionalProperties: false
+      description: >-
+        Single-frame PNG options. Only allowed with target still; otherwise
+        returns 400 with "still is only allowed with target: still".
+        at_seconds and frame are mutually exclusive; setting both returns
+        400 with "still.frame and still.at_seconds are mutually exclusive".
+        Neither selects frame 0. Native resolution is capped at 3840x2160;
+        larger canvases fail the render with a message naming the canvas,
+        unless max_dimension brings the output under that cap.
+      properties:
+        at_seconds:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 86400
+          description: 'Timestamp rounded to the nearest frame using the plan FPS in the worker, then clamped to the last frame with a warning when past the end. Omitted selects frame 0. Cannot accompany frame. Invalid values return 400 with "still.at_seconds must be between 0 and 86400". No schema default is declared on purpose: a declared default generates as a REQUIRED property in openapi-typescript and as a materialized value in the Python client, which would send at_seconds on every request and collide with frame.'
+        frame:
+          type: integer
+          minimum: 0
+          maximum: 2592000
+          description: 'Zero-based frame index, clamped to the last frame with a warning when past the end. Cannot accompany at_seconds. Invalid values return 400 with "still.frame must be between 0 and 2592000".'
+        background:
+          type: string
+          enum: [opaque, transparent]
+          description: 'Opaque includes the black backdrop; omitted means opaque. Transparent omits it, preserving a real PNG alpha channel for canvas areas the timeline does not cover. Invalid values return 400 with "still.background must be opaque or transparent". No schema default is declared, for the same codegen reason as at_seconds.'
+        max_dimension:
+          type: integer
+          minimum: 64
+          maximum: 3840
+          description: 'Downscale the finished still so its long edge is at most this many pixels, preserving aspect ratio. Omitted means native canvas resolution. Invalid values return 400 with "still.max_dimension must be between 64 and 3840".'
 
     RenderAspectRatio:
       type: string
@@ -19145,12 +19210,12 @@ components:
           $ref: '#/components/schemas/RenderStatus'
         params:
           type: object
-          description: 'Empty for a composition render. For a blocks render, carries mode: blocks plus the normalized request (blocks, block_seconds, aspect_ratio, keep_video_audio, and optional captions).'
+          description: 'Empty for a video composition render. For a still render, carries mode: still, background, either frame or at_seconds (resolved using the plan FPS by the worker), and optional max_dimension. For a blocks render, carries mode: blocks plus the normalized request (blocks, block_seconds, aspect_ratio, keep_video_audio, and optional captions).'
         asset_id:
           type: string
           format: uuid
           nullable: true
-          description: The produced video asset, set when status is succeeded.
+          description: The produced asset, a video for an MP4 render and an image/png for a still, set when status is succeeded.
         warnings:
           type: array
           description: Human-readable notes about skipped/unsupported timeline nodes and per-block narration speed-up or last-frame hold.
