@@ -54,6 +54,8 @@ tags:
     description: "Saved styles: a reusable look, a prompt fragment plus reference images, applied with style_id."
   - name: EditSessions
     description: "Chained edit sessions: keep editing one image step by step, revert to any earlier step, estimate the cost of the chain."
+  - name: TweakScopes
+    description: Measured scopes for narrow image tweaks, including known-unavailable scopes and their evidence.
   - name: Projects
     description: User-owned groupings of assets; an asset can belong to multiple projects.
   - name: Collections
@@ -4474,12 +4476,40 @@ paths:
         default:
           $ref: '#/components/responses/ProblemResponse'
 
+  /tweak-scopes:
+    get:
+      tags: [TweakScopes]
+      operationId: listTweakScopes
+      summary: List measured scopes for narrow image tweaks.
+      description: >-
+        Returns all scopes ordered by position then id, including unavailable
+        scopes. An unavailable scope is a deliberate product statement that
+        measurements failed to preserve the image, with the reason retained
+        rather than hidden. Authentication is required.
+      responses:
+        '200':
+          description: All measured tweak scopes, including known-unavailable scopes.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TweakScopeList'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
   /edit-sessions/{id}/estimate:
     get:
       tags: [EditSessions]
       operationId: estimateEditSession
       summary: Estimate the next step and show the charged chain total.
       parameters:
+        - name: scope
+          in: query
+          required: false
+          description: A tweak scope id. Uses its first allowed model unless an allowed model is supplied.
+          schema:
+            type: string
         - name: id
           in: path
           required: true
@@ -17531,10 +17561,49 @@ components:
             format: uuid
           description: Replaces the whole reference set.
 
+    TweakScope:
+      type: object
+      additionalProperties: false
+      required: [id, label, description, detail_hint, route, models, available, unavailable_reason]
+      description: A measured tweak scope, including known-unavailable scopes and the evidence explaining their refusal.
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+        description:
+          type: string
+        detail_hint:
+          type: string
+        route:
+          type: string
+          enum: [edit, inpaint]
+          x-enum-varnames: [TweakScopeRouteEdit, TweakScopeRouteInpaint]
+        models:
+          type: array
+          description: Ordered model allow-list; the first is the default for this scope.
+          items:
+            $ref: '#/components/schemas/ImageModel'
+        available:
+          type: boolean
+        unavailable_reason:
+          type: string
+          description: Measured reason for refusal when unavailable; empty when available.
+
+    TweakScopeList:
+      type: object
+      additionalProperties: false
+      required: [scopes]
+      properties:
+        scopes:
+          type: array
+          items:
+            $ref: '#/components/schemas/TweakScope'
+
     EditSessionStep:
       type: object
       additionalProperties: false
-      required: [id, position, prompt, model, job_id, status, credits, created_at]
+      required: [id, position, prompt, detail, model, job_id, status, credits, created_at]
       properties:
         id:
           type: string
@@ -17549,6 +17618,14 @@ components:
           description: The step this one edited from, or null for the source image.
         prompt:
           type: string
+          description: The composed prompt actually submitted for generation.
+        scope:
+          type: string
+          nullable: true
+          description: The tweak scope id, or null for an unscoped step or a deleted scope.
+        detail:
+          type: string
+          description: The customer's trimmed words substituted into the scope template, or empty for an unscoped step.
         model:
           type: string
         quality:
@@ -17660,19 +17737,34 @@ components:
     AppendEditStepRequest:
       type: object
       additionalProperties: false
-      required: [prompt]
       properties:
         prompt:
           type: string
-          minLength: 1
+          x-go-type-skip-optional-pointer: true
           maxLength: 4000
+          description: Required for an unscoped step. Must be absent or empty when scope is supplied.
+        scope:
+          type: string
+          nullable: true
+          description: "A tweak scope id from GET /tweak-scopes. Prefer a scoped tweak when the requested change is local. Cannot be combined with style_id: a scoped tweak composes its own prompt and uses only the picked render as its image input."
+        detail:
+          type: string
+          nullable: true
+          maxLength: 500
+          description: Required and non-empty for scoped steps; substituted into the server's scope template after trimming.
+        mask_asset_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Required for an available inpaint scope; also forwarded for unscoped steps. Ignored by edit scopes, which never submit a mask.
         model:
           $ref: '#/components/schemas/ImageModel'
-          description: Defaults to the style model hint, then the previous step model, then gpt-image-2.
+          description: Scoped steps require an allowed model and default to the scope's first model. Unscoped steps default to the style model hint, then the previous step model, then gpt-image-2.
         style_id:
           type: string
           format: uuid
           nullable: true
+          description: "Optional saved style for unscoped steps only. Cannot be combined with scope: the style prompt fragment and reference images would break the scoped prompt and its picked-render-only image input guarantee."
         quality:
           type: string
           nullable: true
