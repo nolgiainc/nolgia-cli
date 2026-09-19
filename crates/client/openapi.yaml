@@ -5760,6 +5760,8 @@ paths:
         At most 10 turns may be pending (executing plus queued) across a
         user's sessions; past that, submits return `429`.
 
+        Errors carry a machine-readable `code`: `409` and `429` are `session_busy`.
+
         **Steering**: pass `steering: true` to keep talking while a turn is
         in flight without cancelling it. If a turn is pending IN THE TARGET
         SESSION, the message is recorded immediately (transcript role
@@ -5810,7 +5812,7 @@ paths:
         '404':
           $ref: '#/components/responses/ProblemResponse'
         '409':
-          description: This session's previous turn is still pending; steer it, or wait for it to complete or fail.
+          description: "This session's previous turn is still pending; steer it, or wait for it to complete or fail. Carries code: session_busy."
           content:
             application/json:
               schema:
@@ -5867,6 +5869,38 @@ paths:
         '400':
           $ref: '#/components/responses/ProblemResponse'
         '401':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /agent/messages/{id}:
+    get:
+      tags: [Agent]
+      operationId: getAgentMessage
+      summary: Fetch one transcript message.
+      description: |
+        Returns one row of the caller's transcript exactly as
+        `GET /agent/messages` serves it, including feedback on rated agent
+        replies. Returns `404` when it does not exist or is not the caller's.
+        Clients waiting for a reply poll this with backoff instead of paging
+        the transcript.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The transcript message.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentMessage'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
           $ref: '#/components/responses/ProblemResponse'
         default:
           $ref: '#/components/responses/ProblemResponse'
@@ -6274,6 +6308,44 @@ paths:
         '404':
           $ref: '#/components/responses/ProblemResponse'
         '503':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /agent/sessions/{id}/interrupt:
+    post:
+      tags: [Agent]
+      operationId: interruptAgentSession
+      summary: Stop the session's in-flight agent turn.
+      description: |
+        Stops the running or queued turn of this session only. Reaches the
+        running agent through the same run channel steering uses (the pod's
+        run stop), marks the turn `interrupted`, and returns the turn's
+        credit hold for the agent's reasoning on that turn. Generations the
+        agent already submitted keep running and bill as usual.
+
+        Steering messages still queued behind the stopped turn stay in the
+        transcript but are not run. Send a new message to continue.
+
+        Idempotent: calling it again, or on an idle session, answers `200`
+        and changes nothing.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The newest turn's status after the interrupt request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentSessionInterrupt'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
           $ref: '#/components/responses/ProblemResponse'
         default:
           $ref: '#/components/responses/ProblemResponse'
@@ -8701,6 +8773,12 @@ components:
       required: [type, title, status]
       description: RFC 7807 problem object.
       properties:
+        code:
+          type: string
+          description: >
+            Machine-readable error code. Agent endpoints (`/agent/chat`,
+            `/agent/messages*`, `/agent/sessions*`, `/agent/steps`) set one of
+            the `AgentErrorCode` values when the failure has one; absent otherwise.
         type:
           type: string
           format: uri
@@ -13061,6 +13139,9 @@ components:
             `wearable_reference_asset_ids`. Always sent (empty when none).
           items:
             $ref: '#/components/schemas/CharacterWardrobeOutfit'
+        preferred_models:
+          $ref: '#/components/schemas/CharacterPreferredModels'
+          description: Optional in the schema only so existing clients keep parsing; the API always sends it, with null fields when unset.
         readiness:
           type: string
           description: |
@@ -13165,6 +13246,29 @@ components:
           type: string
           format: date-time
 
+    CharacterPreferredModels:
+      type: object
+      additionalProperties: false
+      description: |
+        The models this character renders best on, used by clients as the default
+        model when the character is attached (web composers, NOLGIA Agent).
+        image must be an image model on GET /models that can carry a character
+        (image.aura_compatible true and image.reference_images_max > 0);
+        video must be a video model with references.element_refs_max > 0.
+        null or an empty string means no preference. Generation requests still
+        name model explicitly.
+      properties:
+        image:
+          type: string
+          nullable: true
+          x-omitempty: false
+          maxLength: 128
+        video:
+          type: string
+          nullable: true
+          x-omitempty: false
+          maxLength: 128
+
     CharacterWardrobeOutfit:
       type: object
       additionalProperties: false
@@ -13266,6 +13370,9 @@ components:
           description: Named outfits stored on the character. See `Character.wardrobe`.
           items:
             $ref: '#/components/schemas/CharacterWardrobeOutfit'
+        preferred_models:
+          $ref: '#/components/schemas/CharacterPreferredModels'
+          description: Models this character renders best on; clients use these as defaults when attached.
 
     UpdateCharacterRequest:
       type: object
@@ -13319,6 +13426,9 @@ components:
           description: Replaces the full wardrobe (every named outfit) when provided.
           items:
             $ref: '#/components/schemas/CharacterWardrobeOutfit'
+        preferred_models:
+          $ref: '#/components/schemas/CharacterPreferredModels'
+          description: When provided, REPLACES both preferences (send {} or null fields to clear); omitted leaves them unchanged.
 
     BrandPaletteRole:
       type: string
@@ -16058,11 +16168,26 @@ components:
             its session list without another read. Present only on a
             `new_session` submit.
 
+    AgentErrorCode:
+      type: string
+      enum: [session_busy, access_denied, insufficient_credits, backend_error, timeout]
+      x-enum-varnames: [AgentErrorCodeSessionBusy, AgentErrorCodeAccessDenied, AgentErrorCodeInsufficientCredits, AgentErrorCodeBackendError, AgentErrorCodeTimeout]
+      description: |
+        Machine-readable class of an agent endpoint or turn failure:
+        - `session_busy`: the session already has a turn in flight or too many turns are pending; wait or steer.
+        - `access_denied`: the credential or organization role may not do this.
+        - `insufficient_credits`: the wallet cannot pay for the turn.
+        - `backend_error`: the agent could not be reached or failed.
+        - `timeout`: the turn ran past its time budget.
+
     AgentMessageConflict:
       type: object
       additionalProperties: false
       required: [pending_agent_message_id]
       properties:
+        code:
+          $ref: '#/components/schemas/AgentErrorCode'
+          description: Always `session_busy`.
         pending_agent_message_id:
           type: string
           format: uuid
@@ -16116,8 +16241,36 @@ components:
 
     AgentMessageStatus:
       type: string
-      enum: [pending, complete, failed]
-      description: User messages are always `complete`; agent replies start `pending`.
+      enum: [pending, complete, failed, interrupted]
+      description: >
+        User messages are always `complete`; agent replies start `pending`.
+        `interrupted` means the turn was stopped with
+        `POST /agent/sessions/{id}/interrupt` before it settled; credits still
+        held for it were returned.
+
+    AgentQuestionOption:
+      type: object
+      additionalProperties: false
+      required: [label]
+      properties:
+        label:
+          type: string
+        description:
+          type: string
+
+    AgentQuestion:
+      type: object
+      additionalProperties: false
+      required: [text, options]
+      properties:
+        text:
+          type: string
+          description: The closing question, one sentence ending in `?`.
+        options:
+          type: array
+          description: The short option list the agent offered directly above the question, in order; empty when it offered none.
+          items:
+            $ref: '#/components/schemas/AgentQuestionOption'
 
     AgentMessage:
       type: object
@@ -16136,7 +16289,16 @@ components:
           $ref: '#/components/schemas/AgentMessageStatus'
         error:
           type: string
-          description: Failure reason, set only when status is `failed`.
+          description: Failure reason, set when status is `failed` or `interrupted`.
+        error_code:
+          $ref: '#/components/schemas/AgentErrorCode'
+          description: "Present on `failed` agent replies: the machine-readable class of `error`."
+        question:
+          $ref: '#/components/schemas/AgentQuestion'
+          description: >
+            Present on a `complete` agent reply whose last line is a question:
+            the agent is waiting for your answer. Answer with a normal
+            `POST /agent/messages` in the same session.
         user_message_id:
           type: string
           format: uuid
@@ -16442,6 +16604,35 @@ components:
           format: date-time
           description: The newest step's timestamp in the batch.
 
+    AgentSessionInterrupt:
+      type: object
+      additionalProperties: false
+      required: [session_id, interrupted, run_stopped, credits_released]
+      properties:
+        session_id:
+          type: string
+          format: uuid
+        interrupted:
+          type: boolean
+          description: True when the session's newest turn is interrupted after this call, whether this call stopped it or an earlier one did.
+        agent_message_id:
+          type: string
+          format: uuid
+          description: The session's newest agent reply; absent when the session has no turns.
+        status:
+          $ref: '#/components/schemas/AgentMessageStatus'
+          description: That reply's status after the call.
+        run_stopped:
+          type: boolean
+          description: >
+            True when the agent acknowledged the stop request for a running
+            turn; false for a queued turn, a turn whose run had not started
+            yet, a repeat call, or when the agent could not be reached (the
+            turn is still marked interrupted and its reply is discarded).
+        credits_released:
+          type: integer
+          description: Credits this call returned to the wallet from the turn's hold; 0 on repeat calls and for turns that had no hold.
+
     AgentSession:
       type: object
       additionalProperties: false
@@ -16503,7 +16694,7 @@ components:
           description: >
             Status of the session's newest agent turn: `pending` while a
             production is still running (the session is actively producing),
-            `complete` or `failed` once it settled. Null when the session has
+            `complete`, `failed`, or `interrupted` once it settled. Null when the session has
             no agent turns yet. Lets a sessions list surface a live
             "producing" indicator and a finished/failed outcome without
             opening each session — the durable-run surface's find-your-run
@@ -16542,7 +16733,7 @@ components:
             agent turns yet.
         turn_status:
           type: string
-          enum: [running, queued, idle]
+          enum: [running, queued, idle, awaiting_input]
           description: >
             The session's coarse live activity, derived from
             `last_turn_status` + `last_turn_queued`: `running` while an agent
@@ -16550,6 +16741,11 @@ components:
             slot, `idle` otherwise. Convenience for multi-session activity
             indicators (a sessions sidebar's status chips); live flips ride
             `GET /agent/sessions/{id}/events` as `session_status` frames.
+            `awaiting_input` when the newest turn completed with a question
+            for you (see `question`).
+        question:
+          $ref: '#/components/schemas/AgentQuestion'
+          description: The newest turn's closing question while `turn_status` is `awaiting_input`; absent otherwise.
         created_at:
           type: string
           format: date-time
