@@ -29,9 +29,11 @@ impl Moderated {
         let message = failure.map_or("", |failure| failure.message.as_str());
         let refund = match failure.and_then(|failure| failure.credits_refunded) {
             Some(true) => "refunded, the credit hold was released.",
-            Some(false) => {
-                "charged for this attempt, because the provider processed the request before its filter blocked it."
-            }
+            // Only the outcome, never a cause: `credits_refunded: false` says
+            // the hold was consumed, not WHERE the provider's filter ran. An
+            // input-stage refusal can be billed too, and the provider's own
+            // reason is printed a line above.
+            Some(false) => "charged for this attempt, the credit hold was consumed.",
             None => {
                 "no refund outcome was recorded for this job. Check your usage before assuming either way."
             }
@@ -107,7 +109,7 @@ mod tests {
             (Some(json!(true)), "refunded, the credit hold was released."),
             (
                 Some(json!(false)),
-                "charged for this attempt, because the provider processed the request before its filter blocked it.",
+                "charged for this attempt, the credit hold was consumed.",
             ),
             (
                 None,
