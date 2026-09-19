@@ -13,7 +13,8 @@ on:
     paths: ['.github/workflows/release.yml']
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # Dry runs must not cancel a publishing run on the same tag.
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:

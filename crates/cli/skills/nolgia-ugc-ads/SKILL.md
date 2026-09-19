@@ -50,7 +50,10 @@ nolgia gen video --model heygen-avatar-iv \
 
 `heygen-avatar-iv` makes the portrait speak the voice track: the clip is as
 long as the audio and billed on its duration, so leave `--duration-seconds`
-off. Check `nolgia gen video ... --cost-only` before a batch. For a
+off. Price a lip-sync batch from the catalog, not from `--cost-only`:
+`nolgia models get heygen-avatar-iv` quotes a 5-second clip, so scale that by
+each voiceover's length (`--cost-only` does not read `--audio-ref` and would
+quote 5 seconds however long the track is). For a
 performance with more body movement, generate a silent base clip on
 `minimax-h3` (`--input marcus.png --duration-seconds 15`) and cut the
 lip-synced shots into it; step 4's B-roll hides the joins.
