@@ -9631,6 +9631,11 @@ components:
         description:
           type: string
           description: A short description when one is known (the generation prompt, or the composition's description).
+        model:
+          type: string
+          description: Catalog id of the model that generated the shared media (render it with the catalog's display name, never raw). Present only when the link serves a generated library asset; absent for uploads, imports and composition renders.
+        preset:
+          $ref: '#/components/schemas/ShareLinkPreset'
         modality:
           $ref: '#/components/schemas/Modality'
         mime_type:
@@ -9660,6 +9665,23 @@ components:
         created_at:
           type: string
           format: date-time
+
+    ShareLinkPreset:
+      type: object
+      additionalProperties: false
+      required: [slug, name]
+      description: |
+        The public catalog preset the shared media was made with: the generating job's
+        `preset_slug`, else the preset the agent chat that ran the job was launched from.
+        Absent when there is none, or when that preset is not public (a held or private
+        preset is never named on a public page).
+      properties:
+        slug:
+          type: string
+          description: The preset's catalog slug (its public page is /presets/{slug}).
+        name:
+          type: string
+          description: The preset's display name from the catalog.
 
     ModelList:
       type: object
