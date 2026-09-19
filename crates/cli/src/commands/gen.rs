@@ -24,6 +24,9 @@ pub enum GenCommand {
     Image(ImageArgs),
     Video(VideoArgs),
     Audio(AudioArgs),
+    /// Turn one to four photos into a 3D model (GLB)
+    #[command(name = "3d")]
+    ThreeD(ThreeDArgs),
 }
 
 #[derive(Args, Debug)]
@@ -327,6 +330,7 @@ pub async fn run(command: GenCommand, ctx: &CommandContext) -> Result<()> {
         GenCommand::Image(args) => image(args, ctx).await,
         GenCommand::Video(args) => video(args, ctx).await,
         GenCommand::Audio(args) => audio(args, ctx).await,
+        GenCommand::ThreeD(args) => three_d(args, ctx).await,
     }
 }
 
@@ -907,6 +911,7 @@ pub(crate) async fn upload_image_asset(
 fn signed_upload_content_type(ext: &str) -> Option<CreateAssetUploadRequestContentType> {
     use CreateAssetUploadRequestContentType as Ct;
     Some(match ext {
+        "glb" => Ct::ModelGltfBinary,
         "mp4" => Ct::VideoMp4,
         "mov" | "qt" => Ct::VideoQuicktime,
         "webm" => Ct::VideoWebm,
@@ -941,7 +946,7 @@ pub(crate) async fn upload_asset_file(
             Some(content_type) => upload_via_signed_url(path, ctx, content_type, project_id).await,
             None => anyhow::bail!(
                 "unsupported file extension {ext:?} \
-                 (images: png/jpeg/webp; video: mp4/mov/webm; audio: mp3/wav/ogg/m4a)"
+                 (images: png/jpeg/webp; video: mp4/mov/webm; audio: mp3/wav/ogg/m4a; 3d: glb)"
             ),
         },
         None => anyhow::bail!(
@@ -1144,5 +1149,157 @@ mod tests {
                 .collect()
         };
         values.iter().all(|v| !v.is_empty()).then_some(values)
+    }
+}
+
+#[derive(Args, Debug)]
+#[command(
+    after_help = "Turn photos into a GLB. Hunyuan3D costs 21 credits textured or 13 untextured, plus 9 for PBR and 9 once for extra views. Draft (trellis) costs 2 credits. Agents: estimate with --cost-only first and confirm with the user before submitting batches over ~2000 credits."
+)]
+pub struct ThreeDArgs {
+    /// Image file or asset UUID; repeat in front, back, left, right order (1 to 4)
+    #[arg(
+        long,
+        value_name = "PATH_OR_UUID",
+        required_unless_present = "image_url",
+        conflicts_with = "image_url"
+    )]
+    pub input: Vec<String>,
+    /// Hosted HTTPS front image instead of --input
+    #[arg(long, value_name = "URL", required_unless_present = "input")]
+    pub image_url: Option<String>,
+    /// Model id; omitted by default so the server selects hunyuan3d-v3
+    #[arg(long, value_parser = clap::value_parser!(nolgia_client::types::Generate3DModel), value_name = "hunyuan3d-v3|trellis")]
+    pub model: Option<nolgia_client::types::Generate3DModel>,
+    /// Use trellis (2 credits, one image, textured only)
+    #[arg(long, conflicts_with = "model")]
+    pub draft: bool,
+    /// Generate an untextured white model (hunyuan3d-v3 only, 13 credits)
+    #[arg(long)]
+    pub no_texture: bool,
+    /// Add PBR materials (hunyuan3d-v3 only, +9 credits)
+    #[arg(long, conflicts_with = "no_texture")]
+    pub pbr: bool,
+    #[arg(long)]
+    pub project_id: Option<uuid::Uuid>,
+    /// Tag the generated asset; repeat for multiple tags (up to 10)
+    #[arg(long)]
+    pub tag: Vec<String>,
+    /// Download the GLB to this exact path
+    #[arg(long)]
+    pub out: Option<PathBuf>,
+    #[arg(long)]
+    pub no_wait: bool,
+    #[arg(long, default_value_t = 300)]
+    pub timeout: u64,
+    /// Print the live catalog credit estimate without uploading or submitting
+    #[arg(long)]
+    pub cost_only: bool,
+}
+
+async fn three_d(args: ThreeDArgs, ctx: &CommandContext) -> Result<()> {
+    use nolgia_client::types::{
+        Generate3DModel, Generate3DRequest, Generate3DRequestQuality, Generate3DRequestTagsItem,
+    };
+    anyhow::ensure!(
+        args.input.len() <= 4,
+        "--input: at most 4 images per request"
+    );
+    let model = if args.draft {
+        Generate3DModel::Trellis
+    } else {
+        args.model.unwrap_or(Generate3DModel::Hunyuan3dV3)
+    };
+    if model == Generate3DModel::Trellis {
+        anyhow::ensure!(
+            args.input.len() <= 1,
+            "--input: trellis/--draft requires exactly one image"
+        );
+        anyhow::ensure!(
+            !args.no_texture,
+            "--no-texture is not supported by trellis/--draft"
+        );
+        anyhow::ensure!(!args.pbr, "--pbr is not supported by trellis/--draft");
+    }
+    let tags = args
+        .tag
+        .into_iter()
+        .map(Generate3DRequestTagsItem::try_from)
+        .collect::<Result<Vec<_>, _>>()
+        .context("invalid --tag")?;
+    anyhow::ensure!(tags.len() <= 10, "--tag: at most 10 tags per request");
+    if args.cost_only {
+        match super::models::quote_three_d(
+            ctx,
+            &model.to_string(),
+            args.no_texture,
+            args.pbr,
+            args.input.len() > 1,
+        )
+        .await
+        {
+            Ok(quote) => println!("{quote}"),
+            Err(err) => println!(
+                "3D credit estimate unavailable: {err:#}. No job submitted; try `nolgia models list --modality 3d`."
+            ),
+        }
+        return Ok(());
+    }
+    let mut image_asset_ids = Vec::with_capacity(args.input.len());
+    for input in &args.input {
+        image_asset_ids.push(resolve_reference_asset(input, "--input", ctx).await?);
+    }
+    let body = Generate3DRequest {
+        image_asset_ids,
+        image_url: args.image_url,
+        model: args.model,
+        quality: args.draft.then_some(Generate3DRequestQuality::Draft),
+        texture: args.no_texture.then_some(false),
+        pbr: args.pbr.then_some(true),
+        project_id: args.project_id,
+        tags,
+        ..Default::default()
+    };
+    let job = match ctx.client().generate3_d().body(body).send().await {
+        Ok(response) => response.into_inner(),
+        Err(err) => {
+            return Err(super::submit_error(err, "submitting 3D job", "nolgia gen 3d").await);
+        }
+    };
+    if args.no_wait {
+        return print_json(&AsyncJob {
+            job_id: job.id.to_string(),
+        });
+    }
+    let job_id = job.id;
+    livejob::announce(job_id, args.timeout);
+    livejob::guard(job_id, async move {
+        let job = wait_for_asset(job_id, ctx, args.timeout).await?;
+        let asset = job
+            .asset
+            .as_ref()
+            .context("3D job completed without asset")?;
+        if let Some(out) = args.out.as_ref() {
+            download(&asset.signed_url, out).await?;
+        }
+        match ctx.format() {
+            OutputFormat::Json => print_json(&job),
+            OutputFormat::Text => {
+                println!("{} {}\n{}", job.id, job.status, asset.signed_url);
+                Ok(())
+            }
+        }
+    })
+    .await
+}
+
+#[cfg(test)]
+mod three_d_tests {
+    #[test]
+    fn glb_signed_upload_uses_gltf_binary() {
+        assert_eq!(
+            super::signed_upload_content_type("glb"),
+            Some(super::CreateAssetUploadRequestContentType::ModelGltfBinary)
+        );
     }
 }

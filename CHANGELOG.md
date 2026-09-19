@@ -5,6 +5,16 @@ the matching GitHub release.
 
 ## Unreleased
 
+- **`nolgia gen 3d`** turns one to four photos into a 3D model (GLB).
+  Repeat `--input <PATH_OR_UUID>` in front, back, left, right order, or use
+  `--image-url`. `--model hunyuan3d-v3` (the server default) costs 21 credits
+  textured, `--no-texture` costs 13, `--pbr` adds 9, and extra views add 9 once.
+  `--draft` or `--model trellis` costs 2 credits and takes one image.
+  `--cost-only` estimates from the live catalog; `--out` downloads to the exact
+  path. Supports `--project-id`, repeatable `--tag`, `--no-wait`, and `--timeout`.
+- **`.glb` uploads:** `nolgia assets upload model.glb` uses signed uploads with
+  `model/gltf-binary` (up to 200 MiB).
+
 ## v0.2.28
 
 - **Content-filter blocks read as such, with exit code 65.** When the

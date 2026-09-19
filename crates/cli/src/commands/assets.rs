@@ -14,7 +14,7 @@ pub enum AssetsCommand {
     List(ListAssetsArgs),
     Get(GetAssetArgs),
     Delete(DeleteAssetArgs),
-    /// Upload a local media file (image/video/audio) and get a reusable asset id
+    /// Upload a local media file (image/video/audio/GLB) and get a reusable asset id
     Upload(UploadAssetArgs),
     /// Replace an asset's full tag set
     Tag(TagAssetArgs),
