@@ -6002,17 +6002,36 @@ paths:
           re-evaluated per frame, so a keyframed clip moves, scales, rotates
           and fades with its mask. A motion on a text clip is ignored with a
           warning (text additions are placed by their `textStyle`
-          x/y/rotation/opacity, defaulting to the centered title the Studio
-          preview shows; authored text elements keep the lower-third caption
+          x/y/rotation/opacity, defaulting to the canvas center like the Studio
+          preview; authored text elements keep the lower-third caption
           placement), on audio it is ignored.
         - Authored plain-text elements (an element whose content is plain text
           with no child elements) remain animated white-on-dark-pill captions
           with a safe-zone margin; authored CSS is NOT applied.
-        - Text additions are rasterized as static text using Studio `textStyle`,
-          including stroke, shadows, letter spacing, uppercase, and placement
-          (x/y/rotation/opacity), with no entrance fade. Font families fall back
+        - Text additions are NOT animated captions: they are rasterized as
+          static text using Studio `textStyle`, including stroke, shadows,
+          letter spacing, uppercase, and placement (x/y/rotation/opacity),
+          with no entrance fade, no title animation and no dark pill behind
+          the glyphs. An addition that carries no `textStyle` is rasterized
+          with the default Studio style, centered on the canvas — the
+          animated white-on-dark-pill treatment is reserved for authored
+          plain-text elements. Font families fall back
           to Go fonts, so font fidelity is approximate. MP4 rendering rejects
           plans with more than 300 visible text additions before rasterization.
+        - Text additions with a valid `textStyle.width` or `textStyle.height`
+          also preserve their text box layout, on the same static raster path
+          (a text box is never animated). Width and height are independently
+          optional, positive finite native canvas pixels, including fractional values;
+          they control layout rather than glyph scaling. Text wraps at Unicode
+          line-break opportunities within the width, preserving whitespace and
+          explicit newlines; unbreakable words and text beyond the height remain
+          visible as overflow. Without a width, the box uses intrinsic
+          shrink-to-fit sizing from the space remaining to the right of x%,
+          capped at 80% of the canvas width; without a height, the box fits the
+          wrapped lines. Font fidelity is approximate: bundled Go regular,
+          bold, italic, and bold-italic fonts stand in for `fontFamily`, with
+          weights of 600 or greater using bold. Authored CSS is NOT applied
+          to either text rendering path.
 
         The canvas size comes from `data-width`/`data-height` on the root
         container, else the composition's `meta.width`/`meta.height`, else
