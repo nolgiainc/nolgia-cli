@@ -5,6 +5,8 @@ the matching GitHub release.
 
 ## Unreleased
 
+## v0.2.28
+
 - **Content-filter blocks read as such, with exit code 65.** When the
   provider's content filter refuses a generation, `gen image|video|audio` and
   `restore video` now print "Blocked by the content filter", the provider's
