@@ -12430,10 +12430,107 @@ components:
             `wearable_reference_asset_ids`. Always sent (empty when none).
           items:
             $ref: '#/components/schemas/CharacterWardrobeOutfit'
+        readiness:
+          type: string
+          description: |
+            Whether the character's PRIMARY reference can anchor its identity
+            (NOL-860), derived from the face verdict stored when the
+            reference joined the character. One of `ready`,
+            `needs_front_view`, `no_face`, `multiple_faces`, `unverified`
+            (a closed set, not declared as an enum so its `ready` value does
+            not rename generated `AssetStatus` constants): `ready` (exactly one face,
+            presented front-on), `needs_front_view` (one face, turned away
+            or in profile), `no_face` (no face detected, or no references at
+            all), `multiple_faces` (a group shot), `unverified` (the primary
+            has no verdict yet: saved before verdicts existed, or the check
+            could not run). Advisory: a save is never refused on it, but a
+            render cast on a character that is not `ready` is likely to
+            fail the identity gate. Always sent.
+        reference_verdicts:
+          type: array
+          maxItems: 8
+          description: |
+            The stored face verdict of every CHECKED reference image, in
+            display order (a reference the detector has not seen yet is
+            absent). Always sent (empty when none checked).
+          items:
+            $ref: '#/components/schemas/CharacterReferenceVerdict'
+        fidelity_history:
+          type: array
+          maxItems: 10
+          description: |
+            The character's most recent identity-gated renders, newest
+            first: the `identity_score` the Aura gate measured against the
+            primary reference on each image or video generated with this
+            `character_id`. Only `GET /characters/{id}` carries it; the list
+            and write responses omit it.
+          items:
+            $ref: '#/components/schemas/CharacterFidelitySample'
         created_at:
           type: string
           format: date-time
         updated_at:
+          type: string
+          format: date-time
+
+    CharacterReferenceVerdict:
+      type: object
+      additionalProperties: false
+      required: [asset_id, face_count, quality, frontal, is_primary_ok]
+      description: |
+        What the in-process face detector found in one character reference
+        image (NOL-860). Counts and a rounded quality figure only; face
+        geometry never leaves the process.
+      properties:
+        asset_id:
+          type: string
+          format: uuid
+        face_count:
+          type: integer
+          minimum: 0
+          description: Confident, non-overlapping face detections in the image.
+        quality:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: |
+            Detector confidence of the dominant face, scaled down when the
+            face is small relative to the frame. 0 when no face is detected.
+          examples: [0.92]
+        frontal:
+          type: boolean
+          description: Whether the dominant face is presented front-on (false in profile, three-quarter or back view).
+        is_primary_ok:
+          type: boolean
+          description: |
+            Whether this reference can anchor the character's identity:
+            exactly one face, presented front-on. The primary reference's
+            value decides `readiness`.
+
+    CharacterFidelitySample:
+      type: object
+      additionalProperties: false
+      required: [asset_id, modality, identity_score, created_at]
+      description: One identity-gated render attributed to a character.
+      properties:
+        asset_id:
+          type: string
+          format: uuid
+        modality:
+          type: string
+          description: '`image` or `video`.'
+          examples: [image]
+        identity_score:
+          type: number
+          minimum: -1
+          maximum: 1
+          description: The render's ArcFace-family cosine against the character's primary reference (see `Asset.identity_score`).
+          examples: [0.81]
+        identity_gate_passed:
+          type: boolean
+          nullable: true
+          description: Whether the score cleared the 0.60 gate.
+        created_at:
           type: string
           format: date-time
 
