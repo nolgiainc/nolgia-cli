@@ -30,6 +30,8 @@ tags:
     description: Public creative challenges; entries are the submitter's own finished Outputs shared through a public share link; community votes and admin moderation.
   - name: Auth
     description: Sign-in flows for CLI/MCP (device code) and current-user info.
+  - name: Sets
+    description: Coordinated image Outputs sharing one visual system.
   - name: Generate
     description: Image, audio, and video generation endpoints.
   - name: Models
@@ -2130,6 +2132,105 @@ paths:
         '429':
           $ref: '#/components/responses/ProblemResponse'
         '502':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /generate/set:
+    post:
+      tags: [Generate]
+      operationId: generateSet
+      summary: Generate a coordinated set of image Outputs.
+      description: |
+        A pack groups carousel slides or ad variants sharing one visual system.
+        A variants set explores a named axis, such as emotion or concept.
+        Each member is its own image job with its own credit hold and refund.
+        Returns 202 with the set; poll `GET /sets/{id}` until its Outputs are Ready.
+        An `Idempotency-Key` on this endpoint is ignored per member.
+        If a later member is refused, accepted members keep running and further
+        members are not submitted. `problems` lists the refused labels.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenerateSetRequest'
+      responses:
+        '202':
+          description: Set accepted, Outputs are Generating.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OutputSet'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '402':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        '422':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /sets:
+    get:
+      tags: [Sets]
+      operationId: listSets
+      summary: List sets in your current library, newest first.
+      parameters:
+        - name: project_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: limit
+          in: query
+          description: Maximum sets to return, 25 when omitted.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+      responses:
+        '200':
+          description: Sets visible in your library.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OutputSetList'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /sets/{id}:
+    get:
+      tags: [Sets]
+      operationId: getSet
+      summary: Get a set with its jobs and Ready Outputs.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Set found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OutputSet'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
           $ref: '#/components/responses/ProblemResponse'
         default:
           $ref: '#/components/responses/ProblemResponse'
@@ -13948,6 +14049,199 @@ components:
             Omit to extract the LAST frame of the video.
           examples: [2.5]
 
+    OutputSetKind:
+      type: string
+      enum: [pack, variants]
+      x-enum-varnames: [OutputSetKindPack, OutputSetKindVariants]
+    OutputSetStatus:
+      type: string
+      enum: [generating, ready, partial, failed]
+      x-enum-varnames: [OutputSetStatusGenerating, OutputSetStatusReady, OutputSetStatusPartial, OutputSetStatusFailed]
+      description: Generating while jobs run, Ready when all Outputs are ready, partial when some jobs failed, or Failed when all jobs failed.
+    OutputSetMemberInput:
+      type: object
+      additionalProperties: false
+      required: [label, prompt]
+      properties:
+        label:
+          type: string
+          minLength: 1
+          maxLength: 40
+        prompt:
+          type: string
+          minLength: 1
+          maxLength: 4000
+    GenerateSetRequest:
+      type: object
+      additionalProperties: false
+      required: [model, members]
+      properties:
+        model:
+          $ref: '#/components/schemas/ImageModel'
+        members:
+          type: array
+          minItems: 2
+          maxItems: 8
+          items:
+            $ref: '#/components/schemas/OutputSetMemberInput'
+        name:
+          type: string
+          maxLength: 120
+        kind:
+          allOf:
+            - $ref: '#/components/schemas/OutputSetKind'
+          default: pack
+        axis:
+          type: string
+          maxLength: 40
+          description: A named axis for a variants set, such as emotion or concept.
+        preset_slug:
+          type: string
+          nullable: true
+          maxLength: 128
+          examples: ['cinematic-portrait']
+        project_id:
+          type: string
+          format: uuid
+        tags:
+          type: array
+          maxItems: 10
+          items:
+            type: string
+            minLength: 1
+            maxLength: 40
+          examples: [['hero', 'draft']]
+        reference_asset_ids:
+          type: array
+          nullable: true
+          maxItems: 4
+          items:
+            type: string
+            format: uuid
+        face_reference_asset_id:
+          type: string
+          format: uuid
+          nullable: true
+        character_ids:
+          type: array
+          nullable: true
+          maxItems: 4
+          items:
+            type: string
+            format: uuid
+          examples: [['5a2f7c58-9e5a-4f1a-9c7f-2f0b6c3d1e42', 'b2fbb51e-3c33-4a54-b87b-9c2b1e4f9a11']]
+        location_id:
+          type: string
+          format: uuid
+          nullable: true
+        brand_kit_id:
+          type: string
+          format: uuid
+          nullable: true
+        product_id:
+          type: string
+          format: uuid
+          nullable: true
+        style_id:
+          type: string
+          format: uuid
+          nullable: true
+        negative_prompt:
+          type: string
+          nullable: true
+          maxLength: 4000
+        aspect_ratio:
+          $ref: '#/components/schemas/ImageAspectRatio'
+        quality:
+          type: string
+          nullable: true
+          maxLength: 16
+          examples: ['2k']
+        render_quality:
+          type: string
+          enum: [auto, low, medium, high, xhigh, max]
+          x-enum-varnames: [SetRenderQualityAuto, SetRenderQualityLow, SetRenderQualityMedium, SetRenderQualityHigh, SetRenderQualityXhigh, SetRenderQualityMax]
+          examples: ['xhigh']
+    OutputSet:
+      type: object
+      additionalProperties: false
+      required: [id, name, kind, model, status, labels, members, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        kind:
+          $ref: '#/components/schemas/OutputSetKind'
+        axis:
+          type: string
+        preset_slug:
+          type: string
+        project_id:
+          type: string
+          format: uuid
+        model:
+          type: string
+        shared:
+          type: object
+          additionalProperties: true
+        labels:
+          type: array
+          items:
+            type: string
+        status:
+          $ref: '#/components/schemas/OutputSetStatus'
+        members:
+          type: array
+          items:
+            $ref: '#/components/schemas/OutputSetMember'
+        problems:
+          type: array
+          items:
+            $ref: '#/components/schemas/OutputSetProblem'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    OutputSetMember:
+      type: object
+      additionalProperties: false
+      required: [label, prompt, sort_order, job]
+      properties:
+        label:
+          type: string
+        prompt:
+          type: string
+        sort_order:
+          type: integer
+        job:
+          $ref: '#/components/schemas/Job'
+        asset:
+          $ref: '#/components/schemas/Asset'
+    OutputSetProblem:
+      type: object
+      additionalProperties: false
+      required: [label, status, detail]
+      properties:
+        label:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+    OutputSetList:
+      type: object
+      additionalProperties: false
+      required: [sets]
+      properties:
+        sets:
+          type: array
+          items:
+            $ref: '#/components/schemas/OutputSet'
+
     GenerateImageRequest:
       type: object
       additionalProperties: false
@@ -23070,9 +23364,9 @@ components:
 
     PresetTargetKind:
       type: string
-      enum: [create_image, create_video, create_audio, studio_intent]
-      x-enum-varnames: [PresetTargetKindCreateImage, PresetTargetKindCreateVideo, PresetTargetKindCreateAudio, PresetTargetKindStudioIntent]
-      description: How a preset card links out. `create_*` deep-links into a one-shot creation endpoint; `studio_intent` hands off to the Studio agent lane.
+      enum: [create_image, create_video, create_audio, studio_intent, set]
+      x-enum-varnames: [PresetTargetKindCreateImage, PresetTargetKindCreateVideo, PresetTargetKindCreateAudio, PresetTargetKindStudioIntent, PresetTargetKindSet]
+      description: How a preset card links out. `create_*` deep-links into a one-shot creation endpoint; `studio_intent` hands off to the Studio agent lane; `set` submits labelled image Outputs through POST /generate/set.
 
     PresetPageCategory:
       type: string
@@ -23113,7 +23407,7 @@ components:
           $ref: '#/components/schemas/PresetTargetKind'
         params:
           type: object
-          description: 'Kind-specific link parameters. For `create_image`/`create_video`/`create_audio`: `{"prompt": "...", "model": "..."}` (a starter prompt the user edits before submitting plus a recommended model id). For `studio_intent`: `{"intent": "..."}` (the Studio lane consumes it as `?intent=`). Any `create_*` target may also carry `style_key`: `{"name": "...", "prompt_fragment": "..."}`, the default style the agent saves once per customer as a saved style (`POST /styles`, with the run''s style key image as `swatch_asset_id`) and reuses through `style_id` on every clip of the run. `name` is 1 to 80 characters, `prompt_fragment` up to 1000.'
+          description: 'Kind-specific link parameters. For `create_image`/`create_video`/`create_audio`: `{"prompt": "...", "model": "..."}` (a starter prompt the user edits before submitting plus a recommended model id). For `studio_intent`: `{"intent": "..."}` (the Studio lane consumes it as `?intent=`). For `set`: `{"model": "<image model id>", "kind": "pack"|"variants", "axis"?: "...", "members": [{"label": "...", "prompt": "..."}] (2 to 8), "shared"?: {aspect_ratio, quality, render_quality, negative_prompt}}`. Any `create_*` target may also carry `style_key`: `{"name": "...", "prompt_fragment": "..."}`, the default style the agent saves once per customer as a saved style (`POST /styles`, with the run''s style key image as `swatch_asset_id`) and reuses through `style_id` on every clip of the run. `name` is 1 to 80 characters, `prompt_fragment` up to 1000.'
 
     Preset:
       type: object
@@ -24218,6 +24512,12 @@ components:
       required: [kind]
       description: The preset's target as the flow submits to it.
       properties:
+        members:
+          type: array
+          items:
+            $ref: '#/components/schemas/OutputSetMemberInput'
+        set_kind:
+          $ref: '#/components/schemas/OutputSetKind'
         kind:
           $ref: '#/components/schemas/PresetTargetKind'
         model:
@@ -24287,7 +24587,8 @@ components:
         duration, quality and audio flags where it carries them, the model's
         defaults otherwise. A `studio_intent` quotes the flat agent-turn rate
         (`basis: agent_turn`); the generations the agent then makes bill
-        separately.
+        separately. A set target quotes all its members at the shared image
+        settings (`basis: set_run`), members times one image generation.
       properties:
         credits:
           type: integer
@@ -24296,8 +24597,8 @@ components:
           description: The model (or `agent-turn`) the estimate is priced on.
         basis:
           type: string
-          enum: [one_generation, agent_turn]
-          x-enum-varnames: [PresetIntakeEstimateBasisOneGeneration, PresetIntakeEstimateBasisAgentTurn]
+          enum: [one_generation, agent_turn, set_run]
+          x-enum-varnames: [PresetIntakeEstimateBasisOneGeneration, PresetIntakeEstimateBasisAgentTurn, PresetIntakeEstimateBasisSetRun]
         duration_seconds:
           type: integer
           description: The clip length the estimate assumes (video targets).
