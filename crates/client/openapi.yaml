@@ -38,6 +38,8 @@ tags:
     description: Generated media stored in GCS with signed URLs.
   - name: Characters
     description: User-owned reusable subjects (name, description, reference images) for generation.
+  - name: Locations
+    description: User-owned reusable places (name, canonical description, reference images) for generation; the place-twin of a character.
   - name: Projects
     description: User-owned groupings of assets; an asset can belong to multiple projects.
   - name: Collections
@@ -3140,6 +3142,138 @@ paths:
         default:
           $ref: '#/components/responses/ProblemResponse'
 
+  /locations:
+    get:
+      tags: [Locations]
+      operationId: listLocations
+      summary: List the current user's locations, newest first.
+      description: >
+        A location is the place-twin of a character: a room, storefront, set
+        or product universe kept identical across scenes through up to 8
+        reference images (one primary anchor) and a canonical description
+        that downstream generations fold in verbatim. Zero-shot: no training.
+        Scoped to the personal library or the active organization like
+        characters.
+      responses:
+        '200':
+          description: Locations visible in the caller's library.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LocationList'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+    post:
+      tags: [Locations]
+      operationId: createLocation
+      summary: Create a reusable location from existing image assets.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateLocationRequest'
+      responses:
+        '201':
+          description: Location created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Location'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /locations/{id}:
+    get:
+      tags: [Locations]
+      operationId: getLocation
+      summary: Fetch one of the current user's locations with fresh signed reference URLs.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Location found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Location'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+    patch:
+      tags: [Locations]
+      operationId: updateLocation
+      summary: Update a location's name, descriptions, primary anchor or reference images.
+      description: Partial update; only provided fields change. Providing `reference_asset_ids` replaces the full reference set.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateLocationRequest'
+      responses:
+        '200':
+          description: Location updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Location'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+    delete:
+      tags: [Locations]
+      operationId: deleteLocation
+      summary: Delete one of the current user's locations.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Location deleted.
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
   /elements:
     get:
       tags: [Elements]
@@ -3586,6 +3720,77 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ProjectCastList'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /projects/{id}/locations:
+    get:
+      tags: [Projects]
+      operationId: listProjectLocations
+      summary: List a project's locations (places attached to every generation in the project).
+      description: >
+        The sibling of the project cast: the ordered set of the library's
+        locations this project pulls by default. Composers offer them as the
+        default place and project-scoped agent sessions receive them as
+        context. Each member carries the full Location with fresh signed
+        reference URLs.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The project's locations in display order.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectLocationList'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+    put:
+      tags: [Projects]
+      operationId: setProjectLocations
+      summary: Replace a project's locations.
+      description: >
+        Replaces the whole list with the given one, in the given order
+        (positions are renumbered from 0). Every location must exist in the
+        caller's library; duplicates keep their first position. An empty list
+        clears it.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetProjectLocationsRequest'
+      responses:
+        '200':
+          description: The replaced list in display order.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectLocationList'
         '400':
           $ref: '#/components/responses/ProblemResponse'
         '401':
@@ -11215,6 +11420,26 @@ components:
             still contributes its description; that render carries no face
             reference, so its `identity_score` is null. The job's persisted
             params echo `character_id` alongside `aura` for audit.
+        location_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: >-
+            One of your locations (`GET /locations`, NOL-862): the place this
+            render is set in. The location's `primary_reference_asset_id` is
+            appended to `reference_asset_ids` (after the caller's own
+            references, so their order is unchanged) and its
+            `canonical_description` rides into the prompt verbatim after any
+            `character_id` description, so the same room, storefront or set
+            comes back scene after scene. Its own additive field beside
+            `character_id`: a shot casts a character INTO a location, so the
+            two never compete for one slot. The location must belong to the
+            caller - an unknown or foreign id is a 400. The reference counts
+            against `image.reference_images_max`; a model with no reference
+            input or no spare slot is a 400 NAMING location_id, never a
+            silent drop. A location with no reference image contributes its
+            description only. The job's persisted params echo `location_id`
+            for audit.
         element_ids:
           type: array
           nullable: true
@@ -11719,6 +11944,26 @@ components:
             reference image contributes its description only; that clip is
             unscored.
           examples: ['5a2f7c58-9e5a-4f1a-9c7f-2f0b6c3d1e42']
+        location_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: >-
+            One of your locations (`GET /locations`, NOL-862): the place this
+            clip is set in. The location's `primary_reference_asset_id` is
+            attached as an element reference (appended after any
+            `element_asset_ids`/`image_urls` and after the `character_id`
+            reference, so it takes the next `@Image` slot) and its
+            `canonical_description` rides into the prompt verbatim after the
+            character's, keeping the place consistent between a still and a
+            clip. Its own additive field beside `character_id`. The location
+            must belong to the caller - an unknown or foreign id is a 400.
+            Requires a model with room for one more element reference
+            (`references.element_refs_max` on `GET /models`); a model that
+            cannot carry it is a 400 NAMING location_id, never a silent drop.
+            A location with no reference image contributes its description
+            only. Not identity-scored (the Aura gate scores faces, not
+            places).
         element_ids:
           type: array
           nullable: true
@@ -12689,6 +12934,152 @@ components:
           items:
             $ref: '#/components/schemas/CharacterWardrobeOutfit'
 
+    Location:
+      type: object
+      additionalProperties: false
+      required: [id, user_id, name, description, canonical_description, reference_assets, created_at, updated_at]
+      description: >
+        User-owned reusable place for image/video generation (NOL-862): the
+        place-twin of a Character. Reference images document the place from
+        several angles; the primary one is what a generation attaches; the
+        canonical description is the continuity contract folded into prompts
+        verbatim.
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        organization_id:
+          type: string
+          format: uuid
+          description: >
+            The organization whose shared library this location belongs to. Omitted for a personal location.
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+          examples: ['Harbor cafe']
+        description:
+          type: string
+          maxLength: 2000
+          examples: ['A sunlit corner cafe on a cobbled harbor street, teal shutters, brass fittings.']
+        canonical_description:
+          type: string
+          maxLength: 2000
+          description: |
+            The location's canonical written description - the set bible entry
+            (architecture, materials, lighting, dressing, palette) reused
+            VERBATIM by every downstream generation. Downstream prompts fold it
+            in unchanged, never paraphrased. Falls back to `description` when
+            empty.
+        primary_reference_asset_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: |
+            The reference asset that anchors the place: `location_id` on the
+            generate endpoints attaches it as the location reference. Defaults
+            to the first reference asset when unset.
+        reference_assets:
+          type: array
+          maxItems: 8
+          description: Reference images (image assets) in display order, each with a fresh signed URL.
+          items:
+            $ref: '#/components/schemas/Asset'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    LocationList:
+      type: object
+      additionalProperties: false
+      required: [locations]
+      properties:
+        locations:
+          type: array
+          items:
+            $ref: '#/components/schemas/Location'
+
+    CreateLocationRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+          examples: ['Harbor cafe']
+        description:
+          type: string
+          nullable: true
+          maxLength: 2000
+        canonical_description:
+          type: string
+          nullable: true
+          maxLength: 2000
+          description: |
+            The canonical written description reused verbatim by downstream
+            generations (see `Location.canonical_description`). Defaults to
+            `description` when omitted, so every new location has one.
+        primary_reference_asset_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: |
+            The place anchor. Must be one of `reference_asset_ids`. Defaults
+            to the first reference asset.
+        reference_asset_ids:
+          type: array
+          minItems: 0
+          maxItems: 8
+          description: IDs of existing image assets owned by the caller, in display order.
+          items:
+            type: string
+            format: uuid
+
+    UpdateLocationRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          nullable: true
+          minLength: 1
+          maxLength: 80
+        description:
+          type: string
+          nullable: true
+          maxLength: 2000
+        canonical_description:
+          type: string
+          nullable: true
+          maxLength: 2000
+          description: |
+            Replaces the canonical written description (see
+            `Location.canonical_description`) when provided.
+        primary_reference_asset_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: |
+            Replaces the place anchor when provided. Must name one of the
+            location's reference assets after this update.
+        reference_asset_ids:
+          type: array
+          nullable: true
+          minItems: 0
+          maxItems: 8
+          description: Replaces the full set of reference images when provided.
+          items:
+            type: string
+            format: uuid
+
     CharacterSheetKind:
       type: string
       enum: [split, turnaround, expression]
@@ -13208,6 +13599,64 @@ components:
           description: The full cast in display order; an empty list clears it.
           items:
             $ref: '#/components/schemas/ProjectCastEntry'
+
+    ProjectLocationMember:
+      type: object
+      additionalProperties: false
+      required: [location_id, role, sort_order, location]
+      description: One location in a project's locations list.
+      properties:
+        location_id:
+          type: string
+          format: uuid
+        role:
+          type: string
+          maxLength: 80
+          description: The part the place plays in this project (free text, may be empty).
+          examples: ['hero set']
+        sort_order:
+          type: integer
+          minimum: 0
+          description: Display and attach position, dense from 0.
+        location:
+          $ref: '#/components/schemas/Location'
+
+    ProjectLocationList:
+      type: object
+      additionalProperties: false
+      required: [locations]
+      properties:
+        locations:
+          type: array
+          maxItems: 50
+          items:
+            $ref: '#/components/schemas/ProjectLocationMember'
+
+    ProjectLocationEntry:
+      type: object
+      additionalProperties: false
+      required: [location_id]
+      properties:
+        location_id:
+          type: string
+          format: uuid
+          description: A location in the caller's library.
+        role:
+          type: string
+          maxLength: 80
+          description: The part the place plays in this project; omitted or empty means none.
+
+    SetProjectLocationsRequest:
+      type: object
+      additionalProperties: false
+      required: [locations]
+      properties:
+        locations:
+          type: array
+          maxItems: 50
+          description: The full list in display order; an empty list clears it.
+          items:
+            $ref: '#/components/schemas/ProjectLocationEntry'
 
     AddProjectAssetsRequest:
       type: object
