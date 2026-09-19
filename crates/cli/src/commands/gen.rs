@@ -2,11 +2,11 @@ use anyhow::{Context, Result};
 use clap::{Args, Subcommand};
 use nolgia_client::ClientExt;
 use nolgia_client::types::{
-    AspectRatio, AudioFormat, BitrateMode, CreateAssetUploadRequest,
+    AspectRatio, AudioFormat, BitrateMode, CameraMoveStrength, CreateAssetUploadRequest,
     CreateAssetUploadRequestContentType, GenerateAudioRequest, GenerateImageRequest,
-    GenerateImageRequestQuality, GenerateVideoRequest, GenerateVideoRequestNegativePrompt,
-    GenerateVideoRequestQuality, ImageAspectRatio, UploadAssetRequest,
-    UploadAssetRequestContentType, UploadAssetRequestFilename, VideoShot,
+    GenerateImageRequestQuality, GenerateVideoRequest, GenerateVideoRequestMotionId,
+    GenerateVideoRequestNegativePrompt, GenerateVideoRequestQuality, ImageAspectRatio,
+    UploadAssetRequest, UploadAssetRequestContentType, UploadAssetRequestFilename, VideoShot,
 };
 use serde::Serialize;
 use std::{
@@ -188,6 +188,16 @@ pub struct VideoArgs {
     /// knob (`nolgia models get <model>`)
     #[arg(long)]
     pub bitrate: Option<BitrateMode>,
+    /// Camera move from the library (`nolgia motions list`), e.g. push-in,
+    /// orbit-left, crane-up, rack-focus. The server appends the move's
+    /// prompt fragment to --prompt; it never replaces your prompt. Works on
+    /// every video model, with or without --input.
+    #[arg(long, value_name = "MOTION_ID")]
+    pub motion: Option<String>,
+    /// How far and how fast the camera move travels: subtle, medium (the
+    /// default) or strong. Needs --motion.
+    #[arg(long, value_name = "STRENGTH", requires = "motion")]
+    pub motion_strength: Option<CameraMoveStrength>,
     /// Reference video for reference-to-video models: the UUID of one of
     /// your video assets (repeat up to 3). Address them in the prompt as
     /// @Video1..@Video3. Inputs: MP4/MOV, 480p-720p, 2-15s and 50MB
@@ -529,6 +539,11 @@ async fn video(args: VideoArgs, ctx: &CommandContext) -> Result<()> {
         .map(GenerateVideoRequestNegativePrompt::try_from)
         .transpose()
         .map_err(|e| anyhow::anyhow!("--negative-prompt: {e}"))?;
+    let motion_id = args
+        .motion
+        .map(GenerateVideoRequestMotionId::try_from)
+        .transpose()
+        .map_err(|e| anyhow::anyhow!("--motion: {e}"))?;
     let mut builder = GenerateVideoRequest::builder()
         .model(args.model)
         .prompt(args.prompt)
@@ -540,6 +555,8 @@ async fn video(args: VideoArgs, ctx: &CommandContext) -> Result<()> {
         .generate_audio(args.generate_audio)
         .quality(quality)
         .bitrate_mode(args.bitrate)
+        .motion_id(motion_id)
+        .motion_strength(args.motion_strength)
         .character_id(args.character_id)
         .project_id(args.project_id)
         .shots(shots)

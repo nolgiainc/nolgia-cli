@@ -36,6 +36,7 @@ fn help_lists_full_command_surface() {
         .stdout(predicate::str::contains("pat"))
         .stdout(predicate::str::contains("restore"))
         .stdout(predicate::str::contains("color-presets"))
+        .stdout(predicate::str::contains("motions"))
         .stdout(predicate::str::contains("masks"));
 }
 
@@ -4544,4 +4545,150 @@ async fn models_get_prints_the_render_quality_ladder_with_its_adders() {
         .stdout(predicate::str::contains(
             "max — +24 credits per image (premium)",
         ));
+}
+
+// --- Camera-move library (NOL-864) --------------------------------------------
+
+fn motions_json() -> serde_json::Value {
+    json!({
+        "motions": [
+            {"id": "push-in", "name": "Push-in", "category": "dolly",
+             "description": "The camera moves toward the subject, tightening the frame.",
+             "default_strength": "medium", "preview_url": null,
+             "strengths": [
+                {"strength": "subtle", "prompt_fragment": "Camera: a gentle push-in."},
+                {"strength": "medium", "prompt_fragment": "Camera: a steady push-in."},
+                {"strength": "strong", "prompt_fragment": "Camera: a fast push-in."}
+             ]},
+            {"id": "orbit-left", "name": "Orbit left", "category": "orbit",
+             "description": "The camera circles the subject counterclockwise.",
+             "default_strength": "medium", "preview_url": null,
+             "strengths": [
+                {"strength": "subtle", "prompt_fragment": "Camera: a shallow orbit left."},
+                {"strength": "medium", "prompt_fragment": "Camera: a smooth orbit left."},
+                {"strength": "strong", "prompt_fragment": "Camera: a sweeping orbit left."}
+             ]}
+        ]
+    })
+}
+
+#[tokio::test]
+async fn motions_list_outputs_catalog_table() {
+    let api = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/motions"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(motions_json()))
+        .mount(&api)
+        .await;
+    run_ok(&api, &["motions", "list"])
+        .stdout(predicate::str::contains("push-in"))
+        .stdout(predicate::str::contains("Orbit left"))
+        .stdout(predicate::str::contains(
+            "The camera circles the subject counterclockwise.",
+        ))
+        .stdout(predicate::str::contains("gen video --motion <id>"));
+}
+
+#[tokio::test]
+async fn motions_list_json_carries_every_strength_fragment() {
+    let api = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/motions"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(motions_json()))
+        .mount(&api)
+        .await;
+    run_ok(&api, &["--json", "motions", "list"])
+        .stdout(predicate::str::contains("\"id\": \"orbit-left\""))
+        .stdout(predicate::str::contains("\"strength\": \"strong\""))
+        .stdout(predicate::str::contains("Camera: a sweeping orbit left."))
+        .stdout(predicate::str::contains("\"preview_url\": null"));
+}
+
+/// `--motion` / `--motion-strength` ride the request as `motion_id` /
+/// `motion_strength`; the server does the prompt append, so the prompt is
+/// sent exactly as typed.
+#[tokio::test]
+async fn gen_video_motion_flags_ride_the_request() {
+    let api = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/generate/video"))
+        .and(body_partial_json(json!({
+            "prompt": "a rocket on the pad",
+            "motion_id": "orbit-left",
+            "motion_strength": "strong"
+        })))
+        .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
+        .mount(&api)
+        .await;
+    run_ok(
+        &api,
+        &[
+            "gen",
+            "video",
+            "--prompt",
+            "a rocket on the pad",
+            "--motion",
+            "orbit-left",
+            "--motion-strength",
+            "strong",
+            "--no-wait",
+        ],
+    )
+    .stdout(predicate::str::contains(JOB_ID));
+}
+
+/// Without the flags nothing about the request changes: neither field is
+/// sent (the API's own default strength applies only to a named move).
+#[tokio::test]
+async fn gen_video_without_motion_sends_neither_field() {
+    let api = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/generate/video"))
+        .and(|request: &wiremock::Request| {
+            let body: serde_json::Value = serde_json::from_slice(&request.body).unwrap();
+            body.get("motion_id").is_none() && body.get("motion_strength").is_none()
+        })
+        .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
+        .mount(&api)
+        .await;
+    run_ok(&api, &["gen", "video", "--prompt", "x", "--no-wait"])
+        .stdout(predicate::str::contains(JOB_ID));
+}
+
+#[test]
+fn gen_video_motion_strength_requires_motion() {
+    cmd()
+        .args([
+            "gen",
+            "video",
+            "--prompt",
+            "x",
+            "--motion-strength",
+            "strong",
+            "--api-url",
+            "http://127.0.0.1:9",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--motion"));
+}
+
+#[test]
+fn gen_video_rejects_unknown_motion_strength_locally() {
+    cmd()
+        .args([
+            "gen",
+            "video",
+            "--prompt",
+            "x",
+            "--motion",
+            "push-in",
+            "--motion-strength",
+            "extreme",
+            "--api-url",
+            "http://127.0.0.1:9",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("extreme"));
 }
