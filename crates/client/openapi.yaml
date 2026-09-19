@@ -46,6 +46,8 @@ tags:
     description: User-owned products imported from a store link or built from your images; reused in every ad.
   - name: BrandKits
     description: Reusable brand palettes, fonts, logos and never-rules for generation.
+  - name: Canvases
+    description: Versioned node graph production plans for projects, shared by the web editor and NOLGIA Agent.
   - name: Projects
     description: User-owned groupings of assets; an asset can belong to multiple projects.
   - name: Collections
@@ -3587,6 +3589,130 @@ paths:
         default:
           $ref: '#/components/responses/ProblemResponse'
 
+  /canvases:
+    get:
+      tags: [Canvases]
+      operationId: listCanvases
+      summary: List canvases in the current library, newest updated first.
+      description: Returns up to 100 canvas summaries, optionally limited to one visible project.
+      parameters:
+        - name: project_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Canvas summaries in the caller's library.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CanvasList'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /canvases/{id}:
+    get:
+      tags: [Canvases]
+      operationId: getCanvas
+      summary: Read a canvas graph and its current version.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The full canvas.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Canvas'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+    patch:
+      tags: [Canvases]
+      operationId: updateCanvas
+      summary: Update a canvas name or replace its graph.
+      description: >
+        Send the version you last read for optimistic concurrency. Every successful
+        update increases version by one. A stale version is refused with 409;
+        read the canvas again and reapply your edit. The API stores and validates
+        the graph. It does not execute nodes or spend credits.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateCanvasRequest'
+      responses:
+        '200':
+          description: The updated canvas and its new version.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Canvas'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        '413':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+    delete:
+      tags: [Canvases]
+      operationId: deleteCanvas
+      summary: Delete a canvas without deleting assets made by its runs.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Canvas deleted.
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
   /products:
     get:
       tags: [Products]
@@ -4422,6 +4548,77 @@ paths:
         '403':
           $ref: '#/components/responses/ProblemResponse'
         '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /projects/{id}/canvases:
+    get:
+      tags: [Canvases]
+      operationId: listProjectCanvases
+      summary: List a project's canvases, newest updated first.
+      description: Returns up to 100 canvas summaries for a project in the caller's library.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The project's canvas summaries.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CanvasList'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+    post:
+      tags: [Canvases]
+      operationId: createProjectCanvas
+      summary: Create a node graph production plan for a project.
+      description: >
+        The web editor and NOLGIA Agent build the canvas together. The API stores
+        and validates its graph. Running a node is client-side through the
+        ordinary generate endpoints, with each run quoted and billed like any
+        generation. Creating a canvas does not run anything or spend credits.
+        Deleting the project deletes its canvases, never the assets its runs made.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCanvasRequest'
+      responses:
+        '201':
+          description: Canvas created at version 1.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Canvas'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '413':
           $ref: '#/components/responses/ProblemResponse'
         default:
           $ref: '#/components/responses/ProblemResponse'
@@ -15445,6 +15642,307 @@ components:
           items:
             type: string
             format: uuid
+
+    Canvas:
+      type: object
+      additionalProperties: false
+      required: [id, project_id, user_id, name, version, node_count, graph, created_at, updated_at]
+      description: >
+        A node graph production plan for one project, built by the web editor
+        and NOLGIA Agent. The API stores and validates the graph. Clients run
+        nodes through ordinary generate endpoints, each quoted and billed like
+        any generation. Deleting the project deletes its canvases but never
+        the assets their runs made.
+      properties:
+        id:
+          type: string
+          format: uuid
+        project_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        organization_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        version:
+          type: integer
+          minimum: 1
+          description: Optimistic concurrency version, increased on every successful update.
+        node_count:
+          type: integer
+          minimum: 0
+        graph:
+          $ref: '#/components/schemas/CanvasGraph'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CanvasSummary:
+      type: object
+      additionalProperties: false
+      required: [id, project_id, user_id, name, version, node_count, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        project_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        organization_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        version:
+          type: integer
+          minimum: 1
+        node_count:
+          type: integer
+          minimum: 0
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CanvasList:
+      type: object
+      additionalProperties: false
+      required: [canvases]
+      properties:
+        canvases:
+          type: array
+          items:
+            $ref: '#/components/schemas/CanvasSummary'
+
+    CanvasGraph:
+      type: object
+      additionalProperties: false
+      required: [schema_version, nodes, edges]
+      description: A strictly validated acyclic graph, at most 256 KiB when serialized.
+      properties:
+        schema_version:
+          type: integer
+          enum: [1]
+          x-enum-varnames: [CanvasSchemaVersion1]
+        nodes:
+          type: array
+          maxItems: 150
+          items:
+            $ref: '#/components/schemas/CanvasNode'
+        edges:
+          type: array
+          maxItems: 300
+          items:
+            $ref: '#/components/schemas/CanvasEdge'
+        viewport:
+          $ref: '#/components/schemas/CanvasViewport'
+
+    CanvasNode:
+      type: object
+      additionalProperties: false
+      required: [id, type, position, data]
+      properties:
+        id:
+          type: string
+          pattern: '^[A-Za-z0-9_-]{1,64}$'
+        type:
+          type: string
+          enum: [prompt, character, asset, image_generate, video_generate, audio_generate, output]
+        position:
+          $ref: '#/components/schemas/CanvasPosition'
+        data:
+          $ref: '#/components/schemas/CanvasNodeData'
+
+    CanvasPosition:
+      type: object
+      additionalProperties: false
+      required: [x, y]
+      description: Canvas pixel coordinates, finite and within one million pixels of the origin.
+      properties:
+        x:
+          type: number
+          format: double
+          minimum: -1000000
+          maximum: 1000000
+        y:
+          type: number
+          format: double
+          minimum: -1000000
+          maximum: 1000000
+
+    CanvasViewport:
+      type: object
+      additionalProperties: false
+      required: [x, y, zoom]
+      properties:
+        x:
+          type: number
+          format: double
+          minimum: -1000000
+          maximum: 1000000
+        y:
+          type: number
+          format: double
+          minimum: -1000000
+          maximum: 1000000
+        zoom:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 10
+          exclusiveMinimum: true
+          description: Finite zoom greater than zero and at most 10.
+
+    CanvasNodeData:
+      type: object
+      additionalProperties: false
+      description: |
+        Every type accepts label. Prompt nodes accept text; character nodes
+        accept character_id; asset nodes accept asset_id and require media_type.
+        Generate nodes accept model, prompt, params and run. Output nodes accept
+        only label. Character and asset UUIDs may be omitted for placeholders.
+        Model is a catalog id for the node's modality. The editor writes run.
+        Ports (input name: accepted type, maximum inbound edges; output name: type):
+        prompt: no inputs; output text: text.
+        character: no inputs; output image: image.
+        asset: no inputs; one output named by media_type: image, video or audio.
+        image_generate: prompt: text, 1; references: image, 8; output image: image.
+        video_generate: prompt: text, 1; start_frame: image, 1; end_frame: image, 1;
+        references: image, 9; video_references: video, 10; audio_references: audio, 10;
+        output video: video.
+        audio_generate: prompt: text, 1; output audio: audio.
+        output: media: image, video or audio, 50; no outputs.
+      properties:
+        label:
+          type: string
+          maxLength: 80
+        text:
+          type: string
+          maxLength: 4000
+        character_id:
+          type: string
+          format: uuid
+        asset_id:
+          type: string
+          format: uuid
+        media_type:
+          type: string
+          enum: [image, video, audio]
+        model:
+          type: string
+        prompt:
+          type: string
+          maxLength: 4000
+        params:
+          type: object
+          additionalProperties: true
+          maxProperties: 24
+          description: >
+            Scalar request fields only: strings of at most 500 characters,
+            finite numbers or booleans. Keys match ^[a-z][a-z0-9_]{0,63}$.
+            model, prompt and project_id are reserved. No null, arrays or objects.
+        run:
+          $ref: '#/components/schemas/CanvasRunState'
+
+    CanvasRunState:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [idle, queued, running, succeeded, failed]
+          x-enum-varnames: [CanvasRunStatusIdle, CanvasRunStatusQueued, CanvasRunStatusRunning, CanvasRunStatusSucceeded, CanvasRunStatusFailed]
+        job_id:
+          type: string
+          format: uuid
+        asset_ids:
+          type: array
+          maxItems: 8
+          items:
+            type: string
+            format: uuid
+        error:
+          type: string
+          maxLength: 500
+        updated_at:
+          type: string
+          format: date-time
+
+    CanvasEdge:
+      type: object
+      additionalProperties: false
+      required: [id, source, source_handle, target, target_handle, type]
+      description: |
+        Connects existing nodes without self loops, duplicate connections or cycles.
+        Type must equal the source port's type and be accepted by the target port.
+        Output ports: prompt.text is text; character.image is image; asset uses its
+        media_type as both port name and type; image_generate.image is image;
+        video_generate.video is video; audio_generate.audio is audio; output has none.
+        Input ports and maximum inbound edges: image_generate has prompt (text, 1)
+        and references (image, 8); video_generate has prompt (text, 1), start_frame
+        (image, 1), end_frame (image, 1), references (image, 9), video_references
+        (video, 10), audio_references (audio, 10); audio_generate has prompt (text, 1);
+        output has media (image, video or audio, 50). Other types have no inputs.
+      properties:
+        id:
+          type: string
+          pattern: '^[A-Za-z0-9_-]{1,64}$'
+        source:
+          type: string
+        source_handle:
+          type: string
+        target:
+          type: string
+        target_handle:
+          type: string
+        type:
+          type: string
+          enum: [text, image, video, audio]
+
+    CreateCanvasRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        graph:
+          $ref: '#/components/schemas/CanvasGraph'
+
+    UpdateCanvasRequest:
+      type: object
+      additionalProperties: false
+      required: [version]
+      description: Supply the version last read and at least one of name or graph. A supplied graph replaces the whole graph.
+      properties:
+        version:
+          type: integer
+          minimum: 1
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        graph:
+          $ref: '#/components/schemas/CanvasGraph'
 
     Product:
       type: object
