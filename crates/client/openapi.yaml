@@ -2356,6 +2356,57 @@ paths:
         default:
           $ref: '#/components/responses/ProblemResponse'
 
+  /jobs/cost:
+    post:
+      tags: [Jobs]
+      operationId: quoteJobCost
+      summary: Price a generation before submitting it.
+      description: |
+        Returns the credits the matching generate call will hold for exactly
+        these settings, a settings summary to show the customer, and a
+        short-lived confirmation token.
+
+        **Nothing is submitted, nothing is reserved and nothing is charged.**
+        The request is validated as the generate endpoint would validate it,
+        so an unpriceable or malformed request is refused here with the same
+        status, detail and `error.code` it would get on submit.
+
+        **The quote is not an estimate.** It is produced by running the real
+        generate handler up to the moment it would spend, so the number here
+        and the number held on submit come from one call to one pricer and
+        cannot drift. A quote can still go stale: re-quote if the customer
+        changes anything, and re-quote after `expires_at`.
+
+        **Sending the token back is optional.** No surface requires it. A
+        generate call with no `confirmation_token` behaves exactly as it
+        always has — existing clients are unaffected. A call that DOES carry
+        one is held to it: a token that is expired, malformed, issued to
+        another account, or issued for a different request or a different
+        price is refused with `422` and `error.code`
+        `confirmation_rejected`, rather than quietly charging a price the
+        customer never saw.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JobCostRequest'
+      responses:
+        '200':
+          description: The quote.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobCostQuote'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '422':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
   /jobs:
     get:
       tags: [Jobs]
@@ -14190,6 +14241,14 @@ components:
       additionalProperties: false
       required: [model, members]
       properties:
+        confirmation_token:
+          type: string
+          description: >-
+            Optional proof that this exact request and price were shown to the
+            customer, from `POST /jobs/cost`. Omit it and nothing changes. Send
+            it and it is verified: an expired, malformed, foreign, or
+            mismatched token is a `422` with `error.code`
+            `confirmation_rejected`.
         model:
           $ref: '#/components/schemas/ImageModel'
         members:
@@ -14361,6 +14420,14 @@ components:
       additionalProperties: false
       required: [model]
       properties:
+        confirmation_token:
+          type: string
+          description: >-
+            Optional proof that this exact request and price were shown to the
+            customer, from `POST /jobs/cost`. Omit it and nothing changes. Send
+            it and it is verified: an expired, malformed, foreign, or
+            mismatched token is a `422` with `error.code`
+            `confirmation_rejected`.
         model:
           $ref: '#/components/schemas/ImageModel'
         prompt:
@@ -14761,6 +14828,14 @@ components:
       additionalProperties: false
       required: [model, prompt]
       properties:
+        confirmation_token:
+          type: string
+          description: >-
+            Optional proof that this exact request and price were shown to the
+            customer, from `POST /jobs/cost`. Omit it and nothing changes. Send
+            it and it is verified: an expired, malformed, foreign, or
+            mismatched token is a `422` with `error.code`
+            `confirmation_rejected`.
         model:
           $ref: '#/components/schemas/AudioModel'
         prompt:
@@ -14926,6 +15001,14 @@ components:
       additionalProperties: false
       required: [model, prompt]
       properties:
+        confirmation_token:
+          type: string
+          description: >-
+            Optional proof that this exact request and price were shown to the
+            customer, from `POST /jobs/cost`. Omit it and nothing changes. Send
+            it and it is verified: an expired, malformed, foreign, or
+            mismatched token is a `422` with `error.code`
+            `confirmation_rejected`.
         model:
           $ref: '#/components/schemas/VideoModel'
         prompt:
@@ -15449,6 +15532,14 @@ components:
       type: object
       additionalProperties: false
       properties:
+        confirmation_token:
+          type: string
+          description: >-
+            Optional proof that this exact request and price were shown to the
+            customer, from `POST /jobs/cost`. Omit it and nothing changes. Send
+            it and it is verified: an expired, malformed, foreign, or
+            mismatched token is a `422` with `error.code`
+            `confirmation_rejected`.
         model:
           allOf:
             - $ref: '#/components/schemas/Generate3DModel'
@@ -20834,6 +20925,112 @@ components:
         - `insufficient_credits`: the wallet cannot pay for the turn.
         - `backend_error`: the agent could not be reached or failed.
         - `timeout`: the turn ran past its time budget.
+
+    JobCostKind:
+      type: string
+      enum: [image, video, audio, 3d, set]
+      x-enum-varnames: [JobCostKindImage, JobCostKindVideo, JobCostKindAudio, JobCostKind3D, JobCostKindSet]
+      description: Which generate endpoint the quoted body is for.
+
+    JobCostRequest:
+      type: object
+      additionalProperties: false
+      required: [kind]
+      description: |
+        A generation request to price without submitting it. Set `kind` and
+        supply the matching payload: the payload is byte-for-byte the body you
+        would POST to that generate endpoint, so a client can quote and then
+        submit the same object. `confirmation_token` on the payload is ignored
+        here and does not change the quote.
+      properties:
+        kind:
+          $ref: '#/components/schemas/JobCostKind'
+        image:
+          $ref: '#/components/schemas/GenerateImageRequest'
+        video:
+          $ref: '#/components/schemas/GenerateVideoRequest'
+        audio:
+          $ref: '#/components/schemas/GenerateAudioRequest'
+        three_d:
+          $ref: '#/components/schemas/Generate3DRequest'
+        set:
+          $ref: '#/components/schemas/GenerateSetRequest'
+
+    JobCostSetting:
+      type: object
+      additionalProperties: false
+      required: [label, value]
+      description: One row of the human-readable settings summary, ready to render in a confirmation dialog.
+      properties:
+        label:
+          type: string
+          examples: ['Duration']
+        value:
+          type: string
+          examples: ['8s']
+
+    JobCostQuote:
+      type: object
+      additionalProperties: false
+      required: [kind, model, credits, basis, settings, confirmation_token, expires_at, sufficient_credits]
+      description: |
+        What a generation will cost, and the proof a client showed that price.
+        `credits` is not an estimate: it is produced by the submit path's own
+        pricer, running over this exact body, so a quote and a submit for the
+        same body agree to the credit.
+      properties:
+        kind:
+          $ref: '#/components/schemas/JobCostKind'
+        model:
+          type: string
+          description: The model id the quote is for, after defaulting — not necessarily the one you sent.
+        credits:
+          type: integer
+          description: >-
+            Display credits. This is the number the submit will hold, computed
+            by the same pricer the submit path uses, for exactly these
+            settings. It is what to show the customer.
+        basis:
+          type: string
+          enum: [one_generation, set_run]
+          x-enum-varnames: [JobCostBasisOneGeneration, JobCostBasisSetRun]
+          description: Whether `credits` covers one generation or a whole set run.
+        members:
+          type: integer
+          nullable: true
+          description: Number of set members `credits` covers. Present only when `basis` is `set_run`.
+        duration_seconds:
+          type: integer
+          nullable: true
+          description: The billed duration the price is for, on a video quote.
+        quality:
+          type: string
+          nullable: true
+          description: The resolved quality tier the price is for, when the model has one.
+        settings:
+          type: array
+          items:
+            $ref: '#/components/schemas/JobCostSetting'
+          description: >-
+            The settings that made this price, in the order a dialog should
+            show them. Human-readable; do not parse it.
+        balance_credits:
+          type: integer
+          nullable: true
+          description: The wallet balance this quote was compared against, when one could be read.
+        sufficient_credits:
+          type: boolean
+          description: Whether the balance covers `credits` right now. Advisory — the submit re-checks.
+        confirmation_token:
+          type: string
+          description: >-
+            Short-lived, single-request proof that this price was quoted.
+            Send it back as `confirmation_token` on the matching generate
+            request. Opaque: do not parse or construct it.
+        expires_at:
+          type: string
+          format: date-time
+          description: After this the token is refused and a submit carrying it fails with `confirmation_rejected`. Re-quote.
 
     GenerationErrorCode:
       type: string
