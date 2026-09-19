@@ -18847,6 +18847,37 @@ components:
       enum: ['16:9', '9:16', '1:1']
       description: 'Canvas size: 16:9 is 1920x1080, 9:16 is 1080x1920, and 1:1 is 1080x1080.'
 
+    RenderCaptions:
+      type: object
+      additionalProperties: false
+      required: [text]
+      description: >-
+        Burned subtitles from the narration script. One entry per block, in
+        block order; an empty string leaves that block uncaptioned. Cues are
+        timed inside the take's placement in its block (after any speed-up),
+        split at sentence and clause boundaries into short cues sized for the
+        output canvas, with no speech-to-text. Drawn at the bottom of the
+        frame in the chosen font, white with a dark outline. The bundled faces
+        cover Latin script only; a character the chosen font has no glyph for
+        is a 400 naming it, rather than a box in the finished video.
+      properties:
+        font:
+          $ref: '#/components/schemas/CaptionFont'
+        text:
+          type: array
+          minItems: 1
+          maxItems: 60
+          items:
+            type: string
+            maxLength: 2000
+
+    CaptionFont:
+      type: string
+      description: One of the 22 self-hosted families the Studio text tool offers. Defaults to Inter.
+      default: Inter
+      x-enum-varnames: [CaptionFontAnton, CaptionFontBebasNeue, CaptionFontLobster, CaptionFontOswald, CaptionFontPacifico, CaptionFontJetBrainsMono, CaptionFontRobotoMono, CaptionFontInter, CaptionFontManrope, CaptionFontMontserrat, CaptionFontNunito, CaptionFontOpenSans, CaptionFontPoppins, CaptionFontRaleway, CaptionFontRoboto, CaptionFontWorkSans, CaptionFontCaveat, CaptionFontDancingScript, CaptionFontEBGaramond, CaptionFontLora, CaptionFontPlayfairDisplay, CaptionFontRobotoSlab]
+      enum: [Anton, Bebas Neue, Lobster, Oswald, Pacifico, JetBrains Mono, Roboto Mono, Inter, Manrope, Montserrat, Nunito, Open Sans, Poppins, Raleway, Roboto, Work Sans, Caveat, Dancing Script, EB Garamond, Lora, Playfair Display, Roboto Slab]
+
     RenderBlock:
       type: object
       additionalProperties: false
@@ -18866,6 +18897,8 @@ components:
       additionalProperties: false
       required: [blocks]
       properties:
+        captions:
+          $ref: '#/components/schemas/RenderCaptions'
         blocks:
           type: array
           minItems: 1
@@ -18923,7 +18956,7 @@ components:
           $ref: '#/components/schemas/RenderStatus'
         params:
           type: object
-          description: 'Empty for a composition render. For a blocks render, carries mode: blocks plus the normalized request (blocks, block_seconds, aspect_ratio, keep_video_audio).'
+          description: 'Empty for a composition render. For a blocks render, carries mode: blocks plus the normalized request (blocks, block_seconds, aspect_ratio, keep_video_audio, and optional captions).'
         asset_id:
           type: string
           format: uuid
