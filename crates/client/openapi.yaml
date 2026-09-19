@@ -6005,10 +6005,14 @@ paths:
           x/y/rotation/opacity, defaulting to the centered title the Studio
           preview shows; authored text elements keep the lower-third caption
           placement), on audio it is ignored.
-        - Pure text elements (an element whose content is plain text with no
-          child elements) and text additions — rendered as animated titles
-          with basic styling (white text on a dark pill, safe-zone margin).
-          Text fidelity is approximate: authored CSS is NOT applied.
+        - Authored plain-text elements (an element whose content is plain text
+          with no child elements) remain animated white-on-dark-pill captions
+          with a safe-zone margin; authored CSS is NOT applied.
+        - Text additions are rasterized as static text using Studio `textStyle`,
+          including stroke, shadows, letter spacing, uppercase, and placement
+          (x/y/rotation/opacity), with no entrance fade. Font families fall back
+          to Go fonts, so font fidelity is approximate. MP4 rendering rejects
+          plans with more than 300 visible text additions before rasterization.
 
         The canvas size comes from `data-width`/`data-height` on the root
         container, else the composition's `meta.width`/`meta.height`, else
