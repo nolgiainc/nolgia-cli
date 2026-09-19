@@ -1947,6 +1947,9 @@ paths:
         Send a distinct `Idempotency-Key` header to declare a deliberate new
         generation of an identical prompt; repeat the same key to make your
         own retries collapse onto one job.
+
+        **Failures carry a machine-readable code.** A refusal sets `error.code` and a failed job sets
+        `failure.code` to a `GenerationErrorCode`, so a client can branch without parsing prose.
       requestBody:
         required: true
         content:
@@ -1997,6 +2000,9 @@ paths:
         so a caller can price a script exactly before submitting it. Music and
         sound-effects models are billed per track (`cost.unit: per_generation`)
         and their prompt length does not change the price.
+
+        **Failures carry a machine-readable code.** A refusal sets `error.code` and a failed job sets
+        `failure.code` to a `GenerationErrorCode`, so a client can branch without parsing prose.
       requestBody:
         required: true
         content:
@@ -2037,6 +2043,9 @@ paths:
         charge. Send a distinct `Idempotency-Key` header to declare a
         deliberate new take of an identical prompt; repeat the same key to
         make your own retries collapse onto one job.
+
+        **Failures carry a machine-readable code.** A refusal sets `error.code` and a failed job sets
+        `failure.code` to a `GenerationErrorCode`, so a client can branch without parsing prose.
       requestBody:
         required: true
         content:
@@ -2151,6 +2160,9 @@ paths:
         An `Idempotency-Key` on this endpoint is ignored per member.
         If a later member is refused, accepted members keep running and further
         members are not submitted. `problems` lists the refused labels.
+
+        **Failures carry a machine-readable code.** A refusal sets `error.code` and a failed job sets
+        `failure.code` to a `GenerationErrorCode`, so a client can branch without parsing prose.
       requestBody:
         required: true
         content:
@@ -2265,6 +2277,9 @@ paths:
         charge. Send a distinct `Idempotency-Key` header to declare a
         deliberate new take of an identical prompt; repeat the same key to
         make your own retries collapse onto one job.
+
+        **Failures carry a machine-readable code.** A refusal sets `error.code` and a failed job sets
+        `failure.code` to a `GenerationErrorCode`, so a client can branch without parsing prose.
       requestBody:
         required: true
         content:
@@ -10892,7 +10907,12 @@ components:
           description: >
             Machine-readable error code. Agent endpoints (`/agent/chat`,
             `/agent/messages*`, `/agent/sessions*`, `/agent/steps`) set one of
-            the `AgentErrorCode` values when the failure has one; absent otherwise.
+            the `AgentErrorCode` values. The generation endpoints
+            (`/generate/image`, `/generate/video`, `/generate/audio`, `/generate/3d`,
+            `/generate/set`) set one of the `GenerationErrorCode` values when the
+            refusal has one; a `409` duplicate-submission refusal carries no code,
+            because the status and the named existing job already say what happened.
+            Absent otherwise.
         type:
           type: string
           format: uri
@@ -15682,6 +15702,15 @@ components:
         every failure, including a content-filter refusal, so clients that
         read only `status` keep working; branch on `kind` for the reason.
       properties:
+        code:
+          $ref: '#/components/schemas/GenerationErrorCode'
+          description: >-
+            Stable refinement of `kind`, present on every job that failed
+            after this field shipped and derived from the recorded reason for
+            older ones. `kind: moderated` narrows to `prompt_nsfw` or
+            `ip_detected`; `kind: error` narrows to `timeout` or
+            `job_failed`. Branch on `code` when you need the distinction and
+            on `kind` when you do not.
         kind:
           type: string
           description: >-
@@ -20726,6 +20755,26 @@ components:
         - `insufficient_credits`: the wallet cannot pay for the turn.
         - `backend_error`: the agent could not be reached or failed.
         - `timeout`: the turn ran past its time budget.
+
+    GenerationErrorCode:
+      type: string
+      enum: [out_of_credits, rate_limit, prompt_nsfw, ip_detected, job_failed, timeout, validation, confirmation_rejected]
+      x-enum-varnames: [GenerationErrorCodeOutOfCredits, GenerationErrorCodeRateLimit, GenerationErrorCodePromptNsfw, GenerationErrorCodeIpDetected, GenerationErrorCodeJobFailed, GenerationErrorCodeTimeout, GenerationErrorCodeValidation, GenerationErrorCodeConfirmationRejected]
+      description: |
+        Stable machine-readable class of a generation failure, on the
+        `/generate/*` submit responses (as `error.code`) and on a failed job
+        (as `failure.code`). The human-readable `detail`/`message` is
+        unchanged and stays the text to show a customer; the code is what a
+        client branches on. This is a closed enum today but treat an
+        unrecognised value as `job_failed`.
+        - `out_of_credits`: the wallet cannot pay for the job. Nothing was submitted and nothing was charged. Top up, or submit a cheaper model or fewer seconds.
+        - `rate_limit`: refused for now, not refused outright — the caller's own concurrency ceiling, or the provider's. Retry later; the same request will be accepted.
+        - `prompt_nsfw`: a content filter refused the request or the result it produced, on safety grounds. Editing the prompt or the reference media is the fix. Whether the credits were refunded is `failure.credits_refunded`, not this code.
+        - `ip_detected`: a content filter refused it for a real person's likeness or a protected work, rather than for safety. The fix is different from `prompt_nsfw` — change the reference image or the named subject, not the tone of the prompt — which is why it is its own code.
+        - `job_failed`: the job ran and did not produce an asset for any other reason, including a provider error. The default for an unclassified failure.
+        - `timeout`: the job ran past its time budget, or a `GET /jobs/{id}/wait` returned before the job reached a terminal status. On a failed job the work is over; on a `wait` the job may still be running.
+        - `validation`: the request itself is not acceptable — a missing or malformed field, a model that does not support the capability asked of it, a duration the model will not render. Nothing was submitted and nothing was charged. Retrying unchanged will fail identically.
+        - `confirmation_rejected`: the cost confirmation gate did not pass. Either a client showed the customer a quote and the customer declined, or a supplied confirmation token was refused. A submit that carries no confirmation token is never refused for this reason.
 
     AgentMessageConflict:
       type: object
