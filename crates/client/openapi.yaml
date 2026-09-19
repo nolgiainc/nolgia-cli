@@ -105,6 +105,16 @@ tags:
       attributes — per timed element, and on the canvas element for the whole
       frame — and as `colorGrade` fields in the `nolgia-edits.json` overlay;
       the render job bakes them into the exported MP4.
+  - name: Motions
+    description: |
+      The camera-move library for video generation: a static, model-agnostic
+      catalog of named camera moves (push-in, pull-back, orbit, crane, truck,
+      tracking, zoom, dolly zoom, pan, tilt, rack focus, handheld, parallax,
+      drone fly-through, locked off), each with a prompt fragment per
+      strength (subtle / medium / strong). A `POST /generate/video` request
+      names one by `motion_id` (+ `motion_strength`) and the server appends
+      the move's fragment to the prompt; the prompt is never replaced.
+      Embedded in the service, identical for every caller, no auth needed.
   - name: Masks
     description: |
       Per-clip timeline masks (Adobe Premiere's Opacity masks): a `rectangle`,
@@ -187,6 +197,35 @@ paths:
                 $ref: '#/components/schemas/ModelList'
         '401':
           $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /motions:
+    get:
+      tags: [Motions]
+      operationId: listMotions
+      summary: List the camera-move library for video generation. Public, embedded, identical for every caller.
+      description: |
+        The named camera moves a video request may pick with `motion_id` +
+        `motion_strength` on `POST /generate/video` (and tell the prompt
+        rewrite about on `POST /generate/video/enhance-prompt`). Each entry
+        carries its display `name`, a one-line `description` of what the
+        move does on screen, its `category`, the `default_strength`, and one
+        `prompt_fragment` per strength: the exact text the server appends to
+        the prompt, so a client can preview the composed prompt without a
+        round trip. `preview_url` is reserved for an example clip per move
+        and is `null` on every entry today.
+      security:
+        - {}
+        - bearerAuth: []
+        - patAuth: []
+      responses:
+        '200':
+          description: The camera-move library, in display order.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CameraMoveList'
         default:
           $ref: '#/components/responses/ProblemResponse'
 
@@ -10677,6 +10716,20 @@ components:
         aspect_ratio:
           $ref: '#/components/schemas/AspectRatio'
 
+        motion_id:
+          type: string
+          nullable: true
+          maxLength: 64
+          description: >-
+            The camera move the composer has picked (`GET /motions`), so the
+            rewrite builds its shot plan around that move instead of choosing
+            another; the generate request then names the same `motion_id`
+            and the server appends the fragment only if the rewrite dropped
+            it. Unknown ids are a 400.
+          examples: ['orbit-left']
+        motion_strength:
+          $ref: '#/components/schemas/CameraMoveStrength'
+
     VideoPromptEnhanceResponse:
       type: object
       additionalProperties: false
@@ -11665,6 +11718,25 @@ components:
           items:
             type: string
             format: uuid
+
+        motion_id:
+          type: string
+          nullable: true
+          maxLength: 64
+          description: >-
+            A camera move from the library on `GET /motions` (for example
+            `push-in`, `orbit-left`, `crane-up`, `rack-focus`). The server
+            APPENDS the move's prompt fragment at the chosen strength to the
+            prompt as its own sentence; the prompt is never replaced or
+            shortened, and a prompt that already carries the exact fragment
+            (an enhanced prompt that kept the move) is left as it is. Works on
+            every video model, text-to-video and image-to-video alike, and
+            with `shots[]` (the fragment rides the overall direction). An
+            unknown id is a 400 naming the library. Recorded on the job as
+            `motion_id` / `motion_strength`.
+          examples: ['push-in']
+        motion_strength:
+          $ref: '#/components/schemas/CameraMoveStrength'
 
     VideoShot:
       type: object
@@ -16895,6 +16967,69 @@ components:
           items:
             $ref: '#/components/schemas/ColorPreset'
           description: Presets in manifest order.
+
+    CameraMoveStrength:
+      type: string
+      enum: [subtle, medium, strong]
+      x-enum-varnames: [CameraMoveStrengthSubtle, CameraMoveStrengthMedium, CameraMoveStrengthStrong]
+      description: >-
+        How far and how fast a camera move travels over the clip. Omitted with
+        a `motion_id` it resolves to the move's `default_strength` (`medium`);
+        sent without a `motion_id` it is a 400.
+
+    CameraMoveStrengthOption:
+      type: object
+      required: [strength, prompt_fragment]
+      properties:
+        strength:
+          $ref: '#/components/schemas/CameraMoveStrength'
+        prompt_fragment:
+          type: string
+          description: The exact sentence the server appends to the prompt at this strength.
+          examples: ['Camera: a steady push-in toward the subject on a smooth dolly, the framing tightening from a medium shot to a close-up over the clip.']
+
+    CameraMove:
+      type: object
+      required: [id, name, description, category, default_strength, strengths, preview_url]
+      properties:
+        id:
+          type: string
+          description: The stable `motion_id` a request sends.
+          examples: ['push-in']
+        name:
+          type: string
+          description: The customer-facing label.
+          examples: ['Push-in']
+        description:
+          type: string
+          description: One sentence on what the move does on screen (the text description standing in for a preview clip).
+        category:
+          type: string
+          description: Chip grouping (`dolly`, `orbit`, `crane`, `pan`, `focus`, `handheld`, `zoom`, `static`).
+          examples: ['dolly']
+        default_strength:
+          $ref: '#/components/schemas/CameraMoveStrength'
+        strengths:
+          type: array
+          description: One entry per strength, subtle first.
+          items:
+            $ref: '#/components/schemas/CameraMoveStrengthOption'
+        preview_url:
+          type: string
+          nullable: true
+          format: uri
+          description: An example clip of the move. Reserved; `null` on every entry today.
+
+    CameraMoveList:
+      type: object
+      required: [motions]
+      description: The camera-move library, embedded in the service.
+      properties:
+        motions:
+          type: array
+          items:
+            $ref: '#/components/schemas/CameraMove'
+          description: Moves in display order.
 
     MaskShape:
       type: string
