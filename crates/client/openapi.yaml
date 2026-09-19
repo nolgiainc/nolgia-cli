@@ -7972,6 +7972,8 @@ paths:
             recovers the turn's steps after the pod has rolled or dropped the
             session. Returns `200` with an empty list when no steps are stored
             for the id (including when it is not the caller's).
+            The persisted list contains only steps attributed to that reply's
+            own run, and `attribution` says how they were attributed.
           schema:
             type: string
             format: uuid
@@ -20230,6 +20232,18 @@ components:
       additionalProperties: false
       required: [steps]
       properties:
+        attribution:
+          type: string
+          enum: [run, session]
+          description: >
+            How the returned steps were tied to their turn. `run`: read from the
+            agent pod's own record of the turn's run, exact even when several of
+            the account's turns execute at once. `session`: sliced by time from
+            the pod's shared conversation, which the platform only does for a turn
+            that ran with no other turn executing (older transports that carry no
+            run id). Absent when no steps are returned or the turn could not be
+            looked up. Steps persisted before 2026-09-19 may predate run
+            attribution.
         steps:
           type: array
           description: Sanitized steps in chronological order (oldest first).
