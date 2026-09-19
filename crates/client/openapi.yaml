@@ -10933,6 +10933,17 @@ components:
           type: string
           format: uri
           examples: ['https://api.nolgia.ai/v1/generate/image']
+        job_id:
+          type: string
+          format: uuid
+          description: >
+            The job this refusal points at, so a client can follow it without
+            reading `detail`. Set on the `409` duplicate-submission refusal
+            from `/generate/*`, naming the job that already exists for this
+            request — the one fact the submitter was missing. That refusal
+            carries no `code` (the status and this field are the contract),
+            and `detail` keeps its existing wording. Absent on every other
+            problem.
         request_id:
           type: string
           examples: ['req_01J5R2M9YBX2K4Z3WQH6P8VNA1']
