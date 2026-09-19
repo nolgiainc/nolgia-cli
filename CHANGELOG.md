@@ -5,6 +5,8 @@ the matching GitHub release.
 
 ## Unreleased
 
+## v0.2.27
+
 - **Linux arm64 and Windows arm64 binaries.** The release workflow now builds
   `nolgia-aarch64-unknown-linux-gnu` and `nolgia-aarch64-pc-windows-msvc.exe`
   on native arm64 runners next to the existing targets. `install.sh` picks the
@@ -36,7 +38,8 @@ the matching GitHub release.
   when to use it and when not to, the model advice matches the live catalog
   (Seedance 2.5 as the video default, HeyGen Avatar IV for lip sync, voices
   and outpainting), and the MCP endpoint is `https://mcp.nolgia.ai/mcp`. The
-  same packs are published as the NOLGIA skills repository.
+  same packs are published as the public NOLGIA skills repository,
+  https://github.com/nolgiainc/nolgia-skills.
 
 - **`nolgia motions list`** prints the camera-move library the API serves on
   `GET /motions`: twenty named moves (push-in, pull-back, orbit left and
