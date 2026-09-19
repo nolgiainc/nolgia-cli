@@ -188,44 +188,40 @@ async fn zero_assets_is_success_when_the_asset_list_is_empty() {
 }
 
 #[tokio::test]
-async fn asset_list_transport_failure_preserves_the_completed_job() {
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let server = MockServer::builder().listener(listener).start().await;
-    let terminal = job("succeeded");
-    mount_submit(&server, terminal.clone()).await;
-    let handle = submit(&client(&server), "/generate/image", arguments(), options())
-        .await
-        .unwrap();
-    drop(server);
-    let error = handle.result().await.unwrap_err();
-    assert_eq!(error.code, ErrorCode::JobFailed);
-    assert_eq!(error.http_status, None);
-    assert_eq!(error.job_id.as_deref(), Some("job-1"));
-    assert_eq!(error.job, Some(terminal));
+async fn asset_list_failures_fall_back_to_the_inline_asset_rather_than_losing_a_paid_render() {
+    // The job has already succeeded and been charged by the time the asset
+    // listing runs, so a failed secondary read must not throw the render away.
+    // Same behaviour as the TypeScript and Python layers (nolgia-api#527).
+    for (label, assets_response) in [
+        ("503", ResponseTemplate::new(503)),
+        ("403", ResponseTemplate::new(403)),
+        (
+            "malformed",
+            ResponseTemplate::new(200).set_body_string("not json"),
+        ),
+    ] {
+        let server = MockServer::start().await;
+        let mut terminal = job("succeeded");
+        terminal["asset"] = asset("inline");
+        mount_submit(&server, job("queued")).await;
+        mount_jobs(&server, vec![response(terminal)]).await;
+        mount_assets(&server, assets_response).await;
+        let result = subscribe(&client(&server), "/generate/image", arguments(), options())
+            .await
+            .unwrap_or_else(|err| panic!("{label} listing failure lost the render: {err}"));
+        assert_eq!(result.media.len(), 1, "{label}");
+        assert_eq!(result.media[0].asset_id, "inline", "{label}");
+    }
 }
 
 #[tokio::test]
-async fn asset_list_failures_preserve_the_completed_job_instead_of_partial_success() {
-    for inline in [false, true] {
-        for (status, assets_response) in [
-            (503, ResponseTemplate::new(503)),
-            (403, ResponseTemplate::new(403)),
-            (200, ResponseTemplate::new(200).set_body_string("not json")),
-        ] {
-            let server = MockServer::start().await;
-            let mut terminal = job("succeeded");
-            if inline {
-                terminal["asset"] = asset("inline");
-            }
-            mount_submit(&server, job("queued")).await;
-            mount_jobs(&server, vec![response(terminal.clone())]).await;
-            mount_assets(&server, assets_response).await;
-            let error = subscribe(&client(&server), "/generate/image", arguments(), options())
-                .await
-                .unwrap_err();
-            assert_eq!(error.http_status, Some(status));
-            assert_eq!(error.job_id.as_deref(), Some("job-1"));
-            assert_eq!(error.job, Some(terminal));
-        }
-    }
+async fn a_failed_asset_list_with_no_inline_asset_is_an_empty_success() {
+    let server = MockServer::start().await;
+    mount_submit(&server, job("succeeded")).await;
+    mount_assets(&server, ResponseTemplate::new(503)).await;
+    let result = subscribe(&client(&server), "/generate/image", arguments(), options())
+        .await
+        .unwrap();
+    assert!(result.media.is_empty());
+    assert!(result.url.is_none());
 }

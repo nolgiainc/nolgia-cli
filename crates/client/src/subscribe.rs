@@ -167,13 +167,22 @@ impl JobHandle {
     async fn resolve_media(&self, job: &Value) -> Result<GenerationResult, GenerationError> {
         // A job can produce multiple assets; the inline job.asset carries only
         // one. List by job id first to preserve the complete server ordering.
+        //
+        // A failed listing does NOT fail the generation. By the time we get
+        // here the job has succeeded and the customer has been charged, so
+        // throwing away a paid, completed render because a secondary read got
+        // a 503 is the wrong default: fall back to the inline asset and let
+        // the caller inspect `job`. The TypeScript and Python layers behave
+        // identically (nolgia-api#527) and all three READMEs document it, so
+        // do not make one of them diverge.
         let list = request_json(
             self.client
                 .client()
                 .get(format!("{}/assets", self.client.baseurl()))
                 .query(&[("job_id", self.id.as_str()), ("limit", "100")]),
         )
-        .await?;
+        .await
+        .unwrap_or(Value::Null);
         let items = list["items"].as_array();
         let assets: Vec<&Value> = match items {
             Some(items) if !items.is_empty() => items.iter().collect(),

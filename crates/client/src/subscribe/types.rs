@@ -64,6 +64,8 @@ pub struct GenerationError {
     pub code: ErrorCode,
     pub message: String,
     pub http_status: Option<u16>,
+    /// The job this error concerns. On a 409 duplicate refusal this is parsed
+    /// out of the problem `detail` prose and is best-effort: see `from_body`.
     pub job_id: Option<String>,
     pub job: Option<Value>,
 }
@@ -133,7 +135,14 @@ impl GenerationError {
             Some(status) => format!("HTTP {status}"),
             None => "generation failed or was canceled".to_owned(),
         });
-        // Duplicate refusals name the accepted job only in the problem detail.
+        // BEST-EFFORT, NOT A CONTRACT. A 409 duplicate refusal names the
+        // already-accepted job only inside the English `detail` sentence:
+        // the problem body carries no structured job id. Scraping the first
+        // UUID out of prose is the only way to surface it today, and it stops
+        // being correct the moment that sentence is reworded to mention some
+        // other UUID first. Treat this as a hint for a human, never as
+        // something to poll blindly. The real fix is a `job_id` field on that
+        // problem body, raised with NOL-1019 on NOL-1023.
         let job_id = if http_status == Some(409) {
             body["detail"].as_str().and_then(|detail| {
                 detail.as_bytes().windows(36).find_map(|candidate| {
