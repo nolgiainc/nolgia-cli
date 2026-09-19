@@ -11442,6 +11442,10 @@ components:
         HappyHorse Video Edit (`happyhorse-1.0-video-edit`) rewrites one
         required 2 to 15 second source clip, with up to 5 optional reference
         images; both SeeGen routes offer 720p/1080p and an honored seed.
+        Gemini Omni 1.1 Edit (`omni-1.1-flash-edit`) rewrites one required 3 to
+        10 second source clip (a video asset with a stored duration) from a text
+        instruction and is billed at the source's length; the output keeps the
+        source's duration and framing, and it takes no reference images.
         Seedance 1.5 Pro (`seedance-1-5-pro`) is the budget Seedance flagship:
         4 to 12 second clips at 480p/720p/1080p with the same start/end frame
         and reference-image surface as 2.5, and the one Seedance route whose
@@ -11470,6 +11474,7 @@ components:
         - veo-3.1-lite
         - omni-flash
         - omni-1.1-flash
+        - omni-1.1-flash-edit
         - grok-imagine-video
         - grok-imagine-video-1.5
         - minimax-h3
