@@ -9697,6 +9697,28 @@ components:
               4096px); the short edge follows the source
 
             Absent for generation models.
+        image_expand:
+          type: boolean
+          description: |
+            True for image-OUTPAINT models (`flux-expand`): they grow one
+            MANDATORY reference image to a requested `aspect_ratio` by
+            painting new content into the added margins, so a 16:9 still
+            becomes a 9:16 cut without a regeneration. Submitted via
+            `POST /generate/image`; the request shape is:
+
+            - exactly one reference (`image_url`, `image_urls` with a single
+              entry, or one `reference_asset_ids` entry) is required
+            - `aspect_ratio` is REQUIRED and must be one of
+              `image.aspect_ratios`; a source already at that ratio fails the
+              job with a full refund rather than returning the same picture
+            - `prompt` is optional and steers what the new area is painted
+              with; `image_size`, `quality`, `character_id`, `element_ids` and
+              `face_reference_asset_id` are refused
+            - the source's own pixels are kept: the frame is extended on one
+              axis only, never cropped or resampled (the reference is bounded
+              to a 2048px long edge first)
+
+            Absent for generation models.
         capabilities:
           type: array
           description: >-
@@ -10487,6 +10509,14 @@ components:
         `topaz-image-cgi` for illustrations, renders and game art, and
         `topaz-image-text` for logos, screenshots and typography.
 
+        `flux-expand` (BFL FLUX.1 Expand [pro]) is the OUTPAINT lane and the
+        only image model that publishes `image_expand: true`: it grows one
+        reference image you already have to a requested `aspect_ratio` by
+        painting new content into the added margins (a reframe to 9:16, 1:1 or
+        4:5 from a 16:9 still), keeps the source's own pixels, requires exactly
+        one reference and an `aspect_ratio`, and takes an optional prompt for
+        what the new area should contain. Flat per image; no quality tiers.
+
         Seven models reach the catalog through OpenRouter. `mai-image-2.6`,
         `mai-image-2.6-flash`, `mai-image-2.5` and `mai-image-2.5-pro` are
         Microsoft MAI-Image on Azure, four of the strongest text-to-image
@@ -10532,6 +10562,7 @@ components:
         - flux-2-klein
         - flux-kontext-pro
         - flux-kontext-max
+        - flux-expand
         - grok-imagine-image
         - grok-imagine-image-quality
         - grok-imagine-image-2.0
@@ -10948,6 +10979,8 @@ components:
             on the `image_enhance` models, which re-render the reference image
             from its own pixels and have no prompt slot at all: sending one
             there is a 400 rather than an enhancement that quietly ignored it.
+            Optional on the `image_expand` model (`flux-expand`), where it
+            describes what the newly painted margins should contain.
           examples: ['A neon cyberpunk cat DJing on a rooftop, cinematic']
         negative_prompt:
           type: string
