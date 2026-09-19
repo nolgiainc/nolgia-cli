@@ -10,8 +10,8 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use commands::{
     CommandContext, ability, account, assets, billing, characters, color_presets, compositions,
-    r#gen, jobs, masks, models, motions, org, pat, products, projects, restore, skills, status,
-    voices, wait,
+    r#gen, jobs, masks, models, motions, org, pat, products, projects, render, restore, skills,
+    status, voices, wait,
 };
 use nolgia_client::{Client, ClientBuilder};
 use output::OutputFormat;
@@ -105,6 +105,11 @@ pub enum Commands {
         about = "Assemble clips into a Studio timeline and render one finished video"
     )]
     Compositions(compositions::CompositionsCommand),
+    #[command(
+        subcommand,
+        about = "Assemble ordered clip and narration pairs into one finished video"
+    )]
+    Render(render::RenderCommand),
     #[command(subcommand, about = "Inspect account details and usage")]
     Account(account::AccountCommand),
     #[command(subcommand, about = "Inspect billing state and portal links")]
@@ -244,6 +249,7 @@ pub async fn run_cli(cli: Cli) -> Result<()> {
         Commands::Projects(command) => projects::run(command, &ctx).await,
         Commands::Products(command) => products::run(command, &ctx).await,
         Commands::Compositions(command) => compositions::run(command, &ctx).await,
+        Commands::Render(command) => render::run(command, &ctx).await,
         Commands::Account(command) => account::run(command, &ctx).await,
         Commands::Billing(command) => billing::run(command, &ctx).await,
         Commands::Pat(command) => pat::run(command, &ctx).await,

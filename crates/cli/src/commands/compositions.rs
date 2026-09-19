@@ -12,14 +12,15 @@
 //! finished asset.
 
 use std::num::NonZeroU64;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Context, Result, ensure};
 use base64::Engine;
 use clap::{Args, Subcommand};
 use nolgia_client::types::{
     CreateCompositionRequest, CreateRenderRequest, PutCompositionFileRequest,
 };
+use tokio::time::Instant;
 use uuid::Uuid;
 
 use crate::output::{OutputFormat, print_json};
@@ -29,8 +30,8 @@ use super::CommandContext;
 /// Per-clip fallback when an asset has no recorded duration (e.g. a still).
 const DEFAULT_CLIP_SECONDS: f64 = 5.0;
 /// A server render is capped at 15 minutes; wait a touch longer by default.
-const DEFAULT_RENDER_TIMEOUT_SECONDS: u64 = 900;
-const DEFAULT_POLL_INTERVAL_SECONDS: u64 = 5;
+pub(crate) const DEFAULT_RENDER_TIMEOUT_SECONDS: u64 = 900;
+pub(crate) const DEFAULT_POLL_INTERVAL_SECONDS: u64 = 5;
 
 #[derive(Subcommand, Debug)]
 pub enum CompositionsCommand {
@@ -289,7 +290,7 @@ async fn render(args: RenderArgs, ctx: &CommandContext) -> Result<()> {
 }
 
 /// What a render invocation resolved to.
-enum RenderOutcome {
+pub(crate) enum RenderOutcome {
     /// Submitted, not waited for.
     Submitted { render_id: Uuid },
     /// Waited to completion; carries the finished render row.
@@ -332,7 +333,7 @@ async fn trigger_render(
 
 /// Poll `GET /renders/{id}` until the render reaches a terminal state. Renders
 /// have no server-side long-poll (unlike jobs), so this is a client-side loop.
-async fn poll_render(
+pub(crate) async fn poll_render(
     render_id: Uuid,
     timeout: u64,
     poll_interval: u64,
@@ -342,34 +343,39 @@ async fn poll_render(
     let interval =
         NonZeroU64::new(poll_interval).context("--poll-interval must be greater than zero")?;
     let deadline = Instant::now() + Duration::from_secs(timeout);
+    let timed_out = || crate::livejob::LiveJob::Render {
+        render_id,
+        stop: crate::livejob::RenderStop::Timeout {
+            waited_seconds: timeout,
+        },
+    };
     loop {
-        let render = ctx
-            .client()
-            .get_render()
-            .id(render_id)
-            .send()
+        if Instant::now() >= deadline {
+            return Err(timed_out().into());
+        }
+        let request = ctx.client().get_render().id(render_id);
+        let render = tokio::time::timeout_at(deadline, request.send())
             .await
+            .map_err(|_| timed_out())?
             .context("polling render status")?
             .into_inner();
         match render.status.to_string().as_str() {
             "succeeded" => return Ok(render),
-            "failed" => bail!(
-                "render {render_id} failed: {}",
-                render.error.as_deref().unwrap_or("no reason given")
-            ),
+            "failed" => {
+                return Err(crate::livejob::RenderFailed {
+                    render_id,
+                    reason: render.error.unwrap_or_else(|| "no reason given".into()),
+                }
+                .into());
+            }
             _ => {}
         }
-        if Instant::now() >= deadline {
-            bail!(
-                "render {render_id} still processing after {timeout}s; \
-                 it keeps going server-side, check it with `nolgia compositions status {render_id}`"
-            );
-        }
-        tokio::time::sleep(Duration::from_secs(interval.get())).await;
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        tokio::time::sleep(Duration::from_secs(interval.get()).min(remaining)).await;
     }
 }
 
-async fn report_render(
+pub(crate) async fn report_render(
     composition_id: Uuid,
     outcome: RenderOutcome,
     ctx: &CommandContext,

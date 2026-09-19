@@ -9,6 +9,23 @@ the matching GitHub release.
   a store link. `import <URL>` fetches a public product page once and stores up
   to eight product images. `--project-id` files them into a project.
 
+- **`nolgia render blocks`** assembles ordered clip and narration pairs into
+  one finished video, server side. Each `--pair <video_id>:<audio_id>` is one
+  fixed-length block (`--block-seconds`, default 10): a short narration take
+  is centered in its block, a longer one is sped up without changing its pitch
+  up to 1.25x, and anything longer is refused with the block and both asset ids
+  named. Clips are trimmed or hold their last frame to fill the block, and
+  their own sound is dropped unless `--keep-video-audio`. `--aspect` picks
+  16:9, 9:16 or 1:1, `--name` and `--project` file the result, and `--wait`
+  prints the finished video URL. Renders cost no credits.
+
+  Waiting on a render now keeps the handle the way waiting on a job does: if
+  the wait times out, is interrupted, or cannot finish for any local reason,
+  the render id and the command to check it are printed and the exit status is
+  75 (work is live), not a bare failure. This applies to
+  `nolgia compositions render --wait` too. A render the server reports as
+  failed is still an ordinary failure.
+
 ## v0.2.27
 
 - **Linux arm64 and Windows arm64 binaries.** The release workflow now builds

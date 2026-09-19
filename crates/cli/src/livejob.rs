@@ -68,6 +68,23 @@ pub enum LiveJob {
         detail: String,
         retry_command: String,
     },
+    /// An accepted render whose post-submission phase did not finish locally.
+    Render { render_id: Uuid, stop: RenderStop },
+}
+
+#[derive(Debug)]
+pub enum RenderStop {
+    Timeout { waited_seconds: u64 },
+    Interrupted,
+    Detached { cause: String },
+}
+
+/// A confirmed server-side failure is not detached, still-live work.
+#[derive(Debug, thiserror::Error)]
+#[error("render {render_id} failed: {reason}")]
+pub struct RenderFailed {
+    pub render_id: Uuid,
+    pub reason: String,
 }
 
 impl LiveJob {
@@ -77,6 +94,7 @@ impl LiveJob {
             | Self::Interrupted { job_id }
             | Self::Detached { job_id, .. }
             | Self::Duplicate { job_id, .. } => *job_id,
+            Self::Render { render_id, .. } => *render_id,
         }
     }
 
@@ -87,6 +105,11 @@ impl LiveJob {
             Self::Interrupted { .. } => "interrupted",
             Self::Detached { .. } => "detached",
             Self::Duplicate { .. } => "duplicate",
+            Self::Render { stop, .. } => match stop {
+                RenderStop::Timeout { .. } => "still_running",
+                RenderStop::Interrupted => "interrupted",
+                RenderStop::Detached { .. } => "detached",
+            },
         }
     }
 
@@ -95,6 +118,15 @@ impl LiveJob {
     fn headline(&self) -> String {
         let id = self.job_id();
         match self {
+            Self::Render { stop, .. } => match stop {
+                RenderStop::Timeout { waited_seconds } => {
+                    format!("stopped waiting after {waited_seconds}s for accepted render {id}")
+                }
+                RenderStop::Interrupted => format!("interrupted while following render {id}"),
+                RenderStop::Detached { .. } => {
+                    format!("submitted render {id}: this command could not finish following it")
+                }
+            },
             Self::StillRunning { waited_seconds, .. } => {
                 format!("still running after {waited_seconds}s — job {id}")
             }
@@ -110,6 +142,15 @@ impl LiveJob {
     /// the job still exists, and a re-run would be a *second* job.
     fn explanation(&self) -> Vec<String> {
         match self {
+            Self::Render { stop, .. } => {
+                let mut lines = vec![
+                    "The render was accepted and has not been cancelled. Check its status instead of submitting it again.".into(),
+                ];
+                if let RenderStop::Detached { cause } = stop {
+                    lines.push(format!("Cause: {cause}"));
+                }
+                lines
+            }
             Self::StillRunning { .. } => vec![
                 "Nothing failed. The server's long-poll window closed while the job was \
                  still running — the job was not cancelled and is still being worked on."
@@ -147,6 +188,12 @@ impl LiveJob {
     /// prompt; this is the same advice in the vocabulary of this program.
     fn follow_ups(&self) -> Vec<(String, &'static str)> {
         let id = self.job_id();
+        if matches!(self, Self::Render { .. }) {
+            return vec![(
+                format!("nolgia compositions status {id}"),
+                "check the render and its produced asset",
+            )];
+        }
         let mut steps = vec![
             (format!("nolgia wait {id}"), "keep waiting for it"),
             (format!("nolgia status {id}"), "check it once"),
@@ -178,6 +225,17 @@ impl LiveJob {
     }
 
     fn render_json(&self) -> serde_json::Value {
+        if let Self::Render { render_id, .. } = self {
+            return serde_json::json!({
+                "render_id": render_id,
+                "outcome": self.outcome(),
+                "message": self.headline(),
+                "follow_up": self.follow_ups()
+                    .into_iter()
+                    .map(|(command, _)| command)
+                    .collect::<Vec<_>>(),
+            });
+        }
         serde_json::json!({
             "job_id": self.job_id().to_string(),
             "outcome": self.outcome(),
@@ -259,6 +317,42 @@ pub async fn guard<T>(
     })
 }
 
+/// Preserve the render handle through polling, asset lookup, and interruption.
+pub async fn guard_render<T>(
+    render_id: Uuid,
+    work: impl std::future::Future<Output = anyhow::Result<T>>,
+) -> anyhow::Result<T> {
+    guard_render_until(render_id, work, tokio::signal::ctrl_c()).await
+}
+
+async fn guard_render_until<T>(
+    render_id: Uuid,
+    work: impl std::future::Future<Output = anyhow::Result<T>>,
+    interrupt: impl std::future::Future,
+) -> anyhow::Result<T> {
+    let result = tokio::select! {
+        biased;
+        result = work => result,
+        _ = interrupt => Err(LiveJob::Render {
+            render_id,
+            stop: RenderStop::Interrupted,
+        }.into()),
+    };
+    result.map_err(|err| {
+        if err.is::<LiveJob>() || err.is::<RenderFailed>() {
+            err
+        } else {
+            LiveJob::Render {
+                render_id,
+                stop: RenderStop::Detached {
+                    cause: format!("{err:#}"),
+                },
+            }
+            .into()
+        }
+    })
+}
+
 /// Pull the job id out of an RFC 7807 `detail`.
 ///
 /// The API names the existing job in prose only — both `409` and `408` are
@@ -284,6 +378,39 @@ pub fn find_job_id(detail: &str) -> Option<Uuid> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn render_guard_preserves_terminal_failure_through_context() {
+        let err = guard_render(Uuid::nil(), async {
+            let failure = anyhow::Error::new(RenderFailed {
+                render_id: Uuid::nil(),
+                reason: "narration too long".into(),
+            });
+            Err::<(), _>(failure.context("following render"))
+        })
+        .await
+        .unwrap_err();
+        assert!(err.is::<RenderFailed>());
+        assert!(!err.is::<LiveJob>());
+    }
+
+    #[tokio::test]
+    async fn render_guard_interrupt_keeps_render_recovery_commands() {
+        let err = guard_render_until(
+            Uuid::nil(),
+            std::future::pending::<anyhow::Result<()>>(),
+            std::future::ready(()),
+        )
+        .await
+        .unwrap_err();
+        let live = err.downcast::<LiveJob>().unwrap();
+        assert_eq!(live.outcome(), "interrupted");
+        assert_eq!(live.render_json()["render_id"], Uuid::nil().to_string());
+        let text = live.render_text();
+        assert!(text.contains(&format!("nolgia compositions status {}", Uuid::nil())));
+        assert!(!text.contains("nolgia wait"));
+        assert!(!text.contains("billed"));
+    }
 
     /// The exact body prod returns on a duplicate submission, captured from
     /// `POST /v1/generate/audio` on 2026-08-02. The id appears twice and the
