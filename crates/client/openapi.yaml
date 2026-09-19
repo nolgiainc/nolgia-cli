@@ -40,6 +40,8 @@ tags:
     description: User-owned reusable subjects (name, description, reference images) for generation.
   - name: Locations
     description: User-owned reusable places (name, canonical description, reference images) for generation; the place-twin of a character.
+  - name: Products
+    description: User-owned products imported from a store link or built from your images; reused in every ad.
   - name: BrandKits
     description: Reusable brand palettes, fonts, logos and never-rules for generation.
   - name: Projects
@@ -3402,6 +3404,186 @@ paths:
         default:
           $ref: '#/components/responses/ProblemResponse'
 
+  /products:
+    get:
+      tags: [Products]
+      operationId: listProducts
+      summary: List the current user's products, newest first.
+      description: Products in the personal library or active organization, reusable in every ad.
+      responses:
+        '200':
+          description: Products visible in the caller's library.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductList'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+    post:
+      tags: [Products]
+      operationId: createProduct
+      summary: Create a reusable product from existing image assets.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateProductRequest'
+      responses:
+        '201':
+          description: Product created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /products/import:
+    post:
+      tags: [Products]
+      operationId: importProduct
+      summary: Import a product from a public https store link.
+      description: >
+        Click-to-Ad import (NOL-880): the server fetches the product page once,
+        reads its JSON-LD Product, Shopify product JSON, Amazon-style markup and
+        OpenGraph/product meta tags, stores up to eight product images as image
+        assets in your library, and saves a Product (name, brand, price text,
+        description and a short canonical description) that every later
+        generation can reuse through `product_id`. The fetch is https only, on
+        port 443, with every hop's address resolved once and refused when it is
+        private, loopback, link-local or a metadata address, a 5 second
+        timeout, a 5 MB page cap, a 10 MB cap per image and a content-type
+        allow-list (HTML pages; JPEG, PNG and WebP images). Imports are rate
+        limited per account. With `project_id` the images are filed into that
+        project and the product is appended to the project's products.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ImportProductRequest'
+      responses:
+        '201':
+          description: Product imported with up to eight images.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductImportResult'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '422':
+          description: The page could not be imported, due to size, content type, upstream status, timeout, or missing product data.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Per-account product import rate limit exceeded.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /products/{id}:
+    get:
+      tags: [Products]
+      operationId: getProduct
+      summary: Fetch one of the current user's products with fresh signed reference URLs.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Product found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+    patch:
+      tags: [Products]
+      operationId: updateProduct
+      summary: Update a product's name, descriptions, primary anchor or reference images.
+      description: Partial update; only provided fields change. Providing `image_asset_ids` replaces the full reference set.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProductRequest'
+      responses:
+        '200':
+          description: Product updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+    delete:
+      tags: [Products]
+      operationId: deleteProduct
+      summary: Delete one of the current user's products.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Product deleted.
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
   /elements:
     get:
       tags: [Elements]
@@ -3984,6 +4166,72 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ProjectBrandKit'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /projects/{id}/products:
+    get:
+      tags: [Projects]
+      operationId: listProjectProducts
+      summary: List a project's products.
+      description: Ordered products attached to the project, with fresh signed image URLs.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The project's products in display order.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectProductList'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+    put:
+      tags: [Projects]
+      operationId: setProjectProducts
+      summary: Replace a project's products.
+      description: >
+        Replaces the whole list with the given one, in the given order
+        (positions are renumbered from 0). Every product must exist in the
+        caller's library; duplicates keep their first position. An empty list
+        clears it.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetProjectProductsRequest'
+      responses:
+        '200':
+          description: The replaced list in display order.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectProductList'
         '400':
           $ref: '#/components/responses/ProblemResponse'
         '401':
@@ -11818,6 +12066,23 @@ components:
             as `brand_logo_attached` in the asset's generation metadata.
         brand_kit_mode:
           $ref: '#/components/schemas/BrandKitMode'
+        product_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: >-
+            One of your products (`GET /products`, NOL-880): the product this
+            render shows. Up to three of its images, primary first, are appended
+            to `reference_asset_ids` after the caller's own, the location's and
+            the cast's references, within the model's remaining
+            `image.reference_images_max` budget, and its `canonical_description`
+            rides into the prompt verbatim after any character and location
+            description. The product must belong to the caller - an unknown or
+            foreign id is a 400. A model with no reference input, or no room
+            for the primary image, is a 400 NAMING product_id, never a silent
+            drop; gallery images past the budget do not ride. A product with no
+            image contributes its description only. The job's persisted params
+            echo `product_id` for audit.
         element_ids:
           type: array
           nullable: true
@@ -12397,6 +12662,24 @@ components:
             as `brand_logo_attached` in the asset's generation metadata.
         brand_kit_mode:
           $ref: '#/components/schemas/BrandKitMode'
+        product_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: >-
+            One of your products (`GET /products`, NOL-880): the product this
+            clip shows. Up to three of its images, primary first, are attached
+            as element references (after any `element_asset_ids`/`image_urls`,
+            the character's and the location's references, so they take the
+            next `@Image` slots) within the model's remaining
+            `references.element_refs_max` budget, and its
+            `canonical_description` rides into the prompt verbatim after the
+            character's and the location's. The product must belong to the
+            caller - an unknown or foreign id is a 400. A model that cannot
+            carry the primary image is a 400 NAMING product_id, never a silent
+            drop. Cannot be combined with `source_video_asset_id` (a
+            regeneration composes no new shot). A product with no image
+            contributes its description only.
         element_ids:
           type: array
           nullable: true
@@ -13814,6 +14097,209 @@ components:
             type: string
             format: uuid
 
+    Product:
+      type: object
+      additionalProperties: false
+      required: [id, user_id, name, source_url, description, canonical_description, price, brand, images, created_at, updated_at]
+      description: A durable product with ordered image assets and a reusable canonical description.
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        organization_id:
+          type: string
+          format: uuid
+        source_url:
+          type: string
+          maxLength: 2048
+          description: Public https source link, or empty for a manual product.
+        price:
+          type: string
+          maxLength: 64
+          description: Display price text, for example 29.00 USD.
+        brand:
+          type: string
+          maxLength: 120
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+          examples: ['Trail Cup']
+        description:
+          type: string
+          maxLength: 4000
+          examples: ['A blue ceramic cup with a round handle.']
+        canonical_description:
+          type: string
+          maxLength: 1000
+          description: |
+            Generations fold this description in verbatim when product_id is passed.
+            Falls back to description when empty.
+        primary_image_asset_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: |
+            The primary product image: `product_id` on the
+            generate endpoints attaches it as the product reference. Defaults
+            to the first reference asset when unset.
+        images:
+          type: array
+          maxItems: 8
+          description: Reference images (image assets) in display order, each with a fresh signed URL.
+          items:
+            $ref: '#/components/schemas/Asset'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    ImportProductRequest:
+      type: object
+      additionalProperties: false
+      required: [url]
+      properties:
+        url:
+          type: string
+          format: uri
+          maxLength: 2048
+          description: Public https link to a product page.
+        project_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Files imported images into this project and appends the product to its products list.
+
+    ProductImportResult:
+      type: object
+      additionalProperties: false
+      required: [product, images_found, images_imported]
+      properties:
+        product:
+          $ref: '#/components/schemas/Product'
+        images_found:
+          type: integer
+        images_imported:
+          type: integer
+
+    ProductList:
+      type: object
+      additionalProperties: false
+      required: [products]
+      properties:
+        products:
+          type: array
+          items:
+            $ref: '#/components/schemas/Product'
+
+    CreateProductRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+          examples: ['Trail Cup']
+        source_url:
+          type: string
+          nullable: true
+          maxLength: 2048
+          description: Public https source link, or empty for a manual product.
+        price:
+          type: string
+          nullable: true
+          maxLength: 64
+          description: Display price text, for example 29.00 USD.
+        brand:
+          type: string
+          nullable: true
+          maxLength: 120
+        description:
+          type: string
+          nullable: true
+          maxLength: 4000
+        canonical_description:
+          type: string
+          nullable: true
+          maxLength: 1000
+          description: |
+            The canonical written description reused verbatim by downstream
+            generations (see `Product.canonical_description`). Defaults to
+            a short continuity description built from name, brand and description.
+        primary_image_asset_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: |
+            The primary product image. Must be one of `image_asset_ids`. Defaults
+            to the first reference asset.
+        image_asset_ids:
+          type: array
+          minItems: 0
+          maxItems: 8
+          description: IDs of existing image assets owned by the caller, in display order.
+          items:
+            type: string
+            format: uuid
+
+    UpdateProductRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          nullable: true
+          minLength: 1
+          maxLength: 120
+        source_url:
+          type: string
+          nullable: true
+          maxLength: 2048
+          description: Public https source link, or empty for a manual product.
+        price:
+          type: string
+          nullable: true
+          maxLength: 64
+          description: Display price text, for example 29.00 USD.
+        brand:
+          type: string
+          nullable: true
+          maxLength: 120
+        description:
+          type: string
+          nullable: true
+          maxLength: 4000
+        canonical_description:
+          type: string
+          nullable: true
+          maxLength: 1000
+          description: |
+            Replaces the canonical written description (see
+            `Product.canonical_description`) when provided.
+        primary_image_asset_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: |
+            Replaces the primary image when provided. Must name one of the
+            product's reference assets after this update.
+        image_asset_ids:
+          type: array
+          nullable: true
+          minItems: 0
+          maxItems: 8
+          description: Replaces the full set of reference images when provided.
+          items:
+            type: string
+            format: uuid
+
     CharacterSheetKind:
       type: string
       enum: [split, turnaround, expression]
@@ -14391,6 +14877,55 @@ components:
           description: The full list in display order; an empty list clears it.
           items:
             $ref: '#/components/schemas/ProjectLocationEntry'
+
+    ProjectProductMember:
+      type: object
+      additionalProperties: false
+      required: [product_id, sort_order, product]
+      description: One product in a project's products list.
+      properties:
+        product_id:
+          type: string
+          format: uuid
+        sort_order:
+          type: integer
+          minimum: 0
+          description: Display and attach position, dense from 0.
+        product:
+          $ref: '#/components/schemas/Product'
+
+    ProjectProductList:
+      type: object
+      additionalProperties: false
+      required: [products]
+      properties:
+        products:
+          type: array
+          maxItems: 50
+          items:
+            $ref: '#/components/schemas/ProjectProductMember'
+
+    ProjectProductEntry:
+      type: object
+      additionalProperties: false
+      required: [product_id]
+      properties:
+        product_id:
+          type: string
+          format: uuid
+          description: A product in the caller's library.
+
+    SetProjectProductsRequest:
+      type: object
+      additionalProperties: false
+      required: [products]
+      properties:
+        products:
+          type: array
+          maxItems: 50
+          description: The full list in display order; an empty list clears it.
+          items:
+            $ref: '#/components/schemas/ProjectProductEntry'
 
     AddProjectAssetsRequest:
       type: object
