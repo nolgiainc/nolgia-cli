@@ -234,7 +234,8 @@ duplicate submission naming the job it already created. None of these is a
 failure, and **re-submitting starts a second billable job**. Every one of them
 prints the job id and the commands to follow it; under `--json` stdout also
 carries `{"job_id", "outcome", "billed_twice", "follow_up"}` while the human
-text goes to stderr. Genuine failures still exit `1`.
+text goes to stderr. Other failures exit `1`; a content-filter block exits `65`
+(below).
 
 So a polling loop keeps waiting rather than giving up or re-submitting:
 
@@ -254,6 +255,25 @@ second take rather than an accidental re-run. Pass a fresh `--idempotency-key`
 into a single job.
 
 Human output otherwise depends on the command: completed image/audio generations print a signed URL, completed video prints the job UUID and status, and `--out <FILE>` downloads the asset. Signed URLs are temporary bearer capabilities; avoid sending them to persistent CI logs or telemetry, and save the file or query the asset again when needed.
+
+### Exit code 65: blocked by the content filter
+
+`gen image|video|audio` and `restore video` exit **65** when waiting reveals
+that the provider's content filter refused the request or blocked the result.
+The message names the content filter, repeats the provider's reason, and states
+the refund truth from `failure.credits_refunded`: `true` means refunded, `false`
+means charged, and absent or null means no refund outcome was recorded. Edit the
+prompt or reference media, or switch models, before running the command again.
+
+With `--json`, stdout carries the full failed Job with `failure.kind: "moderated"`,
+and the human text goes to stderr. `wait` and `status` report the job and exit `0`
+for terminal jobs, including moderated ones. They also print the content-filter
+message to stderr in text mode. Scripts should read `.failure.kind`:
+
+```bash
+nolgia wait "$job_uuid" --json > job.json
+jq -r '.failure.kind // empty' job.json
+```
 
 ## Command index
 

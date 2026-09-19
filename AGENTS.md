@@ -61,6 +61,8 @@ cargo build --release
 ```
 
 ## ANTI-PATTERNS
+- A content-filter block is a finished job, reported through
+  `moderation::Moderated` / `EXIT_MODERATED` (65), never through `LiveJob`.
 - Do not report a job the server accepted as a bare error. Any ending after a
   successful submit must name the job id and route through
   `livejob::LiveJob`/`EXIT_LIVE_JOB` — a message that reads like a failure is

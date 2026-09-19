@@ -5,6 +5,15 @@ the matching GitHub release.
 
 ## Unreleased
 
+- **Content-filter blocks read as such, with exit code 65.** When the
+  provider's content filter refuses a generation, `gen image|video|audio` and
+  `restore video` now print "Blocked by the content filter", the provider's
+  reason and what happened to the credits (refunded, charged, or not recorded,
+  read from the job's `failure.credits_refunded`), and exit 65 instead of
+  reporting the finished job as still running. `wait` and `status` print the
+  same message in text mode and keep exit 0; `--json` output carries the job's
+  new `failure` object.
+
 - **`nolgia products`** lists, imports, shows and deletes products imported from
   a store link. `import <URL>` fetches a public product page once and stores up
   to eight product images. `--project-id` files them into a project.

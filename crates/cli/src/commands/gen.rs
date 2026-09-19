@@ -1033,7 +1033,7 @@ pub(crate) async fn wait_for_asset(
         .send()
         .await
     {
-        Ok(response) => Ok(response.into_inner()),
+        Ok(response) => crate::moderation::ensure_not_moderated(response.into_inner()),
         Err(err) => {
             Err(super::wait_error(err, "waiting for generation job", job_id, timeout_seconds).await)
         }

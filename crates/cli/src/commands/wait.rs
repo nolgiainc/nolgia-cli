@@ -37,6 +37,9 @@ pub async fn run(args: WaitArgs, ctx: &CommandContext) -> Result<()> {
         OutputFormat::Json => print_json(&job),
         OutputFormat::Text => {
             println!("{} {} {}", job.id, job.modality, job.status);
+            if let Some(moderated) = crate::moderation::Moderated::from_job(&job) {
+                eprintln!("{}", moderated.render_text());
+            }
             Ok(())
         }
     }
