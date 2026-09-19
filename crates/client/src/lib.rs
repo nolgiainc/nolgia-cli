@@ -40,6 +40,13 @@ use uuid::Uuid;
 
 pub use generated::{Client, Error as ApiError, ResponseValue, types};
 
+// Hand-written module; no codegen target writes to it.
+pub mod subscribe;
+pub use subscribe::{
+    ErrorCode, GenerationError, GenerationResult, JobHandle, Media, StatusUpdate, SubscribeOptions,
+    submit, subscribe,
+};
+
 /// Extension helpers on the generated [`Client`] that need behavior the
 /// generated builders cannot express.
 ///

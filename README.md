@@ -13,6 +13,7 @@ The `nolgia` command-line client for the [Nolgia](https://nolgia.ai) generative-
 ## Contents
 
 - [Installation](#installation)
+- [Installation for AI coding agents](INSTALL_FOR_AGENTS.md)
 - [Quick start](#quick-start)
 - [Generation](#generation)
 - [Models and cost estimates](#models-and-cost-estimates)
@@ -27,6 +28,8 @@ The `nolgia` command-line client for the [Nolgia](https://nolgia.ai) generative-
 - [Development and spec sync](#development-and-spec-sync)
 
 ## Installation
+
+Installing from an AI coding agent? Paste [INSTALL_FOR_AGENTS.md](INSTALL_FOR_AGENTS.md) into it.
 
 ### Shell installer (macOS and Linux)
 
@@ -343,6 +346,43 @@ cargo build --release --locked
 ```
 
 The Rust client is generated at build time from the vendored [OpenAPI snapshot](crates/client/openapi.yaml). CI compares it with the canonical API contract. Do not hand-edit generated client output. For local development, the sibling `nolgia-api` spec is used only when you explicitly set `NOLGIA_USE_SIBLING_SPEC=1`; otherwise builds use the vendored snapshot. The release workflow publishes tagged crates and release binaries, then attempts npm publishing only when `npm/package.json` matches the tag; a mismatch fails that npm job. A commit on `main` is not itself a release.
+
+### Submit and subscribe (Rust)
+
+Inside an async function returning `Result`, use the hand-written layer on
+`nolgia-client` to submit and wait for all of a job's assets:
+
+```rust
+use nolgia_client::{ClientBuilder, subscribe, SubscribeOptions};
+let client = ClientBuilder::new("https://api.nolgia.ai/v1").bearer_token(std::env::var("NOLGIA_TOKEN")?).build()?;
+let args = serde_json::json!({ "model": "flux-pro", "prompt": "a paper-cut mountain range" });
+let result = subscribe(&client, "/generate/image", args, SubscribeOptions::default()).await?;
+println!("{}", result.url.unwrap_or_default());
+```
+
+Every generate request requires `model`; `flux-pro` is the CLI's default image
+model. `result.media` contains all assets (deduplicated in server order), while
+`result.url` is the first signed URL, or `None` when there are no assets. Treat
+signed URLs as short-lived bearer capabilities.
+
+Use `submit` for a `JobHandle`: `job_id()` and `job()` inspect the submission,
+`status().await` fetches once, and `result().await` starts polling. Clone the
+handle before consuming it with `result()` if you need to call `cancel()` while
+waiting. Options control polling (500 ms by default), the wait budget (30 minutes
+from `result()`), change-only status callbacks, and submission headers such as
+`Idempotency-Key`. Server error codes, including unknown codes, and raw terminal
+job fields survive in `GenerationError`.
+
+**The Nolgia API has no job-cancel route today.** `cancel()` stops this client
+waiting and nothing else. It does not cancel generation on the server and does
+not refund credits; the job keeps running and its asset still lands in the
+library. A wait timeout likewise stops only the client waiting; credits are
+still spent. Keep the job ID to inspect the existing job instead of submitting
+another paid generation.
+
+Supported endpoints are `/generate/image`, `/generate/audio`, `/generate/video`,
+`/generate/3d`, and `/restore/video`. `/generate/set` returns an `OutputSet` and
+uses `/sets/{id}` polling, so it is deliberately excluded from this job helper.
 
 ## License
 
