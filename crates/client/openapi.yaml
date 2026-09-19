@@ -13840,6 +13840,9 @@ components:
         - fal-ai/kling-video/v3/master/image-to-video
         - fal-ai/kling-video/v3/pro/image-to-video
         - kling-v3-motion-control
+        - kling-v2-6
+        - kling-v2-5-turbo
+        - kling-avatar
         - fal-ai/bytedance/seedance/v2/pro/text-to-video
         - fal-ai/bytedance/seedance/v2/pro/image-to-video
         - fal-ai/bytedance/seedance/v2/pro/reference-to-video
