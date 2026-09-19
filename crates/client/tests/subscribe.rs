@@ -160,33 +160,72 @@ async fn subscription_reports_only_status_changes_and_resolves_every_asset_in_or
 }
 
 #[tokio::test]
-async fn asset_list_empty_or_failed_falls_back_to_inline_asset() {
-    for assets_response in [response(json!({"items":[]})), ResponseTemplate::new(500)] {
-        let server = MockServer::start().await;
-        let mut terminal = job("succeeded");
-        terminal["asset"] = asset("inline");
-        mount_submit(&server, job("queued")).await;
-        mount_jobs(&server, vec![response(terminal)]).await;
-        mount_assets(&server, assets_response).await;
-        let result = subscribe(&client(&server), "/generate/image", arguments(), options())
-            .await
-            .unwrap();
-        assert_eq!(result.media.len(), 1);
-        assert_eq!(result.media[0].asset_id, "inline");
-        assert_eq!(result.url.as_deref(), Some("https://media.example/inline"));
-    }
+async fn empty_asset_list_falls_back_to_inline_asset() {
+    let server = MockServer::start().await;
+    let mut terminal = job("succeeded");
+    terminal["asset"] = asset("inline");
+    mount_submit(&server, job("queued")).await;
+    mount_jobs(&server, vec![response(terminal)]).await;
+    mount_assets(&server, response(json!({"items":[]}))).await;
+    let result = subscribe(&client(&server), "/generate/image", arguments(), options())
+        .await
+        .unwrap();
+    assert_eq!(result.media.len(), 1);
+    assert_eq!(result.media[0].asset_id, "inline");
+    assert_eq!(result.url.as_deref(), Some("https://media.example/inline"));
 }
 
 #[tokio::test]
-async fn zero_assets_is_success_even_when_the_asset_listing_fails() {
-    for assets_response in [response(json!({"items":[]})), ResponseTemplate::new(500)] {
-        let server = MockServer::start().await;
-        mount_submit(&server, job("succeeded")).await;
-        mount_assets(&server, assets_response).await;
-        let result = subscribe(&client(&server), "/generate/image", arguments(), options())
-            .await
-            .unwrap();
-        assert!(result.media.is_empty());
-        assert!(result.url.is_none());
+async fn zero_assets_is_success_when_the_asset_list_is_empty() {
+    let server = MockServer::start().await;
+    mount_submit(&server, job("succeeded")).await;
+    mount_assets(&server, response(json!({"items":[]}))).await;
+    let result = subscribe(&client(&server), "/generate/image", arguments(), options())
+        .await
+        .unwrap();
+    assert!(result.media.is_empty());
+    assert!(result.url.is_none());
+}
+
+#[tokio::test]
+async fn asset_list_transport_failure_preserves_the_completed_job() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let server = MockServer::builder().listener(listener).start().await;
+    let terminal = job("succeeded");
+    mount_submit(&server, terminal.clone()).await;
+    let handle = submit(&client(&server), "/generate/image", arguments(), options())
+        .await
+        .unwrap();
+    drop(server);
+    let error = handle.result().await.unwrap_err();
+    assert_eq!(error.code, ErrorCode::JobFailed);
+    assert_eq!(error.http_status, None);
+    assert_eq!(error.job_id.as_deref(), Some("job-1"));
+    assert_eq!(error.job, Some(terminal));
+}
+
+#[tokio::test]
+async fn asset_list_failures_preserve_the_completed_job_instead_of_partial_success() {
+    for inline in [false, true] {
+        for (status, assets_response) in [
+            (503, ResponseTemplate::new(503)),
+            (403, ResponseTemplate::new(403)),
+            (200, ResponseTemplate::new(200).set_body_string("not json")),
+        ] {
+            let server = MockServer::start().await;
+            let mut terminal = job("succeeded");
+            if inline {
+                terminal["asset"] = asset("inline");
+            }
+            mount_submit(&server, job("queued")).await;
+            mount_jobs(&server, vec![response(terminal.clone())]).await;
+            mount_assets(&server, assets_response).await;
+            let error = subscribe(&client(&server), "/generate/image", arguments(), options())
+                .await
+                .unwrap_err();
+            assert_eq!(error.http_status, Some(status));
+            assert_eq!(error.job_id.as_deref(), Some("job-1"));
+            assert_eq!(error.job, Some(terminal));
+        }
     }
 }

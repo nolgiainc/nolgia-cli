@@ -133,11 +133,22 @@ impl GenerationError {
             Some(status) => format!("HTTP {status}"),
             None => "generation failed or was canceled".to_owned(),
         });
+        // Duplicate refusals name the accepted job only in the problem detail.
+        let job_id = if http_status == Some(409) {
+            body["detail"].as_str().and_then(|detail| {
+                detail.as_bytes().windows(36).find_map(|candidate| {
+                    let candidate = std::str::from_utf8(candidate).ok()?;
+                    uuid::Uuid::parse_str(candidate).ok().map(|id| id.to_string())
+                })
+            })
+        } else {
+            None
+        };
         Self {
             code,
             message,
             http_status,
-            job_id: None,
+            job_id,
             job: None,
         }
     }

@@ -130,7 +130,7 @@ impl JobHandle {
         let mut failures = 0;
         loop {
             match job["status"].as_str() {
-                Some("succeeded") => return Ok(self.resolve_media(job).await),
+                Some("succeeded") => return self.resolve_media(job).await,
                 Some("failed" | "canceled") => return Err(GenerationError::from_body(job, None)),
                 Some("queued" | "running") => {}
                 _ => {
@@ -164,7 +164,7 @@ impl JobHandle {
             }
         }
     }
-    async fn resolve_media(&self, job: &Value) -> GenerationResult {
+    async fn resolve_media(&self, job: &Value) -> Result<GenerationResult, GenerationError> {
         // A job can produce multiple assets; the inline job.asset carries only
         // one. List by job id first to preserve the complete server ordering.
         let list = request_json(
@@ -173,11 +173,8 @@ impl JobHandle {
                 .get(format!("{}/assets", self.client.baseurl()))
                 .query(&[("job_id", self.id.as_str()), ("limit", "100")]),
         )
-        .await;
-        let items = list
-            .as_ref()
-            .ok()
-            .and_then(|value| value["items"].as_array());
+        .await?;
+        let items = list["items"].as_array();
         let assets: Vec<&Value> = match items {
             Some(items) if !items.is_empty() => items.iter().collect(),
             _ => job
@@ -202,12 +199,12 @@ impl JobHandle {
                 })
             })
             .collect();
-        GenerationResult {
+        Ok(GenerationResult {
             job_id: self.id.clone(),
             job: job.clone(),
             url: media.first().map(|media| media.url.clone()),
             media,
-        }
+        })
     }
 }
 

@@ -49,6 +49,65 @@ async fn submit_http_errors_derive_the_documented_codes() {
 }
 
 #[tokio::test]
+async fn duplicate_refusals_preserve_the_existing_job_id_from_detail() {
+    let id = "184166c4-0ecd-453c-b907-66cf511ae241";
+    for detail in [
+        format!(
+            "this exact request was already submitted as job {id} less than 5m0s ago and has not been billed \
+             twice; check it with GET /jobs/{id}. To run it again anyway, resubmit with a different Idempotency-Key header."
+        ),
+        format!("déjà soumis: GET /jobs/{id}."),
+        format!("({id})"),
+        id.to_owned(),
+    ] {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/generate/image"))
+            .respond_with(ResponseTemplate::new(409).set_body_json(json!({
+                "detail": detail,
+                "code": "duplicate_request",
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let error = submit(&client(&server), "/generate/image", arguments(), options())
+            .await
+            .err()
+            .unwrap();
+        assert_eq!(error.http_status, Some(409));
+        assert_eq!(error.code, ErrorCode::Other("duplicate_request".into()));
+        assert_eq!(error.job_id.as_deref(), Some(id));
+        assert_eq!(error.message, detail);
+        assert!(error.job.is_none());
+    }
+}
+
+#[tokio::test]
+async fn job_id_extraction_requires_a_conflict_with_a_valid_uuid_in_detail() {
+    for (status, detail) in [
+        (409, "déjà soumis, no job id"),
+        (409, ""),
+        (409, "job 184166c4-0ecd-453c-b907-66cf511ae24z"),
+        (500, "request 184166c4-0ecd-453c-b907-66cf511ae241"),
+    ] {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/generate/image"))
+            .respond_with(ResponseTemplate::new(status).set_body_json(json!({"detail":detail})))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let error = submit(&client(&server), "/generate/image", arguments(), options())
+            .await
+            .err()
+            .unwrap();
+        assert_eq!(error.http_status, Some(status));
+        assert!(error.job_id.is_none());
+        assert_eq!(error.message, detail);
+    }
+}
+
+#[tokio::test]
 async fn explicit_http_codes_override_derived_codes_in_priority_order() {
     for (body, expected) in [
         (
