@@ -2134,6 +2134,58 @@ paths:
         default:
           $ref: '#/components/responses/ProblemResponse'
 
+  /generate/3d:
+    post:
+      tags: [Generate]
+      operationId: generate3D
+      summary: Turn product or object photos into a 3D model.
+      description: |
+        Turn one to four photos into a GLB model you can view in a browser
+        and download. `hunyuan3d-v3` is the standard quality engine and the
+        default; it accepts front, back, left and right views. `trellis` is
+        the draft engine; it accepts one photo and always adds textures.
+        Returns immediately with a job. Use `GET /jobs/{id}` or
+        `GET /jobs/{id}/wait` to retrieve its `3d` asset (`model/gltf-binary`,
+        `.glb`), with a preview thumbnail when the engine returns one.
+
+        Credits are charged per generation. Hunyuan costs 21 credits with
+        textures or 13 for an untextured white model. PBR materials add 9
+        credits and require textures. Extra views add 9 credits once,
+        whether you send one, two or three extra views. The textured totals
+        are 21, 30 with PBR, 30 with extra views, or 39 with both; untextured
+        totals are 13 or 22 with extra views. Trellis costs 2 credits.
+
+        **Duplicate submissions are refused, not billed.** Submitting the same
+        request twice within five minutes returns `409` naming the job that
+        already exists, so a lost response - a closed tab, a dropped
+        connection, a `wait` that timed out - cannot turn into a second
+        charge. Send a distinct `Idempotency-Key` header to declare a
+        deliberate new take of an identical prompt; repeat the same key to
+        make your own retries collapse onto one job.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Generate3DRequest'
+      responses:
+        '202':
+          description: Job accepted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '402':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        '422':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
   /restore/video:
     post:
       tags: [Generate]
@@ -11665,7 +11717,7 @@ components:
 
     Modality:
       type: string
-      enum: [image, audio, video]
+      enum: [image, audio, video, 3d]
 
     ArenaChallengeStatus:
       type: string
@@ -12346,6 +12398,8 @@ components:
           $ref: '#/components/schemas/ModelCost'
         quality:
           $ref: '#/components/schemas/QualityCapabilities'
+        three_d:
+          $ref: '#/components/schemas/ThreeDCapabilities'
         aspect_ratios:
           type: array
           description: >-
@@ -12506,6 +12560,8 @@ components:
           $ref: '#/components/schemas/AudioCapabilities'
         image:
           $ref: '#/components/schemas/ImageCapabilities'
+        three_d:
+          $ref: '#/components/schemas/ThreeDCapabilities'
         quality:
           $ref: '#/components/schemas/QualityCapabilities'
         references:
@@ -12572,6 +12628,33 @@ components:
           items:
             $ref: '#/components/schemas/VideoCapabilityTag'
           examples: [['lip_sync']]
+
+    ThreeDCapabilities:
+      type: object
+      additionalProperties: false
+      description: Photo inputs, material options and credit prices for a 3D model engine. Present only on 3d models.
+      required: [max_images, multi_view, untextured, pbr, pbr_credits, multi_view_credits, untextured_credits]
+      properties:
+        max_images:
+          type: integer
+        multi_view:
+          type: boolean
+        untextured:
+          type: boolean
+        pbr:
+          type: boolean
+        pbr_credits:
+          type: integer
+          nullable: true
+          description: Extra credits for PBR materials, or null when unsupported.
+        multi_view_credits:
+          type: integer
+          nullable: true
+          description: Extra credits for any additional views, charged once, or null when unsupported.
+        untextured_credits:
+          type: integer
+          nullable: true
+          description: Base credits for an untextured white model, or null when unsupported.
 
     VideoCapabilityTag:
       type: string
@@ -13251,6 +13334,7 @@ components:
             - image/png
             - image/jpeg
             - image/webp
+            - model/gltf-binary
           description: >
             MIME type of the file. The signed PUT URL is bound to it, so the
             upload request must send exactly this Content-Type header.
@@ -13261,7 +13345,7 @@ components:
           description: >
             Exact size of the file in bytes. Verified against the uploaded
             object on completion. Limits: 50 GiB for video, 5 GiB for
-            audio, 100 MiB for images.
+            audio, 100 MiB for images, 200 MiB for 3D models.
         tags:
           type: array
           maxItems: 10
@@ -14888,6 +14972,63 @@ components:
           nullable: true
           maxLength: 500
           description: Sound-design direction for this shot (written into the composed prompt).
+
+    Generate3DModel:
+      type: string
+      enum: [hunyuan3d-v3, trellis]
+
+    Generate3DRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        model:
+          allOf:
+            - $ref: '#/components/schemas/Generate3DModel'
+          description: Defaults to hunyuan3d-v3 when both model and quality are omitted.
+        quality:
+          type: string
+          enum: [draft, standard]
+          x-enum-varnames: [Generate3DRequestQualityDraft, Generate3DRequestQualityStandard]
+          description: Draft selects trellis; standard selects hunyuan3d-v3. A value that contradicts an explicit model returns 400.
+        image_asset_ids:
+          type: array
+          minItems: 1
+          maxItems: 4
+          description: Your image assets in front, back, left, right order. Trellis takes exactly one. Supply exactly one of image_asset_ids and image_url.
+          items:
+            type: string
+            format: uuid
+        image_url:
+          type: string
+          format: uri
+          description: Hosted HTTPS front image. Supply exactly one of image_asset_ids and image_url.
+        texture:
+          type: boolean
+          description: Defaults to true. False creates an untextured white model and is available only with hunyuan3d-v3.
+        pbr:
+          type: boolean
+          description: Defaults to false. PBR materials require hunyuan3d-v3 with textures enabled.
+        tags:
+          type: array
+          maxItems: 10
+          description: Applied to the 3D asset; normalized to lowercase.
+          items:
+            type: string
+            minLength: 1
+            maxLength: 40
+        project_id:
+          type: string
+          format: uuid
+          description: >-
+            Files the 3D asset into this project when the job completes.
+            The project must exist and belong to the caller (400 otherwise).
+        preset_slug:
+          type: string
+          nullable: true
+          maxLength: 128
+          description: >-
+            Slug of the preset this generation was launched from, if any.
+            Same semantics as on `POST /generate/video`.
 
     RestoreVideoRequest:
       type: object
