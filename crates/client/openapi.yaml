@@ -10082,6 +10082,45 @@ components:
           description: Selectable `bitrate_mode` values; absent when the model has no bitrate knob.
           items:
             $ref: '#/components/schemas/BitrateMode'
+        video_tasks:
+          type: array
+          description: |
+            The `video_task` values the model's reference-video slot can run
+            (Seedance 2.5 on its SeeGen omni-reference route: `reference`,
+            `edit`, `extend`). Absent when the model classifies the task from
+            the prompt alone and `video_task` is refused with a 400.
+          items:
+            $ref: '#/components/schemas/VideoTask'
+          examples: [['reference', 'edit', 'extend']]
+
+    VideoTask:
+      type: string
+      enum: [reference, edit, extend]
+      nullable: true
+      description: |
+        What the reference video is FOR, on models that publish
+        `references.video_tasks` on `GET /models` (Seedance 2.5). Omit it to
+        let the provider classify the task from the prompt.
+
+        * `reference` - the clip drives the render (motion, choreography,
+          timing, camera) and the element images recast the performer and
+          the world: the Recast motion-transfer flow. Renders at the
+          requested `duration_seconds`, `aspect_ratio` and `quality` exactly
+          like any reference run.
+        * `edit` - the clip is the footage and comes back with one change
+          (a swapped product, garment, character or location). Takes exactly
+          one reference video; the output keeps the source's length and
+          aspect ratio (`aspect_ratio` is ignored), so `duration_seconds` is
+          the source clip's length rounded up: omit it or supply that value.
+          Requires a video asset with a known stored duration of 4-30 seconds;
+          raw video URLs and assets without duration metadata are refused.
+          Billed at the source length on the selected quality tier.
+        * `extend` - the clip is continued past its last frame by
+          `duration_seconds` of new footage in the source's own aspect
+          ratio. Takes exactly one reference video.
+
+        Refused with a 400 on a model whose `references.video_tasks` does not
+        list the value, and without a reference video.
 
     ModelCost:
       type: object
@@ -11746,6 +11785,8 @@ components:
           items:
             type: string
             format: uri
+        video_task:
+          $ref: '#/components/schemas/VideoTask'
         element_asset_ids:
           type: array
           nullable: true
