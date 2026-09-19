@@ -238,6 +238,62 @@ mod tests {
         }
     }
 
+    /// The frontmatter line `key: value` inside the leading `---` block.
+    fn frontmatter_value<'a>(content: &'a str, key: &str) -> Option<&'a str> {
+        let block = content.strip_prefix("---\n")?.split("\n---\n").next()?;
+        block.lines().find_map(|line| {
+            line.trim_start()
+                .strip_prefix(key)
+                .and_then(|rest| rest.strip_prefix(':'))
+                .map(str::trim)
+        })
+    }
+
+    /// The same conventions nolgiainc/nolgia-skills lints in CI (NOL-884,
+    /// NOL-885): these files are copied there verbatim, so a pack that would
+    /// fail the public repo's check fails here first. A description is the
+    /// routing signal an agent reads every turn: it must say when to use the
+    /// skill and when not to, within the Agent Skills 1,024-character limit.
+    #[test]
+    fn bundled_skills_follow_the_published_skill_conventions() {
+        let names: Vec<&str> = SKILLS.iter().map(|s| s.name).collect();
+        let mut versions = Vec::new();
+        for skill in SKILLS {
+            let description = frontmatter_value(skill.content, "description")
+                .unwrap_or_else(|| panic!("{} has no description line", skill.name))
+                .trim_matches('"');
+            assert!(
+                description.chars().count() <= 1024,
+                "{} description is {} chars (max 1024)",
+                skill.name,
+                description.chars().count()
+            );
+            for marker in ["Use when", "NOT for"] {
+                assert!(
+                    description.contains(marker),
+                    "{} description needs a {marker:?} clause",
+                    skill.name
+                );
+            }
+            let version = frontmatter_value(skill.content, "version")
+                .unwrap_or_else(|| panic!("{} has no version", skill.name));
+            versions.push(version);
+            if let Some(related) = frontmatter_value(skill.content, "related_skills") {
+                for other in related.trim_matches(['[', ']']).split(',').map(str::trim) {
+                    assert!(
+                        names.contains(&other),
+                        "{} lists related skill {other:?}, which is not bundled",
+                        skill.name
+                    );
+                }
+            }
+        }
+        assert!(
+            versions.windows(2).all(|pair| pair[0] == pair[1]),
+            "bundled skills must share one version (the skills repo's VERSION): {versions:?}"
+        );
+    }
+
     #[test]
     fn install_writes_files_and_respects_force() {
         let tmp = std::env::temp_dir().join(format!("nolgia-skills-test-{}", std::process::id()));

@@ -26,6 +26,8 @@ fn help_lists_full_command_surface() {
         .stdout(predicate::str::contains("auth"))
         .stdout(predicate::str::contains("gen"))
         .stdout(predicate::str::contains("status"))
+        .stdout(predicate::str::contains("jobs"))
+        .stdout(predicate::str::contains("voices"))
         .stdout(predicate::str::contains("wait"))
         .stdout(predicate::str::contains("assets"))
         .stdout(predicate::str::contains("characters"))
@@ -4691,4 +4693,467 @@ fn gen_video_rejects_unknown_motion_strength_locally() {
         .assert()
         .failure()
         .stderr(predicate::str::contains("extreme"));
+}
+
+#[tokio::test]
+async fn jobs_list_sends_filters_and_prints_jobs() {
+    let api = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/jobs"))
+        .and(query_param("status", "failed"))
+        .and(query_param("modality", "video"))
+        .and(query_param("limit", "5"))
+        .and(query_param("cursor", "page-1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "items": [job_json("failed", None)], "total": 1
+        })))
+        .expect(1)
+        .mount(&api)
+        .await;
+    run_ok(
+        &api,
+        &[
+            "jobs",
+            "list",
+            "--status",
+            "failed",
+            "--modality",
+            "video",
+            "--limit",
+            "5",
+            "--cursor",
+            "page-1",
+        ],
+    )
+    .stdout(predicate::str::contains(format!("{JOB_ID}  failed  video")))
+    .stdout(predicate::str::contains("2026-06-13T00:00:00"));
+}
+
+#[tokio::test]
+async fn jobs_list_json_prints_whole_page() {
+    let api = MockServer::start().await;
+    let page = json!({"items": [job_json("queued", None)], "total": 3, "next_cursor": "page-2"});
+    Mock::given(method("GET"))
+        .and(path("/v1/jobs"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&page))
+        .mount(&api)
+        .await;
+    let output = run_ok(&api, &["jobs", "list", "--json"]);
+    let value: serde_json::Value = serde_json::from_slice(&output.get_output().stdout).unwrap();
+    assert_eq!(value["items"][0]["id"], JOB_ID);
+    assert_eq!(value["total"], 3);
+    assert_eq!(value["next_cursor"], "page-2");
+}
+
+#[tokio::test]
+async fn jobs_list_cursor_hint_preserves_filters() {
+    let api = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/jobs"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "items": [job_json("failed", None)], "total": 10, "next_cursor": "page-2"
+        })))
+        .mount(&api)
+        .await;
+    run_ok(
+        &api,
+        &[
+            "jobs",
+            "list",
+            "--status",
+            "failed",
+            "--modality",
+            "video",
+            "--limit",
+            "5",
+        ],
+    )
+    .stderr(predicate::str::contains(
+        "more jobs: nolgia jobs list --cursor page-2 --status failed --modality video --limit 5",
+    ));
+}
+
+#[tokio::test]
+async fn jobs_list_rejects_unknown_status_before_request() {
+    let api = MockServer::start().await;
+    cmd()
+        .arg("--api-url")
+        .arg(api.uri())
+        .args(["jobs", "list", "--status", "bogus"])
+        .assert()
+        .failure()
+        .code(2)
+        .stderr(predicate::str::contains("invalid value"));
+    assert!(api.received_requests().await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn jobs_list_empty_text() {
+    let api = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/jobs"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"items": [], "total": 0})))
+        .mount(&api)
+        .await;
+    run_ok(&api, &["jobs", "list"]).stdout("no jobs\n");
+}
+
+#[tokio::test]
+async fn jobs_list_surfaces_problem_detail() {
+    let api = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/jobs"))
+        .respond_with(ResponseTemplate::new(400).set_body_json(json!({"detail": "invalid cursor"})))
+        .mount(&api)
+        .await;
+    cmd()
+        .arg("--api-url")
+        .arg(api.uri())
+        .args(["jobs", "list"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("listing jobs"))
+        .stderr(predicate::str::contains("invalid cursor"));
+}
+
+async fn mount_voice_models(api: &MockServer) {
+    Mock::given(method("GET")).and(path("/v1/models"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"models": [
+            {"id": "tts-one", "modality": "audio", "recommended": true,
+             "audio": {"voices": [{"id": "bella", "label": "Bella"}, {"id": "river", "label": null}]}},
+            {"id": "gpt-image-2", "modality": "image", "recommended": false},
+            {"id": "tts-two", "modality": "audio", "recommended": false,
+             "audio": {"voices": [{"id": "echo", "label": "Echo"}]}}
+        ]})))
+        .mount(api).await;
+}
+
+#[tokio::test]
+async fn voices_list_prints_catalog_order_and_optional_labels() {
+    let api = MockServer::start().await;
+    mount_voice_models(&api).await;
+    run_ok(&api, &["voices", "list"])
+        .stdout("tts-one  bella  Bella\ntts-one  river\ntts-two  echo  Echo\n");
+}
+
+#[tokio::test]
+async fn voices_list_filters_model() {
+    let api = MockServer::start().await;
+    mount_voice_models(&api).await;
+    run_ok(&api, &["voices", "list", "--model", "tts-one"])
+        .stdout("tts-one  bella  Bella\ntts-one  river\n");
+}
+
+#[tokio::test]
+async fn voices_list_json_shape() {
+    let api = MockServer::start().await;
+    mount_voice_models(&api).await;
+    let output = run_ok(&api, &["voices", "list", "--model", "tts-one", "--json"]);
+    let value: serde_json::Value = serde_json::from_slice(&output.get_output().stdout).unwrap();
+    assert_eq!(
+        value,
+        json!([
+            {"model": "tts-one", "id": "bella", "label": "Bella"},
+            {"model": "tts-one", "id": "river", "label": null}
+        ])
+    );
+}
+
+#[tokio::test]
+async fn voices_list_unknown_model_names_available_models() {
+    let api = MockServer::start().await;
+    mount_voice_models(&api).await;
+    cmd()
+        .arg("--api-url")
+        .arg(api.uri())
+        .args(["voices", "list", "--model", "missing"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "unknown model missing; audio models with voices: tts-one, tts-two",
+        ));
+}
+
+#[tokio::test]
+async fn voices_list_model_without_voices_errors() {
+    let api = MockServer::start().await;
+    mount_voice_models(&api).await;
+    cmd()
+        .arg("--api-url")
+        .arg(api.uri())
+        .args(["voices", "list", "--model", "gpt-image-2"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "gpt-image-2 publishes no voice catalog (see nolgia models get gpt-image-2)",
+        ));
+}
+
+#[tokio::test]
+async fn voices_list_empty_text() {
+    let api = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/models"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"models": []})))
+        .mount(&api)
+        .await;
+    run_ok(&api, &["voices", "list"]).stdout("no voices\n");
+}
+
+async fn mount_expand_models(api: &MockServer) {
+    Mock::given(method("GET")).and(path("/v1/models"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"models": [
+            {"id": "flux-expand", "modality": "image", "recommended": false, "image_expand": true,
+             "image": {"aspect_ratios": ["16:9", "1:1", "9:16", "4:5"], "reference_images_max": 1}},
+            {"id": "gpt-image-2", "modality": "image", "recommended": true, "image_expand": false,
+             "image": {"aspect_ratios": ["16:9", "9:16", "1:1", "3:2", "2:3"], "reference_images_max": 4, "num_images_max": 4}}
+        ]})))
+        .mount(api).await;
+}
+
+#[tokio::test]
+async fn gen_image_expand_omits_prompt_and_resolves_default_model() {
+    let api = MockServer::start().await;
+    mount_expand_models(&api).await;
+    Mock::given(method("POST")).and(path("/v1/generate/image"))
+        .and(body_partial_json(json!({"model": "flux-expand", "aspect_ratio": "9:16", "reference_asset_ids": [ASSET_ID]})))
+        .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
+        .expect(1).mount(&api).await;
+    run_ok(
+        &api,
+        &[
+            "gen",
+            "image",
+            "--expand-to",
+            "9:16",
+            "--input",
+            ASSET_ID,
+            "--no-wait",
+            "--json",
+        ],
+    )
+    .stdout(predicate::str::contains(JOB_ID));
+    let requests = api.received_requests().await.unwrap();
+    let request = requests.iter().find(|r| r.method == "POST").unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&request.body).unwrap();
+    assert!(body.get("prompt").is_none());
+}
+
+#[tokio::test]
+async fn gen_image_expand_forwards_prompt() {
+    let api = MockServer::start().await;
+    mount_expand_models(&api).await;
+    Mock::given(method("POST")).and(path("/v1/generate/image"))
+        .and(body_partial_json(json!({"model": "flux-expand", "aspect_ratio": "9:16", "reference_asset_ids": [ASSET_ID], "prompt": "sandy beach"})))
+        .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
+        .expect(1).mount(&api).await;
+    run_ok(
+        &api,
+        &[
+            "gen",
+            "image",
+            "--model",
+            "flux-pro",
+            "--expand-to",
+            "9:16",
+            "--input",
+            ASSET_ID,
+            "--prompt",
+            "sandy beach",
+            "--no-wait",
+        ],
+    );
+}
+
+#[tokio::test]
+async fn gen_image_expand_requires_input() {
+    let api = MockServer::start().await;
+    cmd()
+        .arg("--api-url")
+        .arg(api.uri())
+        .args(["gen", "image", "--expand-to", "9:16"])
+        .assert()
+        .failure()
+        .code(2)
+        .stderr(predicate::str::contains("--input"));
+    assert!(api.received_requests().await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn gen_image_expand_conflicts_with_incompatible_flags() {
+    let api = MockServer::start().await;
+    for (flag, value) in [
+        ("--aspect-ratio", "1:1"),
+        ("--quality", "2k"),
+        ("--character-id", CHARACTER_ID),
+        ("--face-reference-asset-id", ASSET_ID),
+        ("--mask", ASSET_ID),
+        ("--render-quality", "high"),
+    ] {
+        cmd()
+            .arg("--api-url")
+            .arg(api.uri())
+            .args([
+                "gen",
+                "image",
+                "--expand-to",
+                "9:16",
+                "--input",
+                ASSET_ID,
+                flag,
+                value,
+            ])
+            .assert()
+            .failure()
+            .code(2)
+            .stderr(predicate::str::contains("cannot be used with"));
+    }
+    assert!(api.received_requests().await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn gen_image_expand_rejects_unsupported_ratio() {
+    let api = MockServer::start().await;
+    mount_expand_models(&api).await;
+    cmd()
+        .arg("--api-url")
+        .arg(api.uri())
+        .args([
+            "gen",
+            "image",
+            "--expand-to",
+            "21:9",
+            "--input",
+            ASSET_ID,
+            "--no-wait",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("not supported by flux-expand"));
+    assert!(
+        api.received_requests()
+            .await
+            .unwrap()
+            .iter()
+            .all(|r| r.method == "GET")
+    );
+}
+
+#[tokio::test]
+async fn gen_image_expand_rejects_incapable_model() {
+    let api = MockServer::start().await;
+    mount_expand_models(&api).await;
+    cmd()
+        .arg("--api-url")
+        .arg(api.uri())
+        .args([
+            "gen",
+            "image",
+            "--model",
+            "gpt-image-2",
+            "--expand-to",
+            "9:16",
+            "--input",
+            ASSET_ID,
+            "--no-wait",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("gpt-image-2"))
+        .stderr(predicate::str::contains("flux-expand"));
+    assert!(
+        api.received_requests()
+            .await
+            .unwrap()
+            .iter()
+            .all(|r| r.method == "GET")
+    );
+}
+
+#[tokio::test]
+async fn gen_image_still_requires_prompt_without_expand() {
+    let api = MockServer::start().await;
+    cmd()
+        .arg("--api-url")
+        .arg(api.uri())
+        .args(["gen", "image"])
+        .assert()
+        .failure()
+        .code(2)
+        .stderr(predicate::str::contains("--prompt"));
+    assert!(api.received_requests().await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn gen_image_expand_preserves_explicit_capable_model() {
+    let api = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/models"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"models": [{
+            "id": "future-expand", "modality": "image", "recommended": false,
+            "image_expand": true, "image": {"aspect_ratios": ["9:16"]}
+        }]})))
+        .mount(&api)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/v1/generate/image"))
+        .and(body_partial_json(json!({"model": "future-expand", "aspect_ratio": "9:16", "reference_asset_ids": [ASSET_ID]})))
+        .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
+        .expect(1)
+        .mount(&api)
+        .await;
+    run_ok(
+        &api,
+        &[
+            "gen",
+            "image",
+            "--model",
+            "future-expand",
+            "--expand-to",
+            "9:16",
+            "--input",
+            ASSET_ID,
+            "--no-wait",
+        ],
+    );
+}
+
+#[tokio::test]
+async fn gen_image_expand_precheck_fails_open_when_catalog_cannot_refuse() {
+    for catalog_response in [
+        ResponseTemplate::new(503),
+        ResponseTemplate::new(200).set_body_json(json!({"models": []})),
+        ResponseTemplate::new(200).set_body_json(json!({"models": [{
+            "id": "future-expand", "modality": "image", "recommended": false,
+            "image": {"aspect_ratios": ["9:16"]}
+        }]})),
+    ] {
+        let api = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/v1/models"))
+            .respond_with(catalog_response)
+            .mount(&api)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/v1/generate/image"))
+            .and(body_partial_json(json!({"model": "future-expand", "aspect_ratio": "9:16", "reference_asset_ids": [ASSET_ID]})))
+            .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
+            .expect(1)
+            .mount(&api)
+            .await;
+        run_ok(
+            &api,
+            &[
+                "gen",
+                "image",
+                "--model",
+                "future-expand",
+                "--expand-to",
+                "9:16",
+                "--input",
+                ASSET_ID,
+                "--no-wait",
+            ],
+        );
+    }
 }

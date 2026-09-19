@@ -10,7 +10,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use commands::{
     CommandContext, ability, account, assets, billing, characters, color_presets, compositions,
-    r#gen, masks, models, motions, org, pat, projects, restore, skills, status, wait,
+    r#gen, jobs, masks, models, motions, org, pat, projects, restore, skills, status, voices, wait,
 };
 use nolgia_client::{Client, ClientBuilder};
 use output::OutputFormat;
@@ -84,6 +84,8 @@ pub enum Commands {
     Restore(restore::RestoreCommand),
     #[command(about = "Show current job status")]
     Status(status::StatusArgs),
+    #[command(subcommand, about = "List your generation jobs")]
+    Jobs(jobs::JobsCommand),
     #[command(about = "Wait for a job to finish")]
     Wait(wait::WaitArgs),
     #[command(subcommand, about = "List and manage generated assets")]
@@ -118,6 +120,8 @@ pub enum Commands {
     Ability(ability::AbilityCommand),
     #[command(subcommand, about = "Live model catalog with capabilities and pricing")]
     Models(models::ModelsCommand),
+    #[command(subcommand, about = "Voice catalog for text-to-speech models (list)")]
+    Voices(voices::VoicesCommand),
     #[command(
         subcommand,
         about = "Camera-move library for `gen video --motion` (list)"
@@ -227,6 +231,7 @@ pub async fn run_cli(cli: Cli) -> Result<()> {
         Commands::Gen(command) => r#gen::run(command, &ctx).await,
         Commands::Restore(command) => restore::run(command, &ctx).await,
         Commands::Status(args) => status::run(args, &ctx).await,
+        Commands::Jobs(command) => jobs::run(command, &ctx).await,
         Commands::Wait(args) => wait::run(args, &ctx).await,
         Commands::Assets(command) => assets::run(command, &ctx).await,
         Commands::Characters(command) => characters::run(command, &ctx).await,
@@ -240,6 +245,7 @@ pub async fn run_cli(cli: Cli) -> Result<()> {
         Commands::Ability(command) => ability::run(command, &ctx).await,
         Commands::Completion(_) => unreachable!("completion handled before client construction"),
         Commands::Models(command) => models::run(command, &ctx).await,
+        Commands::Voices(command) => voices::run(command, &ctx).await,
         Commands::Motions(command) => motions::run(command, &ctx).await,
         Commands::ColorPresets(command) => color_presets::run(command, &ctx).await,
         Commands::Masks(command) => masks::run(command, &ctx).await,
