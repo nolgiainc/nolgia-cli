@@ -624,6 +624,7 @@ fn gen_help_lists_modalities() {
         .args(["gen", "--help"])
         .assert()
         .success()
+        .stdout(predicate::str::contains("3d"))
         .stdout(predicate::str::contains("image"))
         .stdout(predicate::str::contains("video"))
         .stdout(predicate::str::contains("audio"));
@@ -5779,4 +5780,280 @@ async fn moderated_read_commands_keep_exit_zero_and_job_output() {
         assert_eq!(output["status"], job["status"]);
         assert_eq!(output["failure"], job["failure"]);
     }
+}
+
+#[tokio::test]
+async fn gen_3d_no_wait_omits_defaults() {
+    let api = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/generate/3d"))
+        .and(body_json(json!({"image_asset_ids": [ASSET_ID]})))
+        .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
+        .expect(1)
+        .mount(&api)
+        .await;
+    run_ok(&api, &["gen", "3d", "--input", ASSET_ID, "--no-wait"])
+        .stdout(predicate::str::contains(JOB_ID));
+}
+
+#[tokio::test]
+async fn gen_3d_forwards_options() {
+    for (options, expected) in [
+        (
+            vec![
+                "--input",
+                ASSET_ID,
+                "--input",
+                ELEMENT_ASSET_ID,
+                "--input",
+                CHARACTER_ID,
+                "--input",
+                PRODUCT_ID,
+                "--pbr",
+            ],
+            json!({"image_asset_ids": [ASSET_ID, ELEMENT_ASSET_ID, CHARACTER_ID, PRODUCT_ID], "pbr": true}),
+        ),
+        (
+            vec!["--input", ASSET_ID, "--draft"],
+            json!({"image_asset_ids": [ASSET_ID], "quality": "draft"}),
+        ),
+        (
+            vec!["--image-url", "https://example.com/front.png"],
+            json!({"image_url": "https://example.com/front.png"}),
+        ),
+        (
+            vec![
+                "--input",
+                ASSET_ID,
+                "--model",
+                "hunyuan3d-v3",
+                "--no-texture",
+                "--project-id",
+                PROJECT_ID,
+                "--tag",
+                "prop",
+            ],
+            json!({"image_asset_ids": [ASSET_ID], "model": "hunyuan3d-v3", "texture": false, "project_id": PROJECT_ID, "tags": ["prop"]}),
+        ),
+    ] {
+        let api = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/generate/3d"))
+            .and(body_json(expected))
+            .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
+            .expect(1)
+            .mount(&api)
+            .await;
+        let mut args = vec!["gen", "3d", "--no-wait"];
+        args.extend(options);
+        run_ok(&api, &args).stdout(predicate::str::contains(JOB_ID));
+    }
+}
+
+#[tokio::test]
+async fn gen_3d_invalid_options_make_no_requests() {
+    let api = MockServer::start().await;
+    for (options, message) in [
+        (
+            vec!["--draft", "--input", "front.png", "--input", "back.png"],
+            "--input",
+        ),
+        (
+            vec!["--model", "trellis", "--input", "front.png", "--pbr"],
+            "--pbr",
+        ),
+        (
+            vec!["--draft", "--input", "front.png", "--no-texture"],
+            "--no-texture",
+        ),
+        (
+            vec!["--input", "front.png", "--pbr", "--no-texture"],
+            "--no-texture",
+        ),
+        (
+            vec!["--input", "front.png", "--draft", "--model", "trellis"],
+            "--model",
+        ),
+        (
+            vec![
+                "--input",
+                "front.png",
+                "--image-url",
+                "https://example.com/front.png",
+            ],
+            "--image-url",
+        ),
+        (
+            vec![
+                "--input", "1.png", "--input", "2.png", "--input", "3.png", "--input", "4.png",
+                "--input", "5.png",
+            ],
+            "--input",
+        ),
+        (vec![], "required"),
+    ] {
+        cmd()
+            .args([
+                "--api-url",
+                &api.uri(),
+                "--token",
+                "test-token",
+                "gen",
+                "3d",
+            ])
+            .args(options)
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains(message));
+    }
+    assert!(api.received_requests().await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn gen_3d_wait_downloads_glb_to_exact_path() {
+    let api = MockServer::start().await;
+    let mut completed = job_json("succeeded", Some(&api.uri()));
+    completed["modality"] = json!("3d");
+    completed["asset"]["modality"] = json!("3d");
+    completed["asset"]["mime_type"] = json!("model/gltf-binary");
+    completed["asset"]["signed_url"] = json!(format!("{}/model.glb", api.uri()));
+    Mock::given(method("POST"))
+        .and(path("/v1/generate/3d"))
+        .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
+        .mount(&api)
+        .await;
+    Mock::given(method("GET"))
+        .and(path(format!("/v1/jobs/{JOB_ID}/wait")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(completed))
+        .mount(&api)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/model.glb"))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(b"glTF-test".to_vec()))
+        .mount(&api)
+        .await;
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path().join("model");
+    run_ok(
+        &api,
+        &[
+            "gen",
+            "3d",
+            "--input",
+            ASSET_ID,
+            "--out",
+            out.to_str().unwrap(),
+        ],
+    )
+    .stdout(predicate::str::contains(JOB_ID))
+    .stdout(predicate::str::contains("/model.glb"));
+    assert_eq!(std::fs::read(out).unwrap(), b"glTF-test");
+}
+
+async fn mount_three_d_models(api: &MockServer) {
+    Mock::given(method("GET")).and(path("/v1/models"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"models": [
+            {"id": "hunyuan3d-v3", "name": "Hunyuan3D", "modality": "3d", "recommended": true,
+             "cost": {"credits": 21, "unit": "per_generation"},
+             "three_d": {"max_images": 4, "multi_view": true, "untextured": true, "pbr": true, "pbr_credits": 9, "multi_view_credits": 9, "untextured_credits": 13}},
+            {"id": "trellis", "name": "Trellis", "modality": "3d", "recommended": false,
+             "cost": {"credits": 2, "unit": "per_generation"},
+             "three_d": {"max_images": 1, "multi_view": false, "untextured": false, "pbr": false, "pbr_credits": null, "multi_view_credits": null, "untextured_credits": null}}
+        ]}))).mount(api).await;
+}
+
+#[tokio::test]
+async fn gen_3d_cost_only_uses_catalog_without_uploading() {
+    let api = MockServer::start().await;
+    mount_three_d_models(&api).await;
+    for (options, credits) in [
+        (vec![], "21 credits"),
+        (vec!["--no-texture"], "13 credits"),
+        (vec!["--pbr"], "30 credits"),
+        (
+            vec!["--input", "back.png", "--input", "left.png", "--pbr"],
+            "39 credits",
+        ),
+        (vec!["--input", "back.png", "--no-texture"], "22 credits"),
+        (vec!["--draft"], "2 credits"),
+        (vec!["--model", "trellis"], "2 credits"),
+    ] {
+        let mut args = vec!["gen", "3d", "--input", "front.png", "--cost-only"];
+        args.extend(options);
+        run_ok(&api, &args).stdout(predicate::str::contains(credits));
+    }
+    assert!(
+        api.received_requests()
+            .await
+            .unwrap()
+            .iter()
+            .all(|r| r.method == "GET" && r.url.path() == "/v1/models")
+    );
+}
+
+#[tokio::test]
+async fn gen_3d_cost_only_catalog_unreachable_does_not_submit() {
+    let api = MockServer::start().await;
+    run_ok(&api, &["gen", "3d", "--input", "front.png", "--cost-only"])
+        .stdout(predicate::str::contains("estimate unavailable"))
+        .stdout(predicate::str::contains("No job submitted"));
+    assert_eq!(api.received_requests().await.unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn models_list_filters_and_describes_3d() {
+    let api = MockServer::start().await;
+    mount_three_d_models(&api).await;
+    run_ok(&api, &["models", "list", "--modality", "3d"])
+        .stdout(predicate::str::contains("21 credits (per_generation)"))
+        .stdout(predicate::str::contains(
+            "up to 4 images  multi-view  untextured  PBR",
+        ))
+        .stdout(predicate::str::contains("trellis"));
+}
+
+#[tokio::test]
+async fn three_d_modality_filters_reach_jobs_and_assets() {
+    let api = MockServer::start().await;
+    for resource in ["jobs", "assets"] {
+        Mock::given(method("GET"))
+            .and(path(format!("/v1/{resource}")))
+            .and(query_param("modality", "3d"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(json!({"items": [], "total": 0})),
+            )
+            .expect(1)
+            .mount(&api)
+            .await;
+        run_ok(&api, &[resource, "list", "--modality", "3d"]);
+    }
+}
+
+#[tokio::test]
+async fn gen_3d_wait_timeout_preserves_live_job() {
+    let api = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/generate/3d"))
+        .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
+        .mount(&api)
+        .await;
+    Mock::given(method("GET"))
+        .and(path(format!("/v1/jobs/{JOB_ID}/wait")))
+        .respond_with(ResponseTemplate::new(408))
+        .mount(&api)
+        .await;
+    cmd()
+        .args([
+            "--api-url",
+            &api.uri(),
+            "--token",
+            "test-token",
+            "gen",
+            "3d",
+            "--input",
+            ASSET_ID,
+        ])
+        .assert()
+        .code(75)
+        .stderr(predicate::str::contains(JOB_ID));
 }

@@ -34,6 +34,8 @@ pub enum ModalityFilter {
     Image,
     Video,
     Audio,
+    #[value(name = "3d")]
+    ThreeD,
 }
 
 impl ModalityFilter {
@@ -44,7 +46,10 @@ impl ModalityFilter {
     fn matches(self, modality: &str) -> bool {
         matches!(
             (self, modality),
-            (Self::Image, "image") | (Self::Video, "video") | (Self::Audio, "audio")
+            (Self::Image, "image")
+                | (Self::Video, "video")
+                | (Self::Audio, "audio")
+                | (Self::ThreeD, "3d")
         )
     }
 }
@@ -96,6 +101,19 @@ fn capability_line(model: &Model) -> String {
 }
 
 fn modality_capability_line(model: &Model) -> String {
+    if let Some(three_d) = &model.three_d {
+        let mut parts = vec![format!("up to {} images", three_d.max_images)];
+        if three_d.multi_view {
+            parts.push("multi-view".to_string());
+        }
+        if three_d.untextured {
+            parts.push("untextured".to_string());
+        }
+        if three_d.pbr {
+            parts.push("PBR".to_string());
+        }
+        return parts.join("  ");
+    }
     if let Some(video) = &model.video {
         let mut parts: Vec<String> = Vec::new();
         if !video.durations.is_empty() {
@@ -695,4 +713,41 @@ pub async fn precheck_image_expand(ctx: &CommandContext, model_id: &str) -> Resu
         );
     }
     Ok(())
+}
+
+pub(crate) async fn quote_three_d(
+    ctx: &CommandContext,
+    model_id: &str,
+    untextured: bool,
+    pbr: bool,
+    multi_view: bool,
+) -> Result<String> {
+    let models = fetch(ctx).await?;
+    let model = models
+        .iter()
+        .find(|m| m.id == model_id)
+        .context("3D model missing from catalog")?;
+    let cost = model.cost.as_ref().context("3D pricing pending")?;
+    let capabilities = model
+        .three_d
+        .as_ref()
+        .context("3D capabilities missing from catalog")?;
+    let mut credits = if untextured {
+        capabilities
+            .untextured_credits
+            .context("untextured pricing unavailable")?
+    } else {
+        i64::try_from(cost.credits.get()).context("3D price is too large")?
+    };
+    if pbr {
+        credits += capabilities
+            .pbr_credits
+            .context("PBR pricing unavailable")?;
+    }
+    if multi_view {
+        credits += capabilities
+            .multi_view_credits
+            .context("multi-view pricing unavailable")?;
+    }
+    Ok(format!("{credits} credits ({model_id}, per_generation)"))
 }

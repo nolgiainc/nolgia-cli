@@ -1,6 +1,6 @@
 ---
 name: nolgia-platform
-description: "Generate images, video, and audio on the NOLGIA platform with the `nolgia` CLI or the NOLGIA MCP server (https://mcp.nolgia.ai/mcp): auth, model choice from the live catalog, async jobs, reference images, outpainting, voices, credits, and failure recovery. Use when: the user asks for AI-generated media and NOLGIA is available, e.g. 'generate an image', 'make a video', 'animate this photo', 'extend this image to 9:16', 'make a voiceover', 'check my jobs', or 'assemble these clips into one video'. NOT for: directing craft and multi-shot planning (use nolgia-video-prompting), vertical UGC ad production (use nolgia-ugc-ads), or editing media locally without the platform."
+description: "Generate images, video, audio, and 3D models on the NOLGIA platform with the `nolgia` CLI or the NOLGIA MCP server (https://mcp.nolgia.ai/mcp): auth, model choice from the live catalog, async jobs, reference images, outpainting, voices, credits, and failure recovery. Use when: the user asks for AI-generated media and NOLGIA is available, e.g. 'generate an image', 'make a video', 'animate this photo', 'extend this image to 9:16', 'make a voiceover', 'check my jobs', or 'assemble these clips into one video'. NOT for: directing craft and multi-shot planning (use nolgia-video-prompting), vertical UGC ad production (use nolgia-ugc-ads), or editing media locally without the platform."
 version: 1.1.0
 author: NOLGIA
 license: MIT
@@ -11,7 +11,7 @@ metadata:
 
 # NOLGIA Platform
 
-NOLGIA generates images, video (with native audio), and audio/TTS through
+NOLGIA generates images, video (with native audio), audio/TTS, and 3D models through
 one API. Two ways in from an agent:
 
 - **CLI** (this skill's default): `nolgia`. Add `--json` for machine
@@ -52,6 +52,9 @@ nolgia voices list --model <tts model>   # voice ids for --voice
 ```bash
 # Image (prints the signed URL; --out saves it). Default model: flux-pro.
 nolgia gen image --prompt "isometric server room, dramatic lighting" --out img.png
+
+# 3D (GLB): 1 to 4 photos; --draft costs 2 credits. Estimate with --cost-only.
+nolgia gen 3d --input front.png --out model.glb
 
 # Video (async job; waits by default, --no-wait returns the job id).
 # Default model: seedance-2.5.

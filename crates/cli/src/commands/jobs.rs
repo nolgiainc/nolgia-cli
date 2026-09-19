@@ -17,7 +17,7 @@ pub struct ListArgs {
     /// Only jobs in this state: queued, running, succeeded, failed or canceled
     #[arg(long)]
     pub status: Option<JobStatus>,
-    /// Only jobs of this modality: image, video or audio
+    /// Only jobs of this modality: image, video, audio or 3d
     #[arg(long)]
     pub modality: Option<Modality>,
     /// Page size (newest first)
