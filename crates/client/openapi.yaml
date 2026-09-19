@@ -15242,12 +15242,17 @@ components:
             after your own words, which are never replaced, and its swatch (first
             reference image) rides as one element reference after every reference you,
             a character, a location or a product attached, only within the model's
-            remaining `references.element_refs_max` budget: a swatch that does not fit,
-            or a model that takes no references, leaves the style to its prompt fragment
-            alone because the style is a look, not a subject. An unknown or foreign id
-            is a 400. Cannot be combined with `source_video_asset_id` (a regeneration
-            composes no new shot). The job's persisted params and the asset's generation
-            metadata echo `style_id`.
+            remaining `references.element_refs_max` budget. The swatch rides ONLY when
+            the clip already carries something to style (your own `element_asset_ids`
+            or `image_urls`, a start or end frame, a reference video, or a character,
+            location or product reference). On a clip with no other visual input the
+            style contributes its prompt fragment alone, because a reference-to-video
+            model reads a lone swatch as the content and renders the swatch instead of
+            your scene: a style is a look, not a subject. A swatch that does not fit
+            the budget, and a model that takes no references, likewise leave the
+            fragment alone. An unknown or foreign id is a 400. Cannot be combined with
+            `source_video_asset_id` (a regeneration composes no new shot). The job's
+            persisted params and the asset's generation metadata echo `style_id`.
         element_ids:
           type: array
           nullable: true
