@@ -10,7 +10,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use commands::{
     CommandContext, ability, account, assets, billing, characters, color_presets, compositions,
-    r#gen, masks, models, org, pat, projects, restore, skills, status, wait,
+    r#gen, masks, models, motions, org, pat, projects, restore, skills, status, wait,
 };
 use nolgia_client::{Client, ClientBuilder};
 use output::OutputFormat;
@@ -118,6 +118,11 @@ pub enum Commands {
     Ability(ability::AbilityCommand),
     #[command(subcommand, about = "Live model catalog with capabilities and pricing")]
     Models(models::ModelsCommand),
+    #[command(
+        subcommand,
+        about = "Camera-move library for `gen video --motion` (list)"
+    )]
+    Motions(motions::MotionsCommand),
     #[command(
         subcommand,
         about = "Built-in color-grade preset looks for Studio compositions (list, cube)"
@@ -235,6 +240,7 @@ pub async fn run_cli(cli: Cli) -> Result<()> {
         Commands::Ability(command) => ability::run(command, &ctx).await,
         Commands::Completion(_) => unreachable!("completion handled before client construction"),
         Commands::Models(command) => models::run(command, &ctx).await,
+        Commands::Motions(command) => motions::run(command, &ctx).await,
         Commands::ColorPresets(command) => color_presets::run(command, &ctx).await,
         Commands::Masks(command) => masks::run(command, &ctx).await,
     }

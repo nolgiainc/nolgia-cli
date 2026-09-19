@@ -3,6 +3,19 @@
 Release notes for the Nolgia CLI. Each `## vX.Y.Z` section becomes the body of
 the matching GitHub release.
 
+## Unreleased
+
+- **`nolgia motions list`** prints the camera-move library the API serves on
+  `GET /motions`: twenty named moves (push-in, pull-back, orbit left and
+  right, crane up and down, truck, tracking, zoom, dolly zoom, pan, tilt,
+  rack focus, handheld, parallax, drone fly-through, locked off), each with
+  a one-line description; `--json` carries every strength's exact prompt
+  fragment. **`gen video --motion <id>`** names one on a request, with
+  `--motion-strength subtle|medium|strong` (medium when omitted). The server
+  appends the move's sentence to your prompt and never replaces it, so the
+  prompt is sent exactly as typed; a strength without a move is refused
+  before any request is made.
+
 ## v0.2.26
 
 - **`nolgia auth login` is easier to follow.** The approval link now comes

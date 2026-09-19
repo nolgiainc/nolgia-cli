@@ -8,6 +8,7 @@ pub mod compositions;
 pub mod r#gen;
 pub mod masks;
 pub mod models;
+pub mod motions;
 pub mod org;
 pub mod pat;
 pub mod projects;
