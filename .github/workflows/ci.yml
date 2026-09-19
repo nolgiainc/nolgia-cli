@@ -259,7 +259,7 @@ jobs:
 
       - name: Test the npm wrapper's platform mapping (offline)
         if: needs.detect.outputs.code != 'false'
-        run: node --test npm/test/
+        run: node --test npm/test/*.test.js
 
       # Runs on every PR, not just at tag time: a manifest left behind by a
       # partial bump reddens here, days before someone tries to tag it. The
