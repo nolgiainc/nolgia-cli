@@ -13742,6 +13742,10 @@ components:
         HappyHorse Video Edit (`happyhorse-1.0-video-edit`) rewrites one
         required 2 to 15 second source clip, with up to 5 optional reference
         images; both SeeGen routes offer 720p/1080p and an honored seed.
+        Kling motion control (`kling-v3-motion-control`) is the human motion
+        transfer entry: one driver video plus one performer still produces
+        output copying the driver's motion, timing and camera at the driver's
+        own length.
         Gemini Omni 1.1 Edit (`omni-1.1-flash-edit`) rewrites one required 3 to
         10 second source clip (a video asset with a stored duration) from a text
         instruction and is billed at the source's length; the output keeps the
@@ -13766,6 +13770,7 @@ components:
         - fal-ai/kling-video/v3/image-to-video
         - fal-ai/kling-video/v3/master/image-to-video
         - fal-ai/kling-video/v3/pro/image-to-video
+        - kling-v3-motion-control
         - fal-ai/bytedance/seedance/v2/pro/text-to-video
         - fal-ai/bytedance/seedance/v2/pro/image-to-video
         - fal-ai/bytedance/seedance/v2/pro/reference-to-video
@@ -14596,6 +14601,9 @@ components:
             look, not a subject. An unknown or foreign id is a 400. The job's
             persisted params and the asset's generation metadata echo
             `style_id`.
+            When omitted, the project the output is filed into (explicit
+            `project_id` or the session's project) contributes its pinned style
+            key; pass `style_id` to override it for one generation.
         element_ids:
           type: array
           nullable: true
@@ -15253,6 +15261,10 @@ components:
             fragment alone. An unknown or foreign id is a 400. Cannot be combined with
             `source_video_asset_id` (a regeneration composes no new shot). The job's
             persisted params and the asset's generation metadata echo `style_id`.
+            When omitted, the project the output is filed into (explicit
+            `project_id` or the session's project) contributes its pinned style
+            key; pass `style_id` to override it for one generation. Regeneration
+            with `source_video_asset_id` skips the project's pinned style.
         element_ids:
           type: array
           nullable: true
@@ -17959,6 +17971,21 @@ components:
       required: [id, user_id, name, description, asset_count, created_at, updated_at]
       description: User-owned grouping of assets; an asset can belong to multiple projects.
       properties:
+        style_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: >-
+            The saved style pinned as this project's style key (`GET /styles`).
+            Every image and video generated into the project with no `style_id`
+            of its own attaches this style: its prompt fragment after the prompt,
+            its swatch as a reference within the model's caps. Omitted when no
+            style is pinned.
+        style:
+          $ref: '#/components/schemas/SavedStyle'
+          description: >-
+            The pinned style with fresh signed reference URLs. Present on
+            single-project responses when `style_id` is set.
         id:
           type: string
           format: uuid
@@ -18127,6 +18154,14 @@ components:
       type: object
       additionalProperties: false
       properties:
+        style_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: >-
+            Pin one of your saved styles as the project's style key, or `null`
+            to unpin. An unknown or foreign style is a 400. Omit to leave the
+            pinned style unchanged.
         name:
           type: string
           nullable: true
