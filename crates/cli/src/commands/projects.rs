@@ -201,6 +201,7 @@ async fn update(args: UpdateProjectArgs, ctx: &CommandContext) -> Result<()> {
         auto_tags,
         archived: None,
         favorite: None,
+        style_id: None,
     };
     let project = ctx
         .client()
