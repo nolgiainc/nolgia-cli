@@ -13253,13 +13253,31 @@ components:
     AudioCapabilities:
       type: object
       additionalProperties: false
-      description: Per-model voice catalog for audio (text-to-speech) models.
+      description: Per-model voice catalog and speaking-rate range for audio (text-to-speech) models.
       properties:
         voices:
           type: array
           description: Selectable voice identifiers for this model. Absent when the model has no enumerable voice catalog.
           items:
             $ref: '#/components/schemas/Voice'
+        speed:
+          allOf:
+            - $ref: '#/components/schemas/SpeedRange'
+          description: Accepted speaking-rate range for `speed` on POST /generate/audio. Absent when the model ignores speed.
+
+    SpeedRange:
+      type: object
+      additionalProperties: false
+      required: [min, max]
+      properties:
+        min:
+          type: number
+          format: double
+          examples: [0.7]
+        max:
+          type: number
+          format: double
+          examples: [1.2]
 
     Voice:
       type: object
@@ -14348,6 +14366,21 @@ components:
           maxLength: 128
           description: TTS voice id (model-specific).
           examples: ['af_bella']
+        speed:
+          type: number
+          format: double
+          nullable: true
+          minimum: 0.7
+          maximum: 1.3
+          description: >-
+            Speaking rate as a multiple of the voice's natural pace; 1 is
+            natural. Accepted only on text-to-speech models that publish
+            audio.speed on GET /models (ElevenLabs voices take 0.7 to 1.2,
+            MiniMax and Kokoro 0.7 to 1.3); a model without audio.speed, or a
+            value outside its range, is a 400 naming the model and its range.
+            Does not change the price: text to speech bills per input
+            character. Use it to fit a long narration take before rewriting it.
+          examples: [1.1]
         character_id:
           type: string
           format: uuid
