@@ -1,3 +1,4 @@
+mod agent_guard;
 mod auth;
 mod commands;
 mod livejob;
@@ -198,7 +199,8 @@ async fn main() -> ExitCode {
 /// `Error: ... status: 408` did — is what taught operators to re-run and pay
 /// twice, so it gets its own presentation and its own exit code
 /// ([`livejob::EXIT_LIVE_JOB`]). A finished content-filter block uses
-/// [`moderation::EXIT_MODERATED`]. Everything else keeps the previous behavior:
+/// [`moderation::EXIT_MODERATED`]. An [`agent_guard::AgentRefused`] uses
+/// [`agent_guard::EXIT_AGENT_REFUSED`]. Everything else keeps the previous behavior:
 /// `Error:` plus anyhow's `Caused by:` chain, exit 1.
 fn report(result: Result<()>, format: OutputFormat) -> ExitCode {
     match result {
@@ -213,10 +215,16 @@ fn report(result: Result<()>, format: OutputFormat) -> ExitCode {
                     moderated.report(format);
                     ExitCode::from(moderation::EXIT_MODERATED)
                 }
-                Err(err) => {
-                    eprintln!("Error: {err:?}");
-                    ExitCode::FAILURE
-                }
+                Err(err) => match err.downcast::<agent_guard::AgentRefused>() {
+                    Ok(refused) => {
+                        refused.report(format);
+                        ExitCode::from(agent_guard::EXIT_AGENT_REFUSED)
+                    }
+                    Err(err) => {
+                        eprintln!("Error: {err:?}");
+                        ExitCode::FAILURE
+                    }
+                },
             },
         },
     }
@@ -242,8 +250,9 @@ pub async fn run_cli(cli: Cli) -> Result<()> {
     }
 
     let token = cli.token.or_else(auth::load_token).unwrap_or_default();
+    let agent = agent_guard::detect(&token, |key| std::env::var_os(key));
     let client = build_client(&cli.api_url, token, cli.idempotency_key)?;
-    let ctx = CommandContext::new(client, format);
+    let ctx = CommandContext::new(client, format).with_agent(agent);
 
     match cli.command {
         Commands::Auth(_) => unreachable!("auth handled before client construction"),

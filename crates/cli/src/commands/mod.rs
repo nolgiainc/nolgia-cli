@@ -21,6 +21,7 @@ pub mod status;
 pub mod voices;
 pub mod wait;
 
+use crate::agent_guard::AgentMarker;
 use crate::livejob::{self, LiveJob};
 use crate::output::OutputFormat;
 use nolgia_client::Client;
@@ -139,11 +140,25 @@ pub(crate) async fn wait_error(
 pub struct CommandContext {
     client: Client,
     format: OutputFormat,
+    agent: Option<AgentMarker>,
 }
 
 impl CommandContext {
     pub fn new(client: Client, format: OutputFormat) -> Self {
-        Self { client, format }
+        Self {
+            client,
+            format,
+            agent: None,
+        }
+    }
+
+    pub const fn with_agent(mut self, marker: Option<AgentMarker>) -> Self {
+        self.agent = marker;
+        self
+    }
+
+    pub const fn agent(&self) -> Option<AgentMarker> {
+        self.agent
     }
 
     pub fn client(&self) -> &Client {
