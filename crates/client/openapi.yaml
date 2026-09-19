@@ -2774,6 +2774,187 @@ paths:
         default:
           $ref: '#/components/responses/ProblemResponse'
 
+  /assets/{id}/transcription:
+    post:
+      tags: [Assets]
+      operationId: transcribeAsset
+      summary: Transcribe a video or audio asset into timestamped text (1 credit per minute).
+      description: >-
+        Transcribe a video or audio asset with gpt-4o-mini-transcribe behind the model proxy. Costs 1 credit per started minute of audio measured from the file, charged only when speech was sent to the model. Supports up to 60 minutes of media. This synchronous call can take a minute or two for long media. A ready transcript is returned as it is unless force is true. One run per asset at a time, otherwise 409. Timestamps come from pause-aligned chunks of up to about 24 seconds.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TranscribeAssetRequest'
+      responses:
+        '200':
+          description: Successful response.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssetTranscription'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '402':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        '429':
+          $ref: '#/components/responses/ProblemResponse'
+        '502':
+          $ref: '#/components/responses/ProblemResponse'
+        '503':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+    get:
+      tags: [Assets]
+      operationId: getAssetTranscription
+      summary: Read an asset's transcript as JSON, or download it as SRT or WebVTT subtitles.
+      description: >-
+        Read the stored transcript as JSON or download subtitles. Subtitle files require a ready transcript.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: format
+          in: query
+          description: Output format, json when omitted.
+          schema:
+            type: string
+            enum: [json, srt, vtt]
+      responses:
+        '200':
+          description: Successful response.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssetTranscription'
+            application/x-subrip:
+              schema:
+                type: string
+            text/vtt:
+              schema:
+                type: string
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /assets/{id}/clips:suggest:
+    post:
+      tags: [Assets]
+      operationId: suggestAssetClips
+      summary: Suggest short vertical clips from a transcribed video.
+      description: >-
+        Find strong moments for vertical shorts in a video that has already been transcribed. Usually costs about 1 credit, settled from model usage. Returns ranked non-overlapping ranges without cutting the video.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SuggestClipsRequest'
+      responses:
+        '200':
+          description: Successful response.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClipSuggestions'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '402':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        '429':
+          $ref: '#/components/responses/ProblemResponse'
+        '502':
+          $ref: '#/components/responses/ProblemResponse'
+        '503':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /assets/{id}/clips:
+    post:
+      tags: [Assets]
+      operationId: createAssetClips
+      summary: Cut chosen ranges of a video into new short clips through the render path.
+      description: >-
+        Create compositions and background renders for selected video ranges with optional 9:16 centre crop. Each render publishes a new video asset in the library. Rendering is currently unbilled.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateClipsRequest'
+      responses:
+        '202':
+          description: Successful response.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClipRenderList'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '502':
+          $ref: '#/components/responses/ProblemResponse'
+        '503':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
   /assets/uploads:
     post:
       tags: [Assets]
@@ -13023,6 +13204,8 @@ components:
         error:
           oneOf:
             - $ref: '#/components/schemas/Error'
+        failure:
+          $ref: '#/components/schemas/JobFailure'
         progress:
           type: number
           nullable: true
@@ -13038,6 +13221,45 @@ components:
           type: string
           nullable: true
           format: date-time
+
+    JobFailure:
+      type: object
+      additionalProperties: false
+      required: [kind, message]
+      description: >-
+        Typed reason a job failed. Present only when `status` is `failed`,
+        alongside `error` (which is unchanged). `status` stays `failed` for
+        every failure, including a content-filter refusal, so clients that
+        read only `status` keep working; branch on `kind` for the reason.
+      properties:
+        kind:
+          type: string
+          description: >-
+            What stopped the job. `moderated`: a provider's content filter
+            refused the request or blocked the result it generated (safety
+            systems, real-person likeness and protected-work checks); editing
+            the prompt or the reference media, or switching models, is the
+            fix. `error`: any other failure. This is an open set: treat any
+            value you do not recognize as `error`.
+          examples: ['moderated', 'error']
+        message:
+          type: string
+          description: >-
+            Human-readable reason, safe to show the customer as-is. The same
+            text as `error.detail`.
+        credits_refunded:
+          type: boolean
+          nullable: true
+          description: >-
+            What the credit ledger actually did with this job's credit hold,
+            recorded when the hold settled. `true`: the hold was released and
+            the job cost nothing. `false`: the hold was consumed and the
+            credits were charged (a content-filter refusal the provider billed
+            for is charged; one the provider did not bill for is refunded).
+            Absent or null when there is no ledger outcome to report: the job
+            took no hold, the hold is still settling (`GET /jobs/{id}/wait`
+            waits a few seconds for it), or the job failed before this field
+            existed. Never read an absent value as "no charge".
 
     JobPage:
       type: object
@@ -16694,6 +16916,203 @@ components:
         text:
           type: string
           description: The transcribed text.
+
+    TranscribeAssetRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        language:
+          type: string
+          pattern: '^[a-z]{2}$'
+          description: Optional ISO-639-1 language hint.
+        force:
+          type: boolean
+          description: Run again even when a ready transcript exists. False when omitted.
+
+    TranscriptSegment:
+      type: object
+      additionalProperties: false
+      required: [start, end, text]
+      properties:
+        start:
+          type: number
+          format: double
+          description: Start time in seconds.
+        end:
+          type: number
+          format: double
+          description: End time in seconds.
+        text:
+          type: string
+
+    AssetTranscriptionStatus:
+      type: string
+      enum: [processing, ready, failed]
+      x-enum-varnames: [AssetTranscriptionStatusProcessing, AssetTranscriptionStatusReady, AssetTranscriptionStatusFailed]
+
+    AssetTranscription:
+      type: object
+      additionalProperties: false
+      required: [asset_id, status, text, segments, model, credits_charged, created_at, updated_at]
+      properties:
+        asset_id:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/AssetTranscriptionStatus'
+        language:
+          type: string
+          nullable: true
+          description: The ISO-639-1 language hint the transcript was made with; null when none was given and the model detected the language itself.
+        text:
+          type: string
+        segments:
+          type: array
+          items:
+            $ref: '#/components/schemas/TranscriptSegment'
+        model:
+          type: string
+        duration_seconds:
+          type: number
+          format: double
+          nullable: true
+          description: Measured audio length in seconds, null while processing.
+        credits_charged:
+          type: integer
+        error:
+          type: string
+          nullable: true
+          description: The last failure, null after a successful run.
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    SuggestClipsRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        count:
+          type: integer
+          minimum: 3
+          maximum: 8
+          description: Number of clips wanted, 5 when omitted.
+        min_seconds:
+          type: integer
+          minimum: 5
+          maximum: 60
+          description: Minimum clip length, 15 seconds when omitted.
+        max_seconds:
+          type: integer
+          minimum: 10
+          maximum: 180
+          description: Maximum clip length, 60 seconds when omitted. Must be at least 5 seconds greater than min_seconds.
+        instructions:
+          type: string
+          maxLength: 500
+          description: Preferences about which moments to pick.
+
+    ClipSuggestion:
+      type: object
+      additionalProperties: false
+      required: [start_seconds, end_seconds, title, hook_reason]
+      properties:
+        start_seconds:
+          type: number
+          format: double
+        end_seconds:
+          type: number
+          format: double
+        title:
+          type: string
+        hook_reason:
+          type: string
+
+    ClipSuggestions:
+      type: object
+      additionalProperties: false
+      required: [clips, credits_charged, model]
+      properties:
+        clips:
+          type: array
+          items:
+            $ref: '#/components/schemas/ClipSuggestion'
+        credits_charged:
+          type: integer
+        model:
+          type: string
+
+    ClipAspectRatio:
+      type: string
+      enum: ['9:16', original]
+      x-enum-varnames: [ClipAspectRatioVertical, ClipAspectRatioOriginal]
+
+    ClipCut:
+      type: object
+      additionalProperties: false
+      required: [start_seconds, end_seconds]
+      properties:
+        start_seconds:
+          type: number
+          format: double
+        end_seconds:
+          type: number
+          format: double
+        title:
+          type: string
+          maxLength: 80
+
+    CreateClipsRequest:
+      type: object
+      additionalProperties: false
+      required: [clips]
+      properties:
+        clips:
+          type: array
+          minItems: 1
+          maxItems: 8
+          items:
+            $ref: '#/components/schemas/ClipCut'
+        aspect_ratio:
+          allOf:
+            - $ref: '#/components/schemas/ClipAspectRatio'
+          description: Output aspect ratio, 9:16 when omitted.
+        project_id:
+          type: string
+          format: uuid
+
+    ClipRender:
+      type: object
+      additionalProperties: false
+      required: [start_seconds, end_seconds, title, composition_id, render]
+      properties:
+        start_seconds:
+          type: number
+          format: double
+        end_seconds:
+          type: number
+          format: double
+        title:
+          type: string
+        composition_id:
+          type: string
+          format: uuid
+        render:
+          allOf:
+            - $ref: '#/components/schemas/Render'
+          description: The background render that publishes this clip as a video asset.
+
+    ClipRenderList:
+      type: object
+      additionalProperties: false
+      required: [clips]
+      properties:
+        clips:
+          type: array
+          items:
+            $ref: '#/components/schemas/ClipRender'
 
     SubmitAgentMessageRequest:
       type: object
