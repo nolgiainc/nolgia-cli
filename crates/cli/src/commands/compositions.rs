@@ -365,7 +365,10 @@ pub(crate) async fn poll_render(
                  it keeps going server-side, check it with `nolgia compositions status {render_id}`"
             );
         }
-        tokio::time::sleep(Duration::from_secs(interval.get())).await;
+        // Never sleep past the deadline: --timeout is the maximum wait the
+        // caller asked for, not the deadline plus one whole interval.
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        tokio::time::sleep(Duration::from_secs(interval.get()).min(remaining)).await;
     }
 }
 

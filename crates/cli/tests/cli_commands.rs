@@ -277,6 +277,37 @@ fn render_blocks_rejects_invalid_block_seconds_locally() {
     }
 }
 
+/// `--wait` with a zero timeout or poll interval must fail BEFORE the POST:
+/// `poll_render` checks them, but by then the render and its carrier
+/// composition exist and the bare argument error would read like nothing
+/// happened server side.
+#[test]
+fn render_blocks_rejects_zero_wait_knobs_before_submitting() {
+    for (flag, message) in [
+        ("--timeout", "--timeout must be greater than zero"),
+        (
+            "--poll-interval",
+            "--poll-interval must be greater than zero",
+        ),
+    ] {
+        cmd()
+            .args([
+                "--api-url",
+                "http://127.0.0.1:1",
+                "render",
+                "blocks",
+                "--pair",
+                &format!("{ASSET_ID}:{ELEMENT_ASSET_ID}"),
+                "--wait",
+                flag,
+                "0",
+            ])
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains(message));
+    }
+}
+
 #[test]
 fn render_blocks_rejects_excessive_count_and_duration_locally() {
     for (count, seconds, message) in [

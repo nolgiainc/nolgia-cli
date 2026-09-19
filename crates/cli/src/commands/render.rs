@@ -72,6 +72,16 @@ async fn blocks(args: BlocksArgs, ctx: &CommandContext) -> Result<()> {
         duration <= 600.0,
         "total duration must not exceed 600 seconds"
     );
+    if args.wait {
+        // Validate the wait knobs BEFORE submitting: poll_render checks them
+        // too, but by then the render and its carrier composition exist and a
+        // bare argument error would read like nothing happened.
+        ensure!(args.timeout > 0, "--timeout must be greater than zero");
+        ensure!(
+            args.poll_interval > 0,
+            "--poll-interval must be greater than zero"
+        );
+    }
     let mut blocks = Vec::with_capacity(n);
     for (index, pair) in args.pairs.iter().enumerate() {
         let parsed = pair.split_once(':').and_then(|(video, audio)| {
