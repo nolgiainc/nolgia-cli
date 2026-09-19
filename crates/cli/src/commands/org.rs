@@ -19,6 +19,7 @@ use reqwest::StatusCode;
 use serde::Serialize;
 use uuid::Uuid;
 
+use crate::agent_guard::AgentRefused;
 use crate::output::{OutputFormat, print_json};
 
 use super::CommandContext;
@@ -51,10 +52,15 @@ pub enum OrgCommand {
                       message when you are not a member of the named organization.\n\n\
                       In an organization context every generation, whether authenticated by device \
                       login or a personal access token, spends the organization's shared credit pool. \
-                      In the personal space a PAT still draws only from your prepaid API top-up pool."
+                      In the personal space a PAT still draws only from your prepaid API top-up pool.\n\n\
+                      Refused when an agent runs it: the owner switches from the account menu on nolgia.ai."
     )]
     Switch(SwitchArgs),
-    #[command(about = "Create a team organization you own; it becomes your active organization")]
+    #[command(
+        about = "Create a team organization you own; it becomes your active organization",
+        long_about = "Create a team organization you own; it becomes your active organization.\n\n\
+                      Refused when an agent runs it: the owner creates from the account menu on nolgia.ai."
+    )]
     Create(CreateArgs),
     #[command(about = "List the members of the active organization (or --org / NOLGIA_ORG)")]
     Members(TargetArgs),
@@ -380,6 +386,9 @@ async fn status(ctx: &CommandContext) -> Result<()> {
 // ---------------------------------------------------------------------------
 
 async fn switch(args: SwitchArgs, ctx: &CommandContext) -> Result<()> {
+    if ctx.agent().is_some() {
+        return Err(AgentRefused::Switch.into());
+    }
     let target = args.target.trim();
     let user = current_user(ctx).await?;
     let organization_id = if target.eq_ignore_ascii_case("personal") {
@@ -437,6 +446,9 @@ async fn switch(args: SwitchArgs, ctx: &CommandContext) -> Result<()> {
 // ---------------------------------------------------------------------------
 
 async fn create(args: CreateArgs, ctx: &CommandContext) -> Result<()> {
+    if ctx.agent().is_some() {
+        return Err(AgentRefused::Create.into());
+    }
     let slug = args
         .slug
         .as_deref()

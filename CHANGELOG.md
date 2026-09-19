@@ -35,6 +35,13 @@ the matching GitHub release.
   `nolgia compositions render --wait` too. A render the server reports as
   failed is still an ordinary failure.
 
+- **`nolgia org switch` and `nolgia org create`** now refuse before any request
+  with exit status 77 when an agent runs them, on the NOLGIA Agent's pod,
+  with an agent turn credential, or with a declared Hermes surface. Either
+  command moves the owner's workspace everywhere at once. The owner switches
+  or creates from the account menu on nolgia.ai. Read-only `org` commands are
+  unchanged.
+
 ## v0.2.27
 
 - **Linux arm64 and Windows arm64 binaries.** The release workflow now builds

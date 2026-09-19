@@ -3797,6 +3797,9 @@ fn cmd() -> Command {
     let home = ISOLATED_HOME.get_or_init(|| tempfile::tempdir().expect("isolated config dir"));
     let mut command = Command::cargo_bin("nolgia").unwrap();
     command.env_remove("NOLGIA_TOKEN");
+    command.env_remove("HERMES_HOME");
+    command.env_remove("HERMES_DASHBOARD");
+    command.env_remove("NOLGIA_SURFACE");
     command.env("NOLGIA_TOKEN_STORE", "file");
     command.env("XDG_CONFIG_HOME", home.path());
     command.env("XDG_STATE_HOME", home.path());

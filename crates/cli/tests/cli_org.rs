@@ -761,6 +761,115 @@ async fn json_auth_status_is_one_document_with_the_organization() {
 // Helpers and fixtures
 // ---------------------------------------------------------------------------
 
+#[tokio::test]
+async fn agent_org_mutations_refuse_before_any_request() {
+    for (token, env) in [
+        (
+            "nol_test",
+            vec![
+                ("HERMES_HOME", "pod-home"),
+                ("HERMES_DASHBOARD", "pod-dashboard"),
+            ],
+        ),
+        ("nolt_0123456789abcdef", vec![]),
+        ("nol_test", vec![("NOLGIA_SURFACE", "hermes")]),
+        (
+            "nol_test",
+            vec![
+                ("NOLGIA_SURFACE", "cli"),
+                ("HERMES_HOME", "pod-home"),
+                ("HERMES_DASHBOARD", "pod-dashboard"),
+            ],
+        ),
+    ] {
+        for (subcommand, target, message, explanation, owner_action) in [
+            (
+                "switch",
+                "acme",
+                "Refused: an agent cannot switch the owner's workspace.",
+                "Switching moves the owner's workspace everywhere at once: the web app, every chat session and every token.",
+                "The owner switches from the workspace switcher in the account menu on nolgia.ai.",
+            ),
+            (
+                "create",
+                "Acme",
+                "Refused: an agent cannot create an organization for the owner.",
+                "A new organization becomes the owner's active workspace everywhere at once.",
+                "The owner creates one from the account menu on nolgia.ai.",
+            ),
+        ] {
+            for json in [false, true] {
+                let api = MockServer::start().await;
+                let mut command = cmd();
+                command
+                    .envs(env.iter().copied())
+                    .args(["--api-url", &api.uri(), "--token", token]);
+                if json {
+                    command.arg("--json");
+                }
+                let assert = command.args(["org", subcommand, target]).assert().code(77);
+                let output = assert.get_output();
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                assert_eq!(
+                    stderr,
+                    format!("{message}\n{explanation}\n{owner_action}\n")
+                );
+                assert!(!stderr.contains('\u{2014}'));
+                if json {
+                    let value: serde_json::Value =
+                        serde_json::from_slice(&output.stdout).expect("JSON refusal");
+                    assert_eq!(
+                        value,
+                        json!({"error": "agent_refused", "command": format!("org {subcommand}"), "message": message, "owner_action": owner_action})
+                    );
+                } else {
+                    assert!(output.stdout.is_empty());
+                }
+                assert!(
+                    api.received_requests()
+                        .await
+                        .expect("recorded requests")
+                        .is_empty()
+                );
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn org_status_under_agent_pod_is_allowed() {
+    let api = MockServer::start().await;
+    mount_me(&api, Some("acme-studios")).await;
+    mount_subscription(&api, team_subscription_json()).await;
+    cmd()
+        .env("HERMES_HOME", "pod-home")
+        .env("HERMES_DASHBOARD", "pod-dashboard")
+        .args([
+            "--api-url",
+            &api.uri(),
+            "--token",
+            "nol_test",
+            "org",
+            "status",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Organization: Acme Studios"));
+}
+
+#[test]
+fn org_mutation_help_explains_agent_refusal() {
+    for subcommand in ["switch", "create"] {
+        cmd()
+            .args(["org", subcommand, "--help"])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("Refused when an agent runs it"))
+            .stdout(predicate::str::contains("account menu on nolgia.ai"))
+            .stdout(predicate::str::contains('\u{2014}').not());
+    }
+}
+
 fn cmd() -> Command {
     // Same isolation as cli_commands.rs: force the file token store and point
     // every config/state path at a per-test-process temp dir so a spawned
@@ -769,6 +878,9 @@ fn cmd() -> Command {
     let home = ISOLATED_HOME.get_or_init(|| tempfile::tempdir().expect("isolated config dir"));
     let mut command = Command::cargo_bin("nolgia").unwrap();
     command.env_remove("NOLGIA_TOKEN");
+    command.env_remove("HERMES_HOME");
+    command.env_remove("HERMES_DASHBOARD");
+    command.env_remove("NOLGIA_SURFACE");
     command.env_remove("NOLGIA_ORG");
     command.env("NOLGIA_TOKEN_STORE", "file");
     command.env("XDG_CONFIG_HOME", home.path());
