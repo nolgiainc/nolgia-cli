@@ -26,6 +26,8 @@ servers:
     description: Local development
 
 tags:
+  - name: Arena
+    description: Public creative challenges; entries are the submitter's own finished Outputs shared through a public share link; community votes and admin moderation.
   - name: Auth
     description: Sign-in flows for CLI/MCP (device code) and current-user info.
   - name: Generate
@@ -5599,6 +5601,487 @@ paths:
         default:
           $ref: '#/components/responses/ProblemResponse'
 
+  /arena/challenges:
+    get:
+      tags: [Arena]
+      operationId: listArenaChallenges
+      summary: List up to 100 public challenges, ordered open, voting, then closed.
+      description: >
+        Drafts are excluded even for admins. Status groups are ordered open, voting, closed; within each group starts_at descending with nulls last, then created_at descending.
+      security:
+        - {}
+        - bearerAuth: []
+        - patAuth: []
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArenaChallengeList'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /arena/challenges/{slug}:
+    parameters:
+      - $ref: '#/components/parameters/ArenaChallengeSlug'
+    get:
+      tags: [Arena]
+      operationId: getArenaChallenge
+      summary: Get a challenge, its top ten voted entries, and your entries.
+      description: >
+        Drafts answer 404 unless the caller is an admin. The leaderboard includes up to ten publicly live entries with votes, ordered by votes descending, creation time ascending, then id ascending. Your entries include hidden or publicly live submissions that count toward the entry limit.
+      security:
+        - {}
+        - bearerAuth: []
+        - patAuth: []
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArenaChallengeDetail'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /arena/challenges/{slug}/entries:
+    parameters:
+      - $ref: '#/components/parameters/ArenaChallengeSlug'
+    get:
+      tags: [Arena]
+      operationId: listArenaEntries
+      summary: List publicly live entries with stable top or newest ordering.
+      description: >
+        Only visible entries with an unrevoked, unexpired share link and a ready, undeleted asset are public. New sorts by creation time and id descending; top sorts by votes descending, creation time and id ascending. Drafts answer 404 unless the caller is an admin.
+      security:
+        - {}
+        - bearerAuth: []
+        - patAuth: []
+      parameters:
+        - name: sort
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/ArenaEntrySort'
+            default: new
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 48
+            default: 24
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 10000
+            default: 0
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArenaEntryPage'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+    post:
+      tags: [Arena]
+      operationId: createArenaEntry
+      summary: Enter a finished generated Output and create its public share link.
+      description: >
+        Browser JWT session only; PATs and agent credentials are refused. Requires confirm_public_share true, library write access, mutation permission, and a ready generated Output from a succeeded job. Uploads and assets without a job are refused. The challenge must be accepting entries. The share link expires after 365 days. Hidden and publicly live entries count toward the per-person limit. Limited to 20 submissions per account per hour.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ArenaEntryCreate'
+      responses:
+        '201':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArenaEntry'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        '429':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /arena/entries/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    delete:
+      tags: [Arena]
+      operationId: withdrawArenaEntry
+      summary: Withdraw an entry and revoke its share link in any challenge status.
+      responses:
+        '204':
+          description: Completed.
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        '429':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /arena/entries/{id}/vote:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    put:
+      tags: [Arena]
+      operationId: voteArenaEntry
+      summary: Vote once for a publicly live entry while voting is open.
+      description: >
+        Browser JWT session only. Submitters and asset creators cannot vote on their own entry. Repeated votes are idempotent. Votes and unvotes share a limit of 60 requests per account per minute.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArenaVoteState'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        '429':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+    delete:
+      tags: [Arena]
+      operationId: unvoteArenaEntry
+      summary: Remove your vote while voting is open.
+      description: >
+        Browser JWT session only. The entry must remain publicly live and voting must be open. Self-votes are refused, including removals. Repeated removals are idempotent. Shares the vote rate limit.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArenaVoteState'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        '429':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /arena/entries/{id}/reports:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      tags: [Arena]
+      operationId: reportArenaEntry
+      summary: Report a publicly live entry for admin review.
+      description: >
+        Browser JWT session only. Reports are idempotent per entry and reporter. Three distinct unresolved reports hide the entry and revoke its share link pending review. Limited to ten reports per account per hour.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ArenaReportCreate'
+      responses:
+        '204':
+          description: Completed.
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        '429':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /admin/arena/challenges:
+    get:
+      tags: [Admin]
+      operationId: listAdminArenaChallenges
+      summary: List all challenges, including drafts, newest first.
+      description: >
+        Admin only; unauthenticated callers receive 401 and non-admins receive 404. Includes admin identifiers and moderation counts.
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArenaChallengeList'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        '429':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+    post:
+      tags: [Admin]
+      operationId: createArenaChallenge
+      summary: Create a draft challenge.
+      description: >
+        Admin only; non-admins receive 404. Always creates a draft. Customer copy cannot contain an em dash. Presets must be public and cover assets must be readable, ready and undeleted.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ArenaChallengeCreate'
+      responses:
+        '201':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArenaChallenge'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        '429':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /admin/arena/challenges/{slug}:
+    parameters:
+      - $ref: '#/components/parameters/ArenaChallengeSlug'
+    patch:
+      tags: [Admin]
+      operationId: updateArenaChallenge
+      summary: Update a challenge; explicit null clears nullable fields.
+      description: >
+        Admin only; non-admins receive 404. Slug is immutable. Omitted fields are preserved; null clears preset_slug, starts_at, ends_at and cover_asset_id. Unknown fields are refused. Schedule validation applies to the merged result. Any status transition is allowed.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ArenaChallengeUpdate'
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArenaChallenge'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        '429':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /admin/arena/challenges/{slug}/entries:
+    parameters:
+      - $ref: '#/components/parameters/ArenaChallengeSlug'
+    get:
+      tags: [Admin]
+      operationId: listAdminArenaEntries
+      summary: List up to 500 entries for moderation, newest first.
+      description: >
+        Admin only; non-admins receive 404. Media is signed for review even for hidden entries. Share URLs are included only while the link is live.
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [all, visible, hidden, withdrawn]
+            default: all
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminArenaEntryList'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        '429':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /admin/arena/entries/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    patch:
+      tags: [Admin]
+      operationId: moderateArenaEntry
+      summary: Hide an entry or restore it with a fresh share link.
+      description: >
+        Admin only; non-admins receive 404. Hiding revokes the link and resolves open reports. Restoring a hidden entry creates a fresh public token and resolves open reports. Withdrawn entries cannot be restored. Repeating the current state is idempotent.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ArenaEntryModeration'
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminArenaEntry'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        '429':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /admin/arena/reports:
+    get:
+      tags: [Admin]
+      operationId: listAdminArenaReports
+      summary: List up to 500 entry reports, newest first.
+      description: >
+        Admin only; non-admins receive 404. Reports include reporter identifiers for moderation.
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [open, resolved, all]
+            default: open
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminArenaReportList'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        '429':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
   /activity:
     get:
       tags: [Activity]
@@ -9058,6 +9541,14 @@ components:
       description: Static shared secret (`ABILITY_PUBLISHER_TOKEN`) for the internal repo-to-marketplace ability publish pipeline. Deliberately narrow — it can only publish forward versions of existing public abilities.
 
   parameters:
+    ArenaChallengeSlug:
+      name: slug
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: "^[a-z0-9]+(-[a-z0-9]+)*$"
+        maxLength: 80
     Limit:
       name: limit
       in: query
@@ -10242,6 +10733,439 @@ components:
     Modality:
       type: string
       enum: [image, audio, video]
+
+    ArenaChallengeStatus:
+      type: string
+      enum: [draft, open, voting, closed]
+      x-enum-varnames: [ArenaChallengeStatusDraft, ArenaChallengeStatusOpen, ArenaChallengeStatusVoting, ArenaChallengeStatusClosed]
+    ArenaEntryStatus:
+      type: string
+      enum: [visible, hidden, withdrawn]
+      x-enum-varnames: [ArenaEntryStatusVisible, ArenaEntryStatusHidden, ArenaEntryStatusWithdrawn]
+    ArenaReportReason:
+      type: string
+      enum: [inappropriate, copyright, spam, other]
+      x-enum-varnames: [ArenaReportReasonInappropriate, ArenaReportReasonCopyright, ArenaReportReasonSpam, ArenaReportReasonOther]
+    ArenaEntrySort:
+      type: string
+      enum: [top, new]
+      x-enum-varnames: [ArenaEntrySortTop, ArenaEntrySortNew]
+    ArenaChallenge:
+      description: >
+        Server-computed accepting_entries requires open status and the current time inside the optional start/end window.
+        voting_open requires open or voting status and a time before ends_at; it does not depend on starts_at.
+        entry_count counts only publicly live entries. Admin-only fields are omitted from public responses.
+      type: object
+      additionalProperties: false
+      required: [slug, title, brief, rules, modalities, status, max_entries_per_user, entry_count, accepting_entries, voting_open, created_at, updated_at]
+      properties:
+        slug:
+          type: string
+          maxLength: 80
+        title:
+          type: string
+          maxLength: 120
+        brief:
+          type: string
+          maxLength: 4000
+        rules:
+          type: string
+          maxLength: 4000
+        modalities:
+          type: array
+          items:
+            $ref: '#/components/schemas/Modality'
+        status:
+          $ref: '#/components/schemas/ArenaChallengeStatus'
+        max_entries_per_user:
+          type: integer
+          minimum: 1
+          maximum: 10
+        entry_count:
+          type: integer
+          minimum: 0
+        accepting_entries:
+          type: boolean
+        voting_open:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        preset_slug:
+          type: string
+          nullable: true
+        starts_at:
+          type: string
+          format: date-time
+          nullable: true
+        ends_at:
+          type: string
+          format: date-time
+          nullable: true
+        cover_url:
+          type: string
+          nullable: true
+        id:
+          type: string
+          format: uuid
+        cover_asset_id:
+          type: string
+          format: uuid
+        open_report_count:
+          type: integer
+          minimum: 0
+        hidden_entry_count:
+          type: integer
+          minimum: 0
+    ArenaEntry:
+      description: >
+        Public media for exactly one submitted Output. No field carries an asset id, a user id, an organization id
+        or the prompt behind the Output.
+        `media_url` and `thumbnail_url` are short-lived signed storage URLs, exactly what a share page serves, so
+        like every signed URL in this API their PATH is the storage object key and reveals nothing more than a
+        shared link already does; an opaque delivery path for public media is a platform follow-up.
+        Share URLs are included only while their links are live. Status and view_count appear only on your entries and creation responses.
+        Rank appears only on the leaderboard and top-sorted pages. Signed media responses use Cache-Control no-store.
+      type: object
+      additionalProperties: false
+      required: [id, challenge_slug, title, modality, media_url, media_expires_at, vote_count, created_at, voted_by_me, is_mine]
+      properties:
+        id:
+          type: string
+          format: uuid
+        challenge_slug:
+          type: string
+        title:
+          type: string
+        modality:
+          $ref: '#/components/schemas/Modality'
+        media_url:
+          type: string
+        media_expires_at:
+          type: string
+          format: date-time
+        vote_count:
+          type: integer
+          minimum: 0
+        created_at:
+          type: string
+          format: date-time
+        voted_by_me:
+          type: boolean
+        is_mine:
+          type: boolean
+        credit:
+          type: string
+          maxLength: 40
+        thumbnail_url:
+          type: string
+        mime_type:
+          type: string
+        duration_seconds:
+          type: number
+        share_url:
+          type: string
+        rank:
+          type: integer
+          minimum: 1
+        status:
+          $ref: '#/components/schemas/ArenaEntryStatus'
+        view_count:
+          type: integer
+          minimum: 0
+    AdminArenaEntry:
+      type: object
+      additionalProperties: false
+      required: [id, challenge_slug, title, modality, media_url, media_expires_at, vote_count, created_at, voted_by_me, is_mine, status, asset_id, user_id, user_email, open_report_count, view_count]
+      properties:
+        id:
+          type: string
+          format: uuid
+        challenge_slug:
+          type: string
+        title:
+          type: string
+        modality:
+          $ref: '#/components/schemas/Modality'
+        media_url:
+          type: string
+        media_expires_at:
+          type: string
+          format: date-time
+        vote_count:
+          type: integer
+          minimum: 0
+        created_at:
+          type: string
+          format: date-time
+        voted_by_me:
+          type: boolean
+        is_mine:
+          type: boolean
+        credit:
+          type: string
+          maxLength: 40
+        thumbnail_url:
+          type: string
+        mime_type:
+          type: string
+        duration_seconds:
+          type: number
+        share_url:
+          type: string
+        rank:
+          type: integer
+          minimum: 1
+        status:
+          $ref: '#/components/schemas/ArenaEntryStatus'
+        view_count:
+          type: integer
+          minimum: 0
+        hidden_reason:
+          type: string
+        asset_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        user_email:
+          type: string
+        organization_id:
+          type: string
+          format: uuid
+        open_report_count:
+          type: integer
+          minimum: 0
+    ArenaEntryPage:
+      type: object
+      additionalProperties: false
+      required: [entries, total, next_offset]
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/ArenaEntry'
+        total:
+          type: integer
+          minimum: 0
+        next_offset:
+          type: integer
+          minimum: 0
+          nullable: true
+    ArenaChallengeList:
+      type: object
+      additionalProperties: false
+      required: [challenges]
+      properties:
+        challenges:
+          type: array
+          items:
+            $ref: '#/components/schemas/ArenaChallenge'
+    ArenaChallengeDetail:
+      type: object
+      additionalProperties: false
+      required: [challenge, leaderboard, my_entries]
+      properties:
+        challenge:
+          $ref: '#/components/schemas/ArenaChallenge'
+        leaderboard:
+          type: array
+          items:
+            $ref: '#/components/schemas/ArenaEntry'
+        my_entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/ArenaEntry'
+    ArenaEntryCreate:
+      type: object
+      additionalProperties: false
+      required: [asset_id, confirm_public_share]
+      properties:
+        asset_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+          maxLength: 120
+        credit:
+          type: string
+          maxLength: 40
+        confirm_public_share:
+          type: boolean
+    ArenaVoteState:
+      type: object
+      additionalProperties: false
+      required: [entry_id, voted, vote_count]
+      properties:
+        entry_id:
+          type: string
+          format: uuid
+        voted:
+          type: boolean
+        vote_count:
+          type: integer
+          minimum: 0
+    ArenaReportCreate:
+      type: object
+      additionalProperties: false
+      required: [reason]
+      properties:
+        reason:
+          $ref: '#/components/schemas/ArenaReportReason'
+        details:
+          type: string
+          maxLength: 1000
+    ArenaChallengeCreate:
+      type: object
+      additionalProperties: false
+      required: [slug, title]
+      properties:
+        slug:
+          type: string
+          maxLength: 80
+          minLength: 3
+          pattern: "^[a-z0-9]+(-[a-z0-9]+)*$"
+        title:
+          type: string
+          maxLength: 120
+          minLength: 1
+        brief:
+          type: string
+          maxLength: 4000
+        rules:
+          type: string
+          maxLength: 4000
+        modalities:
+          type: array
+          items:
+            $ref: '#/components/schemas/Modality'
+          minItems: 1
+        preset_slug:
+          type: string
+          nullable: true
+        starts_at:
+          type: string
+          format: date-time
+          nullable: true
+        ends_at:
+          type: string
+          format: date-time
+          nullable: true
+        cover_asset_id:
+          type: string
+          format: uuid
+          nullable: true
+        max_entries_per_user:
+          type: integer
+          minimum: 1
+          maximum: 10
+    ArenaChallengeUpdate:
+      type: object
+      additionalProperties: false
+      properties:
+        title:
+          type: string
+          maxLength: 120
+          minLength: 1
+        brief:
+          type: string
+          maxLength: 4000
+        rules:
+          type: string
+          maxLength: 4000
+        modalities:
+          type: array
+          items:
+            $ref: '#/components/schemas/Modality'
+          minItems: 1
+        preset_slug:
+          type: string
+          nullable: true
+        starts_at:
+          type: string
+          format: date-time
+          nullable: true
+        ends_at:
+          type: string
+          format: date-time
+          nullable: true
+        cover_asset_id:
+          type: string
+          format: uuid
+          nullable: true
+        max_entries_per_user:
+          type: integer
+          minimum: 1
+          maximum: 10
+        status:
+          $ref: '#/components/schemas/ArenaChallengeStatus'
+    ArenaEntryModeration:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [visible, hidden]
+          x-enum-varnames: [ArenaEntryModerationStatusVisible, ArenaEntryModerationStatusHidden]
+        reason:
+          type: string
+          maxLength: 200
+    AdminArenaEntryList:
+      type: object
+      additionalProperties: false
+      required: [entries]
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminArenaEntry'
+    AdminArenaReport:
+      type: object
+      additionalProperties: false
+      required: [id, entry_id, challenge_slug, entry_title, entry_status, reason, details, reporter_user_id, reporter_email, created_at, resolved_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        entry_id:
+          type: string
+          format: uuid
+        challenge_slug:
+          type: string
+        entry_title:
+          type: string
+        entry_status:
+          $ref: '#/components/schemas/ArenaEntryStatus'
+        reason:
+          $ref: '#/components/schemas/ArenaReportReason'
+        details:
+          type: string
+        reporter_user_id:
+          type: string
+          format: uuid
+        reporter_email:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        resolved_at:
+          type: string
+          format: date-time
+          nullable: true
+    AdminArenaReportList:
+      type: object
+      additionalProperties: false
+      required: [reports]
+      properties:
+        reports:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminArenaReport'
 
     ShareLinkKind:
       type: string
