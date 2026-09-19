@@ -11420,6 +11420,34 @@ components:
             still contributes its description; that render carries no face
             reference, so its `identity_score` is null. The job's persisted
             params echo `character_id` alongside `aura` for audit.
+            `character_id` is the single-member sugar for `character_ids`.
+        character_ids:
+          type: array
+          nullable: true
+          maxItems: 4
+          description: >-
+            An ORDERED cast of up to 4 of your characters rendered together
+            (two-person dialogue scenes, duets, family commercials). The
+            first member is the lead: its primary reference becomes the
+            face reference exactly as `character_id` does; every further
+            member's primary reference is attached as an image reference
+            after it (before any `element_ids`), and each member's
+            `canonical_description` rides into the prompt verbatim as a
+            "Cast:" block in cast order, so a `@Name` mention in the prompt
+            addresses the right subject. All references count against
+            `image.reference_images_max` - a cast the model has no room for
+            is a 400, never a silent drop. A member listed twice, more than
+            4 members, or a foreign id is a 400. `character_id` may be
+            passed alongside as sugar for a one-member cast; when both are
+            present, `character_id` must be one of the members. The
+            identity gate scores EVERY member against the render: the asset's
+            `identity_score` is the weakest member's, delivery re-rolls once
+            when any member misses the 0.60 gate, and `character_scores`
+            records each member's own score.
+          items:
+            type: string
+            format: uuid
+          examples: [['5a2f7c58-9e5a-4f1a-9c7f-2f0b6c3d1e42', 'b2fbb51e-3c33-4a54-b87b-9c2b1e4f9a11']]
         location_id:
           type: string
           format: uuid
@@ -11942,8 +11970,40 @@ components:
             is unavailable the clip delivers ungated with those fields null -
             the reference still conditioned the render. A character with no
             reference image contributes its description only; that clip is
-            unscored.
+            unscored. `character_id` is the single-member sugar for
+            `character_ids`.
           examples: ['5a2f7c58-9e5a-4f1a-9c7f-2f0b6c3d1e42']
+        character_ids:
+          type: array
+          nullable: true
+          maxItems: 4
+          description: >-
+            An ORDERED cast of up to 4 of your characters rendered together
+            in one clip. Each member's primary reference is attached as an
+            element reference in cast order (appended after any
+            `element_asset_ids`/`image_urls`/`element_ids` references, so
+            the caller's own `@Image` slots never move), and each member's
+            `canonical_description` rides into the prompt verbatim as a
+            "Cast:" block that names the member against its slot ("@Image3
+            is Nova: ..."); a `@Name` mention in the prompt is rewritten to
+            that member's `@ImageN` slot. A member whose primary reference
+            the caller already attached through `element_asset_ids` reuses
+            that slot instead of being attached twice. The whole cast must
+            fit `references.element_refs_max` on `GET /models` - a cast the
+            model has no room for is a 400 naming the cap, never a silent
+            drop. A member listed twice, more than 4 members, or a foreign id
+            is a 400. `character_id` may be passed alongside as sugar for a
+            one-member cast; when both are present, `character_id` must be
+            one of the members. The delivered clip is scored against EVERY
+            member (frames at 2fps, each member matched to its best-matching
+            face): the asset's `identity_score` is the weakest member's clip
+            score, a clip where any member misses the 0.60 gate re-rolls
+            automatically exactly once, and `character_scores` records each
+            member's own clip score.
+          items:
+            type: string
+            format: uuid
+          examples: [['5a2f7c58-9e5a-4f1a-9c7f-2f0b6c3d1e42', 'b2fbb51e-3c33-4a54-b87b-9c2b1e4f9a11']]
         location_id:
           type: string
           format: uuid
@@ -12491,9 +12551,40 @@ components:
             can be delivered with `false` when both the original and the one
             automatic re-roll scored under the gate (the better attempt is
             delivered and labeled). Present only alongside `identity_score`.
+        character_scores:
+          type: array
+          nullable: true
+          description: >
+            Per-character identity outcome of a multi-character cast render
+            (`character_ids`, NOL-861), in cast order: each member's own
+            ArcFace-family cosine (its best-matching face in the render, or
+            the best frame of a clip) and whether it clears the 0.60 gate.
+            `identity_score` is the weakest member's score. Absent when the
+            generation carried no cast or scoring was unavailable.
+          items:
+            $ref: '#/components/schemas/AssetCharacterScore'
         created_at:
           type: string
           format: date-time
+
+    AssetCharacterScore:
+      type: object
+      additionalProperties: false
+      required: [character_id, identity_score, identity_gate_passed]
+      properties:
+        character_id:
+          type: string
+          format: uuid
+          description: The cast member (`GET /characters/{id}`).
+        identity_score:
+          type: number
+          minimum: -1
+          maximum: 1
+          description: This member's cosine against the delivered render.
+          examples: [0.74]
+        identity_gate_passed:
+          type: boolean
+          description: Whether this member clears the 0.60 identity gate.
 
     AssetProjectRef:
       type: object
