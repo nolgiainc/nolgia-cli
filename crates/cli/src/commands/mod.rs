@@ -6,6 +6,7 @@ pub mod characters;
 pub mod color_presets;
 pub mod compositions;
 pub mod r#gen;
+pub mod jobs;
 pub mod masks;
 pub mod models;
 pub mod motions;
@@ -15,6 +16,7 @@ pub mod projects;
 pub mod restore;
 pub mod skills;
 pub mod status;
+pub mod voices;
 pub mod wait;
 
 use crate::livejob::{self, LiveJob};

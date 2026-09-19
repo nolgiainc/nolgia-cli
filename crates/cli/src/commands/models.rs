@@ -56,7 +56,7 @@ pub async fn run(command: ModelsCommand, ctx: &CommandContext) -> Result<()> {
     }
 }
 
-async fn fetch(ctx: &CommandContext) -> Result<Vec<Model>> {
+pub(crate) async fn fetch(ctx: &CommandContext) -> Result<Vec<Model>> {
     Ok(ctx
         .client()
         .list_models()
@@ -668,4 +668,31 @@ async fn get(args: GetArgs, ctx: &CommandContext) -> Result<()> {
             Ok(())
         }
     }
+}
+
+/// Fail open unless the catalog explicitly refuses image expansion.
+pub async fn precheck_image_expand(ctx: &CommandContext, model_id: &str) -> Result<()> {
+    let Ok(models) = fetch(ctx).await else {
+        return Ok(());
+    };
+    let Some(model) = models.iter().find(|model| model.id == model_id) else {
+        return Ok(());
+    };
+    if model.image_expand == Some(false) {
+        let capable: Vec<&str> = models
+            .iter()
+            .filter(|model| model.image_expand == Some(true))
+            .map(|model| model.id.as_str())
+            .collect();
+        let suggestion = if capable.is_empty() {
+            String::new()
+        } else {
+            format!(" Models that can: {}.", capable.join(", "))
+        };
+        anyhow::bail!(
+            "--expand-to: {model_id} cannot outpaint an image — its `image_expand` is false in \
+             `nolgia models get {model_id}`.{suggestion}"
+        );
+    }
+    Ok(())
 }

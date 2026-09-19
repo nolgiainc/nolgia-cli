@@ -5,6 +5,39 @@ the matching GitHub release.
 
 ## Unreleased
 
+- **Linux arm64 and Windows arm64 binaries.** The release workflow now builds
+  `nolgia-aarch64-unknown-linux-gnu` and `nolgia-aarch64-pc-windows-msvc.exe`
+  on native arm64 runners next to the existing targets. `install.sh` picks the
+  Linux arm64 binary on `aarch64`/`arm64` machines (and names the Windows
+  arm64 `.exe` on Windows), and the npm wrapper downloads the matching asset on
+  `linux/arm64` and `win32/arm64`. A release that predates a platform's build
+  now fails the installer with a clear message instead of a bare curl error.
+  The release workflow can also be dispatched, and runs on pull requests that
+  change it, as a dry run that builds every target and publishes nothing.
+
+- **`nolgia jobs list`** lists your jobs newest first, one line each (id,
+  status, modality, model, created), filtered with `--status`
+  (queued/running/succeeded/failed/canceled) and `--modality`
+  (image/video/audio), paged with `--limit` and `--cursor`. `--json` prints
+  the whole page, including `total` and `next_cursor`.
+
+- **`nolgia voices list [--model <id>]`** prints the voice ids each
+  text-to-speech model publishes in the live catalog, with their labels, so
+  `gen audio --voice` no longer means reading `models get` output.
+
+- **`gen image --expand-to <RATIO>`** outpaints the `--input` image to a new
+  aspect ratio on `flux-expand`: the source pixels are kept and new content
+  is painted into the added margins, so a 16:9 still becomes a 9:16 story
+  without regenerating it. `--prompt` is optional there and steers what the
+  new area contains; the ratio is checked against the model's catalog entry
+  before anything is uploaded.
+
+- **Bundled skills refreshed** (`nolgia skills install`): every pack now says
+  when to use it and when not to, the model advice matches the live catalog
+  (Seedance 2.5 as the video default, HeyGen Avatar IV for lip sync, voices
+  and outpainting), and the MCP endpoint is `https://mcp.nolgia.ai/mcp`. The
+  same packs are published as the NOLGIA skills repository.
+
 - **`nolgia motions list`** prints the camera-move library the API serves on
   `GET /motions`: twenty named moves (push-in, pull-back, orbit left and
   right, crane up and down, truck, tracking, zoom, dolly zoom, pan, tilt,

@@ -16,6 +16,8 @@
 #
 # Test hook: NOLGIA_INSTALL_SOURCE=<path> copies a local file instead of
 # downloading the release asset (used by tests/install_sh_test.sh).
+# Test hooks: NOLGIA_INSTALL_OS=<os> and NOLGIA_INSTALL_ARCH=<arch> override
+# uname for hermetic platform/asset selection tests.
 
 set -euo pipefail
 
@@ -45,8 +47,8 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-os=$(uname -s)
-arch=$(uname -m)
+os=${NOLGIA_INSTALL_OS:-$(uname -s)}
+arch=${NOLGIA_INSTALL_ARCH:-$(uname -m)}
 case "$os" in
   Darwin)
     # The darwin asset is a universal binary covering x86_64 and arm64.
@@ -57,6 +59,9 @@ case "$os" in
       x86_64 | amd64)
         asset="nolgia-x86_64-unknown-linux-gnu"
         ;;
+      aarch64 | arm64)
+        asset="nolgia-aarch64-unknown-linux-gnu"
+        ;;
       *)
         echo "no prebuilt binary for Linux/$arch yet; install with: cargo install nolgia-cli" >&2
         exit 1
@@ -64,7 +69,11 @@ case "$os" in
     esac
     ;;
   MINGW* | MSYS* | CYGWIN*)
-    echo "on Windows, download nolgia-x86_64-pc-windows-msvc.exe from https://github.com/$REPO/releases or install with: cargo install nolgia-cli" >&2
+    case "$arch" in
+      aarch64 | arm64) asset="nolgia-aarch64-pc-windows-msvc.exe" ;;
+      *) asset="nolgia-x86_64-pc-windows-msvc.exe" ;;
+    esac
+    echo "on Windows, download $asset from https://github.com/$REPO/releases or install with: cargo install nolgia-cli" >&2
     exit 1
     ;;
   *)
@@ -156,11 +165,16 @@ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
 if [ -n "${NOLGIA_INSTALL_SOURCE:-}" ]; then
+  echo "installing nolgia $TAG ($asset) from $NOLGIA_INSTALL_SOURCE"
   cp "$NOLGIA_INSTALL_SOURCE" "$tmp/nolgia"
 else
   url="https://github.com/$REPO/releases/download/$TAG/$asset"
   echo "downloading nolgia $TAG ($asset)..."
-  curl -fL --progress-bar "$url" -o "$tmp/nolgia"
+  if ! curl -fL --progress-bar "$url" -o "$tmp/nolgia"; then
+    echo "could not download $asset for nolgia $TAG" >&2
+    echo "the release may predate a build for $os/$arch (Linux and Windows arm64 builds start after v0.2.26); install with: cargo install nolgia-cli (or pass --tag for a newer release)" >&2
+    exit 1
+  fi
 fi
 chmod +x "$tmp/nolgia"
 

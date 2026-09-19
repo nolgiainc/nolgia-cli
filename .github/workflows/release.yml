@@ -1,11 +1,20 @@
 name: Release
 
+# Dry runs (PRs touching this file or manual dispatches on main) build every
+# release target, including NOL-885's Linux and Windows arm64 binaries, and
+# upload workflow artifacts. Nothing is released, published, or tagged unless
+# the run came from pushing a v* tag.
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/release.yml']
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # Dry runs must not cancel a publishing run on the same tag.
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -32,10 +41,17 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
-      - name: Manifests agree with each other and with the tag
+      - name: Manifests agree with each other and with the tag on tag pushes
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
           bash -n scripts/check-version-consistency.sh
-          bash scripts/check-version-consistency.sh --tag "${{ github.ref_name }}"
+          if [ "$EVENT_NAME" = "push" ]; then
+            bash scripts/check-version-consistency.sh --tag "$REF_NAME"
+          else
+            bash scripts/check-version-consistency.sh
+          fi
 
   test:
     name: Test, Lint & Format
@@ -70,7 +86,7 @@ jobs:
   build-release:
     name: Build ${{ matrix.archive }}
     needs: test
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name != 'push' || startsWith(github.ref, 'refs/tags/v')
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read
@@ -84,6 +100,12 @@ jobs:
             output_ext: ''
             archive: nolgia-x86_64-unknown-linux-gnu
             universal: false
+          - os: ubuntu-24.04-arm
+            targets: aarch64-unknown-linux-gnu
+            binary: nolgia
+            output_ext: ''
+            archive: nolgia-aarch64-unknown-linux-gnu
+            universal: false
           - os: macos-latest
             targets: x86_64-apple-darwin aarch64-apple-darwin
             binary: nolgia
@@ -95,6 +117,12 @@ jobs:
             binary: nolgia
             output_ext: '.exe'
             archive: nolgia-x86_64-pc-windows-msvc
+            universal: false
+          - os: windows-11-arm
+            targets: aarch64-pc-windows-msvc
+            binary: nolgia
+            output_ext: '.exe'
+            archive: nolgia-aarch64-pc-windows-msvc
             universal: false
     steps:
       - name: Checkout repository
@@ -166,13 +194,17 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  # NOL-472: dispatch may target a tag (gh workflow run release.yml --ref v0.2.26).
+  # A tag-ref check alone would publish on that dispatch. EVERY publishing job
+  # also requires the push event, so dispatch and PR dry runs cannot publish.
+  # A workflow may be dispatchable, or it may publish, not both unguarded.
   release:
     name: Create GitHub Release
     # verify-version is named explicitly, not relied on transitively through
     # `test`: this job publishes an artifact, and a future rearrangement of the
     # graph must not be able to un-gate it.
     needs: [verify-version, test, build-release]
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
       contents: write
@@ -218,6 +250,8 @@ jobs:
             artifacts/nolgia-x86_64-unknown-linux-gnu/nolgia-x86_64-unknown-linux-gnu
             artifacts/nolgia-x86_64-apple-darwin/nolgia-x86_64-apple-darwin
             artifacts/nolgia-x86_64-pc-windows-msvc/nolgia-x86_64-pc-windows-msvc.exe
+            artifacts/nolgia-aarch64-unknown-linux-gnu/nolgia-aarch64-unknown-linux-gnu
+            artifacts/nolgia-aarch64-pc-windows-msvc/nolgia-aarch64-pc-windows-msvc.exe
 
   publish-crates:
     name: Publish to crates.io
@@ -227,7 +261,7 @@ jobs:
     # half-fine while mislabelled binaries shipped (NOL-328). verify-version
     # removes the precondition for that vacuous pass.
     needs: [verify-version, test]
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
       contents: read
@@ -275,7 +309,7 @@ jobs:
   publish-npm:
     name: Publish to npm
     needs: [verify-version, release]
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     # NOT blacksmith-*: npm provenance requires a github-hosted runner (NOL-327).
     #
     # Blacksmith runners register with GitHub as `self-hosted`. npm >= 11.5.1
@@ -336,7 +370,7 @@ jobs:
   notify-tap:
     name: Notify Homebrew tap
     needs: [release]
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
       contents: read

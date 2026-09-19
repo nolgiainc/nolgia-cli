@@ -53,11 +53,11 @@ on:
   # not on a merge ref: the check run attaches to the dispatched ref's tip, and
   # only a check on the PR head SHA satisfies branch protection.)
   #
-  # No deploy or publish surface: releasing is release.yml, which is triggered
-  # only by `push: tags: ['v*']` and additionally gates every publishing job on
-  # `startsWith(github.ref, 'refs/tags/v')`. It has no `workflow_dispatch`, so
-  # nothing here becomes shippable by making CI dispatchable (NOL-472's rule:
-  # a workflow may be dispatchable, or it may publish, not both unguarded).
+  # No deploy or publish surface: release.yml is dispatchable for a publish-free
+  # dry run, and every publishing job there requires both
+  # `github.event_name == 'push'` and `startsWith(github.ref, 'refs/tags/v')`.
+  # Dispatching either workflow cannot publish (NOL-472's rule: a workflow may
+  # be dispatchable, or it may publish, not both unguarded).
   #
   # Deliberately takes NO inputs, for the same reason
   # commit-attribution-check.yml takes none: a caller-supplied merge base is a
@@ -250,6 +250,16 @@ jobs:
       - name: Test install.sh (hermetic sandbox, no network)
         if: needs.detect.outputs.code != 'false'
         run: bash tests/install_sh_test.sh
+
+      - name: Set up Node
+        if: needs.detect.outputs.code != 'false'
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: 22
+
+      - name: Test the npm wrapper's platform mapping (offline)
+        if: needs.detect.outputs.code != 'false'
+        run: node --test npm/test/*.test.js
 
       # Runs on every PR, not just at tag time: a manifest left behind by a
       # partial bump reddens here, days before someone tries to tag it. The

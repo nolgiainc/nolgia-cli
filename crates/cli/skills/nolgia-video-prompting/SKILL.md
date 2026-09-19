@@ -1,11 +1,12 @@
 ---
 name: nolgia-video-prompting
-description: "Directing craft for NOLGIA video generation: shot grammar, the breathing pattern, multi-shot sequencing, character/location consistency with reference images, per-shot sound design, and the iteration process (keep approved shots, regenerate only what failed). Use when writing video prompts or planning multi-clip productions on NOLGIA."
-version: 1.0.0
+description: "Directing craft for NOLGIA video generation: shot grammar, the breathing pattern, multi-shot sequencing, character and location consistency with reference images, per-shot sound design, and the iteration process (keep approved shots, regenerate only what failed). Use when: writing or fixing video prompts, planning a multi-clip production, a short film, a trailer or a music video on NOLGIA, or deciding which shots to regenerate. NOT for: platform mechanics such as auth, flags, jobs and credits (use nolgia-platform), vertical UGC ad pipelines (use nolgia-ugc-ads), or still-image prompting."
+version: 1.1.0
 author: NOLGIA
 license: MIT
 metadata:
   tags: [nolgia, video-prompting, directing, seedance, minimax-h3, multi-shot, filmmaking]
+  related_skills: [nolgia-platform, nolgia-ugc-ads]
 ---
 
 # NOLGIA Video Prompting
@@ -56,8 +57,11 @@ nolgia gen video --model fal-ai/bytedance/seedance/v2/pro/text-to-video \
 ## Consistency: reference images first
 
 Generate character portraits and location plates ONCE (`nolgia gen image`),
-then anchor every clip: `--input maya.png` flips to the image-to-video
-model automatically. One reference per generation; for multi-angle
+then anchor every clip with `--input maya.png` on a model that takes a start
+image (`minimax-h3`, or the Seedance 2.0 Pro image-to-video id; `nolgia
+models get <model>` says which do). Save a recurring subject as a character
+(`nolgia characters create`) and pass `--character-id` so every still and
+clip carries the same reference and description. For multi-angle
 characters, stitch a reference sheet into a single image. Consistency
 drift is the #1 defect in multi-clip work — lock refs before writing a
 single shot.
@@ -71,7 +75,8 @@ feel aggressive and unmotivated.
 
 ## The iteration loop (protects credits and quality)
 
-1. Draft cheap: Kling standard or `veo-3.1-fast`, 720p-tier thinking.
+1. Draft cheap: `veo-3.1-lite` or `veo-3.1-fast`, lowest tier (compare
+   prices with `nolgia models list --modality video` or `--cost-only`).
 2. Review each clip: **KEEP / FIX / CUT** — write it down.
 3. **Never regenerate a KEEP.** Regenerate only FIX shots, changing one
    variable at a time (prompt sentence, seed, or ref — not all three).

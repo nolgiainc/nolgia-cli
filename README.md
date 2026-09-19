@@ -34,7 +34,7 @@ The `nolgia` command-line client for the [Nolgia](https://nolgia.ai) generative-
 curl -fsSL https://raw.githubusercontent.com/nolgiainc/nolgia-cli/main/install.sh | bash
 ```
 
-The installer uses the latest GitHub release and installs without `sudo` to `~/.local/bin` (falling back to `~/bin`). It adds the selected directory to your shell profile when needed. Use `--prefix <DIR>` for another user-writable directory, `--tag vX.Y.Z` to pin a release, or `--system` when you intentionally want `/usr/local/bin` and will provide any required privilege yourself. Re-running the same version is idempotent.
+The installer picks the binary for your platform (macOS universal; Linux x86_64 or arm64, arm64 from the first release after v0.2.26) from the latest GitHub release and installs without `sudo` to `~/.local/bin` (falling back to `~/bin`). It adds the selected directory to your shell profile when needed. Use `--prefix <DIR>` for another user-writable directory, `--tag vX.Y.Z` to pin a release, or `--system` when you intentionally want `/usr/local/bin` and will provide any required privilege yourself. Re-running the same version is idempotent.
 
 This command executes a script fetched from the repository's `main` branch and then downloads a release binary. If your environment requires review or provenance checks, save and inspect `install.sh` first and pin the binary with `--tag`; on macOS the script removes the downloaded binary's quarantine attribute so it can run.
 
@@ -44,7 +44,7 @@ This command executes a script fetched from the repository's `main` branch and t
 npm install -g @nolgia/cli
 ```
 
-The package requires Node 18 or newer and downloads a matching prebuilt binary during postinstall: macOS universal, Linux x86_64, or Windows x86_64. See the [npm README](npm/README.md) for package-specific caveats.
+The package requires Node 18 or newer and downloads a matching prebuilt binary during postinstall: macOS universal, Linux x86_64 or arm64, or Windows x86_64 or arm64 (the arm64 builds ship from the first release after v0.2.26). See the [npm README](npm/README.md) for package-specific caveats.
 
 ### Homebrew
 
@@ -75,16 +75,19 @@ Generation is account-backed and consumes the applicable credit pool. Use `nolgi
 
 ## Generation
 
-All generation requests require `--prompt`. The server catalog is authoritative for model IDs, supported durations, aspect ratios, quality tiers, and pricing; do not assume that an option accepted by one model is accepted by another. Every `gen` subcommand (and `assets upload`) accepts `--project-id <PROJECT_UUID>` to file the resulting asset(s) into one of your projects at creation (`nolgia projects list` for ids); without it, assets land in your default Library project.
+All generation requests require `--prompt`, except `gen image --expand-to`, where it is optional. The server catalog is authoritative for model IDs, supported durations, aspect ratios, quality tiers, and pricing; do not assume that an option accepted by one model is accepted by another. Every `gen` subcommand (and `assets upload`) accepts `--project-id <PROJECT_UUID>` to file the resulting asset(s) into one of your projects at creation (`nolgia projects list` for ids); without it, assets land in your default Library project.
 
 ### Images
 
 ```bash
 nolgia gen image --prompt "a paper-cut mountain range" --out mountains.png
 nolgia gen image --model <IMAGE_MODEL_ID> --quality <TIER> --prompt "..."
+
+# Outpaint: grow an image you already have to a new ratio (flux-expand).
+nolgia gen image --expand-to 9:16 --input still.png --prompt "more of the beach" --out vertical.png
 ```
 
-`--out` downloads the completed asset. `--quality` is optional and model-specific. Image references belong in a video request; the image command has no working reference-input path in this source tree.
+`--out` downloads the completed asset. `--quality` is optional and model-specific. `--input <FILE|ASSET_UUID>` sends one reference image on models that accept one (`nolgia models get <IMAGE_MODEL_ID>`). `--expand-to <RATIO>` outpaints that reference: it keeps the source pixels and paints new content into the added margins, on `flux-expand` unless `--model` names another model that publishes `image_expand`; `--prompt` is optional there and describes the new area, and the ratio must be one the model lists.
 
 ### Video
 
@@ -111,7 +114,7 @@ nolgia gen audio --model <AUDIO_MODEL_ID> --prompt "rain on a window" --out rain
 nolgia gen audio --model <TTS_MODEL_ID> --voice <VOICE_ID> --prompt "Welcome" --format mp3
 ```
 
-Discover voices with `nolgia models get <AUDIO_MODEL_ID>`; `--format` selects the CLI's supported output format. The server validates model-specific audio options.
+Discover voices with `nolgia voices list` (every TTS model) or `nolgia voices list --model <TTS_MODEL_ID>`; `--format` selects the CLI's supported output format. The server validates model-specific audio options.
 
 ## Models and cost estimates
 
@@ -264,6 +267,7 @@ Replace every `<PLACEHOLDER>` below with a real value; angle-bracket placeholder
 | `gen` | `image`, `video`, `audio` generation |
 | `restore` | `video` footage restoration/upscale (de-noise, de-haze, up-res to a target tier) on `seedvr2-restore` or a `topaz-*` master upscaler |
 | `status`, `wait` | Inspect or wait for a job by UUID |
+| `jobs` | `list` your jobs, newest first, with `--status queued\|running\|succeeded\|failed\|canceled`, `--modality image\|video\|audio`, `--limit` and `--cursor` |
 | `assets` | `list`, `get`, `delete`, `upload`, `tag`, `frame` |
 | `characters` | `list`, `get`, `create`, `update`, `delete` reusable characters |
 | `projects` | `list`, `get`, `create`, `update`, `delete`, `add-assets`, `remove-asset` |
@@ -274,6 +278,7 @@ Replace every `<PLACEHOLDER>` below with a real value; angle-bracket placeholder
 | `skills` | `list`, `show`, `install` embedded agent packs |
 | `ability` | `list`, `show`, `installed`, `install`, `uninstall`, `sync`, `init`, `pack`, `publish` marketplace Abilities |
 | `models` | `list`, `get` live catalog |
+| `voices` | `list [--model <TTS_MODEL_ID>]` the voice ids `gen audio --voice` accepts, from the live catalog |
 | `motions` | `list` the camera-move library (push-in, orbit, crane, rack focus, ...) for `gen video --motion <id> [--motion-strength subtle\|medium\|strong]`; the server appends the move to your prompt |
 | `color-presets` | `list` the built-in color-grade preset looks for Studio compositions; `cube <slug> [-o FILE]` downloads the `.cube` LUT |
 | `masks` | `validate <MASK>` runs the timeline-mask sanitizer on inline JSON, `@file`, or `-` (stdin) and prints the canonical mask plus every clamp/drop diagnostic (`--strict` exits 1 on any problem); `example rectangle`, `ellipse`, or `polygon` prints a contract-true starter mask offline |

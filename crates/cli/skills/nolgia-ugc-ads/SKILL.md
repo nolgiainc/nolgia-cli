@@ -1,11 +1,12 @@
 ---
 name: nolgia-ugc-ads
-description: "Produce vertical (9:16) UGC-style ad videos on NOLGIA: persona spec, consistent character portraits, app-screenshot B-roll, talking-head clips, TTS voiceover, and face-safe text overlay rules. Use for TikTok/Reels/Shorts ads, testimonial or influencer-style content, and scaling one character across many videos."
-version: 1.0.0
+description: "Produce vertical (9:16) UGC-style ad videos on NOLGIA: persona spec, consistent character portraits, app-screenshot B-roll, a lip-synced talking head from a voiceover, and face-safe text overlay rules. Use when: the user wants TikTok, Reels or Shorts ads, testimonial or influencer-style content, a talking-head product pitch, or one character scaled across many ad variants. NOT for: cinematic short films or trailers (use nolgia-video-prompting), single images or plain clips without an ad structure (use nolgia-platform), or horizontal TV spots."
+version: 1.1.0
 author: NOLGIA
 license: MIT
 metadata:
   tags: [nolgia, ugc, ads, vertical-video, tiktok, reels, social]
+  related_skills: [nolgia-platform, nolgia-video-prompting]
 ---
 
 # UGC Ads on NOLGIA
@@ -31,23 +32,31 @@ nolgia gen image --prompt "<persona visual spec>, selfie framing, golden hour" -
 # Screenshots (3-5, each one narrative-specific)
 nolgia gen image --prompt "phone messaging UI: unread 9pm quote request from a customer..." --out s1.png
 
-# Voiceover
-nolgia gen audio --prompt "<the 15s script>" --out vo.mp3
+# Voiceover: a TTS model plus a voice from its catalog (the default audio
+# model makes music, not speech)
+nolgia voices list --model fal-ai/elevenlabs/tts/eleven-v3
+nolgia gen audio --model fal-ai/elevenlabs/tts/eleven-v3 --voice <voice id> \
+  --prompt "<the 15s script>" --out vo.mp3
 ```
 
-## 3. Talking-head base clip (15s, 9:16 — set it explicitly)
+## 3. Talking-head clip: lip sync from the voiceover (9:16, set it explicitly)
 
 ```bash
-nolgia gen video --model minimax-h3 \
-  --input marcus.png --aspect-ratio 9:16 --duration-seconds 15 \
-  --prompt "speaking to camera, natural mouth movement, small hand gestures, handheld selfie energy" \
-  --out marcus_base.mp4
+nolgia gen video --model heygen-avatar-iv \
+  --input marcus.png --audio-ref vo.mp3 --aspect-ratio 9:16 \
+  --prompt "speaking to camera, natural expression, small head movements" \
+  --out marcus_talk.mp4
 ```
 
-True audio-driven lip sync isn't on the platform yet — mux the voiceover
-in post and hide desync with a cutaway-heavy edit (that's what step 4's
-B-roll is for; a 1–1.5s insert every 2–3s means lips are rarely
-scrutinized).
+`heygen-avatar-iv` makes the portrait speak the voice track: the clip is as
+long as the audio and billed on its duration, so leave `--duration-seconds`
+off. Price a lip-sync batch from the catalog, not from `--cost-only`:
+`nolgia models get heygen-avatar-iv` quotes a 5-second clip, so scale that by
+each voiceover's length (`--cost-only` does not read `--audio-ref` and would
+quote 5 seconds however long the track is). For a
+performance with more body movement, generate a silent base clip on
+`minimax-h3` (`--input marcus.png --duration-seconds 15`) and cut the
+lip-synced shots into it; step 4's B-roll hides the joins.
 
 ## 4. The timeline (what makes it an ad)
 

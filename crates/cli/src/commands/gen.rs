@@ -33,8 +33,8 @@ pub struct ImageArgs {
     /// built still works — the API is the authority on what exists.
     #[arg(long, default_value = "flux-pro")]
     pub model: String,
-    #[arg(long)]
-    pub prompt: String,
+    #[arg(long, required_unless_present = "expand_to")]
+    pub prompt: Option<String>,
     /// The image to edit: a local file (uploaded to /assets) or the UUID of
     /// an existing asset. Rides as `reference_asset_ids`, so the server
     /// re-signs it at execution time and a queued job never runs with an
@@ -80,6 +80,13 @@ pub struct ImageArgs {
     /// `nolgia models get <model>`. Omit for the model's native default.
     #[arg(long, value_parser = parse_image_aspect_ratio)]
     pub aspect_ratio: Option<ImageAspectRatio>,
+    /// Outpaint --input to RATIO by painting new content into the added margins,
+    /// keeping the source pixels (e.g. a 16:9 still to 9:16). Uses flux-expand
+    /// unless --model names another model that publishes image_expand.
+    /// --prompt becomes optional and describes the new area. Flat price per
+    /// image (see `nolgia models get flux-expand`).
+    #[arg(long, value_name = "RATIO", value_parser = parse_image_aspect_ratio, requires = "input", conflicts_with_all = ["aspect_ratio", "quality", "character_id", "face_reference_asset_id", "mask", "render_quality"])]
+    pub expand_to: Option<ImageAspectRatio>,
     /// Apply Aura, the Nolgia character engine: server-side photoreal
     /// composition layered onto the prompt (people render as photographs,
     /// no AI gloss). Honored only on models whose catalog entry publishes
@@ -266,7 +273,7 @@ pub struct AudioArgs {
     pub input: Option<PathBuf>,
     #[arg(long)]
     pub out: Option<PathBuf>,
-    /// Voice id for TTS models (see `nolgia models get <model>`)
+    /// Voice id for TTS models (see `nolgia voices list --model <model>`)
     #[arg(long)]
     pub voice: Option<String>,
     #[arg(long, default_value = "mp3")]
@@ -324,14 +331,23 @@ pub async fn run(command: GenCommand, ctx: &CommandContext) -> Result<()> {
 }
 
 async fn image(args: ImageArgs, ctx: &CommandContext) -> Result<()> {
-    if let Some(tier) = args.quality.as_deref() {
-        super::models::precheck_image_quality(ctx, &args.model.to_string(), tier).await?;
+    let model = if args.expand_to.is_some() && args.model == "flux-pro" {
+        "flux-expand".to_string()
+    } else {
+        args.model
+    };
+    if args.expand_to.is_some() {
+        super::models::precheck_image_expand(ctx, &model).await?;
     }
-    if let Some(ratio) = args.aspect_ratio.as_ref() {
-        super::models::precheck_image_aspect_ratio(ctx, &args.model.to_string(), ratio).await?;
+    let aspect_ratio = args.expand_to.or(args.aspect_ratio);
+    if let Some(tier) = args.quality.as_deref() {
+        super::models::precheck_image_quality(ctx, &model, tier).await?;
+    }
+    if let Some(ratio) = aspect_ratio.as_ref() {
+        super::models::precheck_image_aspect_ratio(ctx, &model, ratio).await?;
     }
     if args.mask.is_some() {
-        super::models::precheck_inpaint_mask(ctx, &args.model.to_string()).await?;
+        super::models::precheck_inpaint_mask(ctx, &model).await?;
     }
     // The render-quality adder is announced BEFORE anything is uploaded or
     // submitted. It is per IMAGE, and that is the part that surprises people:
@@ -342,8 +358,7 @@ async fn image(args: ImageArgs, ctx: &CommandContext) -> Result<()> {
         .map(str::trim)
         .filter(|v| !v.is_empty());
     if let Some(value) = render_quality {
-        let added =
-            super::models::precheck_render_quality(ctx, &args.model.to_string(), value).await?;
+        let added = super::models::precheck_render_quality(ctx, &model, value).await?;
         if added > 0 {
             eprintln!(
                 "render quality {value}: +{added} credits per image, on top of whatever \
@@ -390,23 +405,21 @@ async fn image(args: ImageArgs, ctx: &CommandContext) -> Result<()> {
         .map(GenerateImageRequestQuality::try_from)
         .transpose()
         .map_err(|e| anyhow::anyhow!("--quality: {e}"))?;
-    // `prompt` became optional and newtyped in the spec when the
-    // `image_enhance` models landed (they re-render a reference from its own
-    // pixels and have no prompt slot). `nolgia gen image` still REQUIRES one,
-    // so the flag is unchanged and the value is wrapped rather than made
-    // optional here.
-    let prompt = nolgia_client::types::GenerateImageRequestPrompt::try_from(args.prompt)
+    let prompt = args
+        .prompt
+        .map(nolgia_client::types::GenerateImageRequestPrompt::try_from)
+        .transpose()
         .map_err(|e| anyhow::anyhow!("--prompt: {e}"))?;
     let render_quality_value = render_quality
         .map(nolgia_client::types::GenerateImageRequestRenderQuality::try_from)
         .transpose()
         .map_err(|e| anyhow::anyhow!("--render-quality: {e}"))?;
     let body: GenerateImageRequest = GenerateImageRequest::builder()
-        .model(args.model)
-        .prompt(Some(prompt))
+        .model(model)
+        .prompt(prompt)
         .render_quality(render_quality_value)
         .quality(quality)
-        .aspect_ratio(args.aspect_ratio)
+        .aspect_ratio(aspect_ratio)
         .aura(args.aura)
         .face_reference_asset_id(args.face_reference_asset_id)
         .character_id(args.character_id)
