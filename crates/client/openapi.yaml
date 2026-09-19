@@ -5917,6 +5917,61 @@ paths:
         default:
           $ref: '#/components/responses/ProblemResponse'
 
+  /compositions/{id}/export:
+    get:
+      tags: [Compositions]
+      operationId: exportComposition
+      summary: Export the composition for editing in Premiere Pro, DaVinci Resolve or After Effects.
+      description: |
+        Builds a ZIP synchronously from the same render plan the MP4 export uses:
+        authored timed elements plus the Studio edits overlay.
+        `format=fcpxml` writes `sequence.xml` (Final Cut Pro 7 XML interchange,
+        xmeml version 5, 30 fps, imported by Premiere Pro and DaVinci Resolve)
+        plus text additions as PNG stills under `text/`.
+        `format=aejsx` writes `build.jsx`, an ExtendScript After Effects runs from
+        File > Scripts > Run Script File, with native text layers, keyframed transforms and masks.
+        Both carry `luts/*.cube` for color grades and `README.txt` stating the fidelity limits.
+        `manifest.json` lists every referenced media file in `media[]`: `ref`, `asset_id`,
+        `path` relative to the export folder, a signed download `url` valid for one hour,
+        and `expires_at`. Media bytes are NOT in the ZIP: the client downloads each
+        `url` into its `path` next to the project.
+        Authored HTML, CSS and GSAP animation never map.
+        Returns 404 for an unknown or foreign composition; 400 for an unknown format;
+        422 when the timeline has no exportable clips; and 413 when the bundle's
+        documents exceed the export limits.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: format
+          in: query
+          required: true
+          schema:
+            $ref: '#/components/schemas/CompositionExportFormat'
+      responses:
+        '200':
+          description: "The export ZIP (`Content-Disposition: attachment`)."
+          content:
+            application/zip:
+              schema:
+                type: string
+                format: binary
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '413':
+          $ref: '#/components/responses/ProblemResponse'
+        '422':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
   /renders/{id}:
     get:
       tags: [Compositions]
@@ -18086,6 +18141,11 @@ components:
         updated_at:
           type: string
           format: date-time
+
+    CompositionExportFormat:
+      type: string
+      enum: [fcpxml, aejsx]
+      description: "`fcpxml` = Final Cut Pro 7 XML for Premiere Pro and DaVinci Resolve; `aejsx` = an After Effects ExtendScript."
 
     CompositionFile:
       type: object
