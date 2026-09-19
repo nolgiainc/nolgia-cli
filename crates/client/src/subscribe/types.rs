@@ -138,7 +138,9 @@ impl GenerationError {
             body["detail"].as_str().and_then(|detail| {
                 detail.as_bytes().windows(36).find_map(|candidate| {
                     let candidate = std::str::from_utf8(candidate).ok()?;
-                    uuid::Uuid::parse_str(candidate).ok().map(|id| id.to_string())
+                    uuid::Uuid::parse_str(candidate)
+                        .ok()
+                        .map(|id| id.to_string())
                 })
             })
         } else {
