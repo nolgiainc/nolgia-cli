@@ -5666,3 +5666,114 @@ async fn gen_image_expand_precheck_fails_open_when_catalog_cannot_refuse() {
         );
     }
 }
+
+async fn mock_failed_generation(failure: Option<serde_json::Value>) -> MockServer {
+    let api = MockServer::start().await;
+    let mut job = job_json("failed", None);
+    if let Some(failure) = failure {
+        job["failure"] = failure;
+    }
+    Mock::given(method("POST"))
+        .and(path("/v1/generate/image"))
+        .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
+        .mount(&api)
+        .await;
+    Mock::given(method("GET"))
+        .and(path(format!("/v1/jobs/{JOB_ID}/wait")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(job))
+        .mount(&api)
+        .await;
+    api
+}
+
+#[tokio::test]
+async fn gen_moderated_reports_refund_truth_and_exits_65() {
+    for (refund, expected) in [
+        (Some(json!(false)), "charged for this attempt"),
+        (Some(json!(true)), "refunded, the credit hold was released."),
+        (None, "no refund outcome was recorded"),
+        (Some(json!(null)), "no refund outcome was recorded"),
+    ] {
+        let mut failure =
+            json!({"kind": "moderated", "message": "Provider blocked reference media"});
+        if let Some(refund) = refund {
+            failure["credits_refunded"] = refund;
+        }
+        let api = mock_failed_generation(Some(failure)).await;
+        for json_mode in [false, true] {
+            let mut command = cmd();
+            command.arg("--api-url").arg(api.uri());
+            if json_mode {
+                command.arg("--json");
+            }
+            let result = command
+                .args(["gen", "image", "--prompt", "a cat"])
+                .assert()
+                .code(65)
+                .stderr(predicate::str::contains("Blocked by the content filter"))
+                .stderr(predicate::str::contains(JOB_ID))
+                .stderr(predicate::str::contains("Provider blocked reference media"))
+                .stderr(predicate::str::contains(expected))
+                .stderr(predicate::str::contains("still running").not())
+                .stderr(predicate::str::contains("Re-running").not())
+                .stderr(predicate::str::contains("Error:").not());
+            if json_mode {
+                let job: serde_json::Value =
+                    serde_json::from_slice(&result.get_output().stdout).unwrap();
+                assert_eq!(job["id"], JOB_ID);
+                assert_eq!(job["status"], "failed");
+                assert_eq!(job["failure"]["kind"], "moderated");
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn gen_other_failed_jobs_keep_the_existing_exit_code() {
+    for failure in [
+        Some(json!({"kind": "error", "message": "Provider failed"})),
+        Some(json!({"kind": "future_kind", "message": "Provider failed"})),
+        None,
+    ] {
+        let api = mock_failed_generation(failure).await;
+        cmd()
+            .arg("--api-url")
+            .arg(api.uri())
+            .args(["gen", "image", "--prompt", "a cat"])
+            .assert()
+            .code(EXIT_LIVE_JOB)
+            .stderr(predicate::str::contains(
+                "image job completed without asset",
+            ))
+            .stderr(predicate::str::contains("Blocked by the content filter").not());
+    }
+}
+
+#[tokio::test]
+async fn moderated_read_commands_keep_exit_zero_and_job_output() {
+    let api = MockServer::start().await;
+    let mut job = job_json("failed", None);
+    job["failure"] = json!({"kind": "moderated", "message": "Provider blocked reference media", "credits_refunded": false});
+    for endpoint in [
+        format!("/v1/jobs/{JOB_ID}"),
+        format!("/v1/jobs/{JOB_ID}/wait"),
+    ] {
+        Mock::given(method("GET"))
+            .and(path(endpoint))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&job))
+            .mount(&api)
+            .await;
+    }
+    for command in ["wait", "status"] {
+        run_ok(&api, &[command, JOB_ID])
+            .stdout(predicate::str::contains(format!("{JOB_ID} video failed")))
+            .stderr(predicate::str::contains("Blocked by the content filter"))
+            .stderr(predicate::str::contains("Provider blocked reference media"));
+        let result = run_ok(&api, &["--json", command, JOB_ID]);
+        let output: serde_json::Value =
+            serde_json::from_slice(&result.get_output().stdout).unwrap();
+        assert_eq!(output["id"], job["id"]);
+        assert_eq!(output["status"], job["status"]);
+        assert_eq!(output["failure"], job["failure"]);
+    }
+}

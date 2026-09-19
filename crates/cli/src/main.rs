@@ -1,6 +1,7 @@
 mod auth;
 mod commands;
 mod livejob;
+mod moderation;
 mod output;
 mod update_check;
 
@@ -196,8 +197,9 @@ async fn main() -> ExitCode {
 /// accepted is still live. Rendering that as an error — which is what
 /// `Error: ... status: 408` did — is what taught operators to re-run and pay
 /// twice, so it gets its own presentation and its own exit code
-/// ([`livejob::EXIT_LIVE_JOB`]). Everything else keeps the previous behavior
-/// exactly: `Error:` plus anyhow's `Caused by:` chain, exit 1.
+/// ([`livejob::EXIT_LIVE_JOB`]). A finished content-filter block uses
+/// [`moderation::EXIT_MODERATED`]. Everything else keeps the previous behavior:
+/// `Error:` plus anyhow's `Caused by:` chain, exit 1.
 fn report(result: Result<()>, format: OutputFormat) -> ExitCode {
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -206,10 +208,16 @@ fn report(result: Result<()>, format: OutputFormat) -> ExitCode {
                 live.report(format);
                 ExitCode::from(livejob::EXIT_LIVE_JOB)
             }
-            Err(err) => {
-                eprintln!("Error: {err:?}");
-                ExitCode::FAILURE
-            }
+            Err(err) => match err.downcast::<moderation::Moderated>() {
+                Ok(moderated) => {
+                    moderated.report(format);
+                    ExitCode::from(moderation::EXIT_MODERATED)
+                }
+                Err(err) => {
+                    eprintln!("Error: {err:?}");
+                    ExitCode::FAILURE
+                }
+            },
         },
     }
 }

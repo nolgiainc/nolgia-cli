@@ -292,9 +292,8 @@ pub fn announce(job_id: Uuid, timeout_seconds: u64) {
 ///
 /// Two things happen here that cannot happen at the call sites: Ctrl-C is
 /// raced against the work (otherwise the process dies silently holding the
-/// only copy of the id), and any error that is not already a [`LiveJob`] is
-/// re-labelled as one, because *every* failure after a successful submission
-/// leaves a job running.
+/// only copy of the id), and errors other than [`LiveJob`] or a finished
+/// [`crate::moderation::Moderated`] job are re-labelled as live.
 pub async fn guard<T>(
     job_id: Uuid,
     work: impl std::future::Future<Output = anyhow::Result<T>>,
@@ -307,6 +306,8 @@ pub async fn guard<T>(
     result.map_err(|err| match err.downcast::<LiveJob>() {
         // Already carries the job id and the right explanation.
         Ok(live) => live.into(),
+        // A content-filter block is a finished job, so preserve its outcome.
+        Err(err) if err.is::<crate::moderation::Moderated>() => err,
         Err(err) => LiveJob::Detached {
             job_id,
             // `{err:#}` flattens the anyhow chain onto one line, keeping the
