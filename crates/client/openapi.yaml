@@ -377,6 +377,9 @@ paths:
         next request. `organization_id: null` returns to the personal space.
         The user must be a member of the organization (`404` otherwise).
         Answers the refreshed `User`, including `active_organization`.
+        Callers using agent PATs, turn tokens, or the legacy `X-Nolgia-Surface: hermes`
+        header receive 403 with code `agent_cannot_change_organization` and detail
+        "The NOLGIA Agent cannot change your organization. Do it in the app."
       requestBody:
         required: true
         content:
@@ -394,6 +397,8 @@ paths:
           $ref: '#/components/responses/ProblemResponse'
         '401':
           $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/OrganizationMutationForbidden'
         '404':
           $ref: '#/components/responses/ProblemResponse'
         default:
@@ -426,6 +431,9 @@ paths:
         answers `409`. Team billing (seats, Stripe) is attached afterwards
         through the web app; until then the organization has no subscription
         and is quota'd like a free account.
+        Callers using agent PATs, turn tokens, or the legacy `X-Nolgia-Surface: hermes`
+        header receive 403 with code `agent_cannot_change_organization` and detail
+        "The NOLGIA Agent cannot change your organization. Do it in the app."
       requestBody:
         required: true
         content:
@@ -443,6 +451,8 @@ paths:
           $ref: '#/components/responses/ProblemResponse'
         '401':
           $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/OrganizationMutationForbidden'
         '409':
           $ref: '#/components/responses/ProblemResponse'
         default:
@@ -472,6 +482,10 @@ paths:
       tags: [Organizations]
       operationId: updateOrganization
       summary: Update an organization's name or settings (owner or admin).
+      description: >
+        Callers using agent PATs, turn tokens, or the legacy `X-Nolgia-Surface: hermes`
+        header receive 403 with code `agent_cannot_change_organization` and detail
+        "The NOLGIA Agent cannot change your organization. Do it in the app."
       requestBody:
         required: true
         content:
@@ -490,7 +504,7 @@ paths:
         '401':
           $ref: '#/components/responses/ProblemResponse'
         '403':
-          $ref: '#/components/responses/ProblemResponse'
+          $ref: '#/components/responses/OrganizationMutationForbidden'
         '404':
           $ref: '#/components/responses/ProblemResponse'
         default:
@@ -503,13 +517,16 @@ paths:
         Marks the organization deleted and returns every member to their
         personal space. Library rows keep their `organization_id` for the
         retention window; nothing is hard-deleted here.
+        Callers using agent PATs, turn tokens, or the legacy `X-Nolgia-Surface: hermes`
+        header receive 403 with code `agent_cannot_change_organization` and detail
+        "The NOLGIA Agent cannot change your organization. Do it in the app."
       responses:
         '204':
           description: Organization deleted.
         '401':
           $ref: '#/components/responses/ProblemResponse'
         '403':
-          $ref: '#/components/responses/ProblemResponse'
+          $ref: '#/components/responses/OrganizationMutationForbidden'
         '404':
           $ref: '#/components/responses/ProblemResponse'
         default:
@@ -549,6 +566,9 @@ paths:
         current owner cannot be demoted. `monthly_credit_budget: null` removes
         the cap; omitting it leaves it unchanged. Promoting a viewer to a
         seat-consuming role is checked against `seat_limit` (`409`).
+        Callers using agent PATs, turn tokens, or the legacy `X-Nolgia-Surface: hermes`
+        header receive 403 with code `agent_cannot_change_organization` and detail
+        "The NOLGIA Agent cannot change your organization. Do it in the app."
       requestBody:
         required: true
         content:
@@ -567,7 +587,7 @@ paths:
         '401':
           $ref: '#/components/responses/ProblemResponse'
         '403':
-          $ref: '#/components/responses/ProblemResponse'
+          $ref: '#/components/responses/OrganizationMutationForbidden'
         '404':
           $ref: '#/components/responses/ProblemResponse'
         '409':
@@ -583,13 +603,16 @@ paths:
         ownership (`409`). A removed member whose active organization this was
         is returned to their personal space; their organization-scoped API
         keys stop authenticating immediately.
+        Callers using agent PATs, turn tokens, or the legacy `X-Nolgia-Surface: hermes`
+        header receive 403 with code `agent_cannot_change_organization` and detail
+        "The NOLGIA Agent cannot change your organization. Do it in the app."
       responses:
         '204':
           description: Member removed.
         '401':
           $ref: '#/components/responses/ProblemResponse'
         '403':
-          $ref: '#/components/responses/ProblemResponse'
+          $ref: '#/components/responses/OrganizationMutationForbidden'
         '404':
           $ref: '#/components/responses/ProblemResponse'
         '409':
@@ -604,7 +627,11 @@ paths:
       tags: [Organizations]
       operationId: transferOrganizationOwnership
       summary: Transfer ownership to another member (owner only).
-      description: The new owner must already be a member. The previous owner becomes `admin`.
+      description: >
+        The new owner must already be a member. The previous owner becomes `admin`.
+        Callers using agent PATs, turn tokens, or the legacy `X-Nolgia-Surface: hermes`
+        header receive 403 with code `agent_cannot_change_organization` and detail
+        "The NOLGIA Agent cannot change your organization. Do it in the app."
       requestBody:
         required: true
         content:
@@ -623,7 +650,7 @@ paths:
         '401':
           $ref: '#/components/responses/ProblemResponse'
         '403':
-          $ref: '#/components/responses/ProblemResponse'
+          $ref: '#/components/responses/OrganizationMutationForbidden'
         '404':
           $ref: '#/components/responses/ProblemResponse'
         default:
@@ -663,6 +690,9 @@ paths:
         seat-consuming invites must stay below it (`409` with title
         `Seat limit reached`); `viewer` invites never count. One pending
         invite per address (`409`).
+        Callers using agent PATs, turn tokens, or the legacy `X-Nolgia-Surface: hermes`
+        header receive 403 with code `agent_cannot_change_organization` and detail
+        "The NOLGIA Agent cannot change your organization. Do it in the app."
       requestBody:
         required: true
         content:
@@ -681,7 +711,7 @@ paths:
         '401':
           $ref: '#/components/responses/ProblemResponse'
         '403':
-          $ref: '#/components/responses/ProblemResponse'
+          $ref: '#/components/responses/OrganizationMutationForbidden'
         '404':
           $ref: '#/components/responses/ProblemResponse'
         '409':
@@ -697,13 +727,17 @@ paths:
       tags: [Organizations]
       operationId: revokeOrganizationInvite
       summary: Revoke a pending invite (owner or admin).
+      description: >
+        Callers using agent PATs, turn tokens, or the legacy `X-Nolgia-Surface: hermes`
+        header receive 403 with code `agent_cannot_change_organization` and detail
+        "The NOLGIA Agent cannot change your organization. Do it in the app."
       responses:
         '204':
           description: Invite revoked.
         '401':
           $ref: '#/components/responses/ProblemResponse'
         '403':
-          $ref: '#/components/responses/ProblemResponse'
+          $ref: '#/components/responses/OrganizationMutationForbidden'
         '404':
           $ref: '#/components/responses/ProblemResponse'
         default:
@@ -717,6 +751,10 @@ paths:
       tags: [Organizations]
       operationId: resendOrganizationInvite
       summary: Rotate a pending invite's token, extend its expiry and re-send the email (owner or admin).
+      description: >
+        Callers using agent PATs, turn tokens, or the legacy `X-Nolgia-Surface: hermes`
+        header receive 403 with code `agent_cannot_change_organization` and detail
+        "The NOLGIA Agent cannot change your organization. Do it in the app."
       responses:
         '200':
           description: Invite with a fresh `token`, returned once.
@@ -727,7 +765,7 @@ paths:
         '401':
           $ref: '#/components/responses/ProblemResponse'
         '403':
-          $ref: '#/components/responses/ProblemResponse'
+          $ref: '#/components/responses/OrganizationMutationForbidden'
         '404':
           $ref: '#/components/responses/ProblemResponse'
         default:
@@ -771,6 +809,9 @@ paths:
         invited role, and makes the organization active when the user has no
         active organization yet. Expired, revoked or already-accepted invites
         answer `410`.
+        Callers using agent PATs, turn tokens, or the legacy `X-Nolgia-Surface: hermes`
+        header receive 403 with code `agent_cannot_change_organization` and detail
+        "The NOLGIA Agent cannot change your organization. Do it in the app."
       responses:
         '200':
           description: The new membership.
@@ -781,7 +822,7 @@ paths:
         '401':
           $ref: '#/components/responses/ProblemResponse'
         '403':
-          $ref: '#/components/responses/ProblemResponse'
+          $ref: '#/components/responses/OrganizationMutationForbidden'
         '404':
           $ref: '#/components/responses/ProblemResponse'
         '409':
@@ -821,6 +862,9 @@ paths:
         Publish a TXT record named `_nolgia.<domain>` with the value
         `nolgia-verification=<verification_token>`, then call `verify`. A
         domain already VERIFIED by another organization answers `409`.
+        Callers using agent PATs, turn tokens, or the legacy `X-Nolgia-Surface: hermes`
+        header receive 403 with code `agent_cannot_change_organization` and detail
+        "The NOLGIA Agent cannot change your organization. Do it in the app."
       requestBody:
         required: true
         content:
@@ -839,7 +883,7 @@ paths:
         '401':
           $ref: '#/components/responses/ProblemResponse'
         '403':
-          $ref: '#/components/responses/ProblemResponse'
+          $ref: '#/components/responses/OrganizationMutationForbidden'
         '404':
           $ref: '#/components/responses/ProblemResponse'
         '409':
@@ -859,6 +903,9 @@ paths:
         `sso_enforced` requires a verified domain on an `enterprise`
         organization (`402` with title `Upgrade Required` on a team
         organization; `409` while unverified).
+        Callers using agent PATs, turn tokens, or the legacy `X-Nolgia-Surface: hermes`
+        header receive 403 with code `agent_cannot_change_organization` and detail
+        "The NOLGIA Agent cannot change your organization. Do it in the app."
       requestBody:
         required: true
         content:
@@ -879,7 +926,7 @@ paths:
         '402':
           $ref: '#/components/responses/ProblemResponse'
         '403':
-          $ref: '#/components/responses/ProblemResponse'
+          $ref: '#/components/responses/OrganizationMutationForbidden'
         '404':
           $ref: '#/components/responses/ProblemResponse'
         '409':
@@ -890,13 +937,17 @@ paths:
       tags: [Organizations]
       operationId: deleteOrganizationDomain
       summary: Remove a claimed domain (owner or admin).
+      description: >
+        Callers using agent PATs, turn tokens, or the legacy `X-Nolgia-Surface: hermes`
+        header receive 403 with code `agent_cannot_change_organization` and detail
+        "The NOLGIA Agent cannot change your organization. Do it in the app."
       responses:
         '204':
           description: Domain removed.
         '401':
           $ref: '#/components/responses/ProblemResponse'
         '403':
-          $ref: '#/components/responses/ProblemResponse'
+          $ref: '#/components/responses/OrganizationMutationForbidden'
         '404':
           $ref: '#/components/responses/ProblemResponse'
         default:
@@ -915,6 +966,9 @@ paths:
         missing or mismatched record answers `409` with the record still to
         publish; a domain verified by another organization in the meantime
         answers `409` as well.
+        Callers using agent PATs, turn tokens, or the legacy `X-Nolgia-Surface: hermes`
+        header receive 403 with code `agent_cannot_change_organization` and detail
+        "The NOLGIA Agent cannot change your organization. Do it in the app."
       responses:
         '200':
           description: Domain verified.
@@ -925,7 +979,7 @@ paths:
         '401':
           $ref: '#/components/responses/ProblemResponse'
         '403':
-          $ref: '#/components/responses/ProblemResponse'
+          $ref: '#/components/responses/OrganizationMutationForbidden'
         '404':
           $ref: '#/components/responses/ProblemResponse'
         '409':
@@ -1036,6 +1090,9 @@ paths:
         organization, whatever their active organization is at the time. It
         carries the creator's current role and stops authenticating the moment
         the creator's membership ends. Never listed on `/pat`.
+        Callers using agent PATs, turn tokens, or the legacy `X-Nolgia-Surface: hermes`
+        header receive 403 with code `agent_cannot_change_organization` and detail
+        "The NOLGIA Agent cannot change your organization. Do it in the app."
       requestBody:
         required: true
         content:
@@ -1054,7 +1111,7 @@ paths:
         '401':
           $ref: '#/components/responses/ProblemResponse'
         '403':
-          $ref: '#/components/responses/ProblemResponse'
+          $ref: '#/components/responses/OrganizationMutationForbidden'
         '404':
           $ref: '#/components/responses/ProblemResponse'
         '422':
@@ -1070,13 +1127,17 @@ paths:
       tags: [Organizations]
       operationId: revokeOrganizationApiKey
       summary: Revoke an organization API key (owner or admin).
+      description: >
+        Callers using agent PATs, turn tokens, or the legacy `X-Nolgia-Surface: hermes`
+        header receive 403 with code `agent_cannot_change_organization` and detail
+        "The NOLGIA Agent cannot change your organization. Do it in the app."
       responses:
         '204':
           description: Key revoked.
         '401':
           $ref: '#/components/responses/ProblemResponse'
         '403':
-          $ref: '#/components/responses/ProblemResponse'
+          $ref: '#/components/responses/OrganizationMutationForbidden'
         '404':
           $ref: '#/components/responses/ProblemResponse'
         default:
@@ -1206,6 +1267,9 @@ paths:
         `mirror_enabled` every asset that becomes ready in the organization
         library is copied to `<prefix>/<yyyy>/<mm>/<asset_id>.<ext>` by the
         mirror worker.
+        Callers using agent PATs, turn tokens, or the legacy `X-Nolgia-Surface: hermes`
+        header receive 403 with code `agent_cannot_change_organization` and detail
+        "The NOLGIA Agent cannot change your organization. Do it in the app."
       requestBody:
         required: true
         content:
@@ -1226,7 +1290,7 @@ paths:
         '402':
           $ref: '#/components/responses/ProblemResponse'
         '403':
-          $ref: '#/components/responses/ProblemResponse'
+          $ref: '#/components/responses/OrganizationMutationForbidden'
         '404':
           $ref: '#/components/responses/ProblemResponse'
         '503':
@@ -1248,6 +1312,9 @@ paths:
         being claimed. Rotating credentials requires `access_key_id` and
         `secret_access_key` together. Any change to the bucket, region,
         endpoint, prefix or credentials resets `status` to `unverified`.
+        Callers using agent PATs, turn tokens, or the legacy `X-Nolgia-Surface: hermes`
+        header receive 403 with code `agent_cannot_change_organization` and detail
+        "The NOLGIA Agent cannot change your organization. Do it in the app."
       requestBody:
         required: true
         content:
@@ -1268,7 +1335,7 @@ paths:
         '402':
           $ref: '#/components/responses/ProblemResponse'
         '403':
-          $ref: '#/components/responses/ProblemResponse'
+          $ref: '#/components/responses/OrganizationMutationForbidden'
         '404':
           $ref: '#/components/responses/ProblemResponse'
         '503':
@@ -1282,6 +1349,9 @@ paths:
       description: >
         Removes the connection and its mirror bookkeeping rows. Objects
         already copied into the customer's bucket are left untouched.
+        Callers using agent PATs, turn tokens, or the legacy `X-Nolgia-Surface: hermes`
+        header receive 403 with code `agent_cannot_change_organization` and detail
+        "The NOLGIA Agent cannot change your organization. Do it in the app."
       responses:
         '204':
           description: Connection removed.
@@ -1290,7 +1360,7 @@ paths:
         '402':
           $ref: '#/components/responses/ProblemResponse'
         '403':
-          $ref: '#/components/responses/ProblemResponse'
+          $ref: '#/components/responses/OrganizationMutationForbidden'
         '404':
           $ref: '#/components/responses/ProblemResponse'
         '503':
@@ -1466,6 +1536,10 @@ paths:
       tags: [Auth]
       operationId: approveDeviceAuth
       summary: Approve a pending device-code authorization for the signed-in user.
+      description: >
+        Callers using agent PATs, turn tokens, or the legacy `X-Nolgia-Surface: hermes`
+        header receive 403 with code `agent_cannot_authorize_credentials` and detail
+        "The NOLGIA Agent cannot authorize new credentials. Do it in the app."
       requestBody:
         required: true
         content:
@@ -1479,6 +1553,8 @@ paths:
           $ref: '#/components/responses/ProblemResponse'
         '401':
           $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/CredentialAuthorizationForbidden'
         '404':
           $ref: '#/components/responses/ProblemResponse'
         default:
@@ -1683,6 +1759,9 @@ paths:
         redirects here itself, because the consent page is a fetch client.
         Approving mints a single-use authorization code (only its digest is
         stored) and the response URL carries `code`, `state` and `iss`.
+        Callers using agent PATs, turn tokens, or the legacy `X-Nolgia-Surface: hermes`
+        header receive 403 with code `agent_cannot_authorize_credentials` and detail
+        "The NOLGIA Agent cannot authorize new credentials. Do it in the app."
       requestBody:
         required: true
         content:
@@ -1700,6 +1779,8 @@ paths:
           $ref: '#/components/responses/ProblemResponse'
         '401':
           $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/CredentialAuthorizationForbidden'
         '404':
           $ref: '#/components/responses/ProblemResponse'
         default:
@@ -7046,6 +7127,10 @@ paths:
       tags: [PAT]
       operationId: createPat
       summary: Create a Personal Access Token. The plaintext token is returned ONCE.
+      description: >
+        Callers using agent PATs, turn tokens, or the legacy `X-Nolgia-Surface: hermes`
+        header receive 403 with code `agent_cannot_create_personal_access_token` and
+        detail "The NOLGIA Agent cannot create personal access tokens. Do it in the app."
       requestBody:
         required: true
         content:
@@ -7061,6 +7146,8 @@ paths:
                 $ref: '#/components/schemas/CreatePatResponse'
         '401':
           $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/PatCreationForbidden'
         '422':
           $ref: '#/components/responses/ProblemResponse'
         default:
@@ -10297,6 +10384,69 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
+
+    OrganizationMutationForbidden:
+      description: >
+        Forbidden by the operation's existing authorization rules, including
+        insufficient organization role or an invite email mismatch where applicable,
+        or refused because the caller uses an agent PAT, a turn token, or the legacy
+        `X-Nolgia-Surface: hermes` header. Agent refusals use code
+        `agent_cannot_change_organization` and detail "The NOLGIA Agent cannot change
+        your organization. Do it in the app." Other authorization failures retain
+        their existing problem codes and details; the example is only the agent case.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            agentRefusal:
+              summary: Organization changes are refused for the NOLGIA Agent.
+              value:
+                type: about:blank
+                title: Forbidden
+                status: 403
+                code: agent_cannot_change_organization
+                detail: The NOLGIA Agent cannot change your organization. Do it in the app.
+
+    CredentialAuthorizationForbidden:
+      description: >
+        Credential authorization is refused for callers using an agent PAT,
+        a turn token, or the legacy `X-Nolgia-Surface: hermes` header. Returns code
+        `agent_cannot_authorize_credentials` and detail "The NOLGIA Agent cannot
+        authorize new credentials. Do it in the app."
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            agentRefusal:
+              summary: Credential authorization is refused for the NOLGIA Agent.
+              value:
+                type: about:blank
+                title: Forbidden
+                status: 403
+                code: agent_cannot_authorize_credentials
+                detail: The NOLGIA Agent cannot authorize new credentials. Do it in the app.
+
+    PatCreationForbidden:
+      description: >
+        Personal access token creation is refused for callers using an agent PAT,
+        a turn token, or the legacy `X-Nolgia-Surface: hermes` header. Returns code
+        `agent_cannot_create_personal_access_token` and detail "The NOLGIA Agent
+        cannot create personal access tokens. Do it in the app."
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            agentRefusal:
+              summary: Personal access token creation is refused for the NOLGIA Agent.
+              value:
+                type: about:blank
+                title: Forbidden
+                status: 403
+                code: agent_cannot_create_personal_access_token
+                detail: The NOLGIA Agent cannot create personal access tokens. Do it in the app.
 
   schemas:
 
