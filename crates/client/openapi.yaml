@@ -14902,6 +14902,21 @@ components:
             drop. Cannot be combined with `source_video_asset_id` (a
             regeneration composes no new shot). A product with no image
             contributes its description only.
+        style_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: >-
+            One of your saved styles (`GET /styles`). Its prompt fragment is appended
+            after your own words, which are never replaced, and its swatch (first
+            reference image) rides as one element reference after every reference you,
+            a character, a location or a product attached, only within the model's
+            remaining `references.element_refs_max` budget: a swatch that does not fit,
+            or a model that takes no references, leaves the style to its prompt fragment
+            alone because the style is a look, not a subject. An unknown or foreign id
+            is a 400. Cannot be combined with `source_video_asset_id` (a regeneration
+            composes no new shot). The job's persisted params and the asset's generation
+            metadata echo `style_id`.
         element_ids:
           type: array
           nullable: true
@@ -17044,6 +17059,9 @@ components:
       additionalProperties: false
       required: [id, user_id, name, prompt_fragment, model_hint, reference_images, created_at, updated_at]
       properties:
+        swatch:
+          $ref: '#/components/schemas/Asset'
+          description: 'The style key image: the first reference image, attached first when the style rides a generation. Omitted when the style has no reference images.'
         id:
           type: string
           format: uuid
@@ -17092,6 +17110,11 @@ components:
       additionalProperties: false
       required: [name]
       properties:
+        swatch_asset_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: 'One of your image assets to use as the style key. It becomes the first reference image; the other reference images keep their order after it. Counts against the four reference images.'
         name:
           type: string
           minLength: 1
@@ -17115,6 +17138,11 @@ components:
       type: object
       additionalProperties: false
       properties:
+        swatch_asset_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: 'One of your image assets to use as the style key. It becomes the first reference image; the other reference images keep their order after it. Counts against the four reference images.'
         name:
           type: string
           nullable: true
@@ -23052,7 +23080,7 @@ components:
           $ref: '#/components/schemas/PresetTargetKind'
         params:
           type: object
-          description: 'Kind-specific link parameters. For `create_image`/`create_video`/`create_audio`: `{"prompt": "...", "model": "..."}` (a starter prompt the user edits before submitting plus a recommended model id). For `studio_intent`: `{"intent": "..."}` (the Studio lane consumes it as `?intent=`).'
+          description: 'Kind-specific link parameters. For `create_image`/`create_video`/`create_audio`: `{"prompt": "...", "model": "..."}` (a starter prompt the user edits before submitting plus a recommended model id). For `studio_intent`: `{"intent": "..."}` (the Studio lane consumes it as `?intent=`). Any `create_*` target may also carry `style_key`: `{"name": "...", "prompt_fragment": "..."}`, the default style the agent saves once per customer as a saved style (`POST /styles`, with the run''s style key image as `swatch_asset_id`) and reuses through `style_id` on every clip of the run. `name` is 1 to 80 characters, `prompt_fragment` up to 1000.'
 
     Preset:
       type: object
