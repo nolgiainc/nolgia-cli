@@ -2611,6 +2611,92 @@ paths:
         default:
           $ref: '#/components/responses/ProblemResponse'
 
+  /callbacks/{provider}:
+    post:
+      tags: [Jobs]
+      operationId: receiveProviderCallback
+      summary: Receive a render provider's completion callback (a wake-up signal).
+      description: >
+        The URL a render provider is told to call when a job's render changes
+        state. Not a customer endpoint: NOLGIA mints one URL per video job at
+        submit time (`{base}/v1/callbacks/{provider}?token=...`) and hands it
+        to the provider, and only the provider ever calls it.
+
+
+        The callback is a WAKE-UP SIGNAL, never the data path. A verified
+        callback makes the job poller read the job from the media proxy
+        immediately instead of on its next 5-second tick; the normal
+        completion path, where cost of goods is recorded, runs unchanged from
+        there, and nothing in the callback body is ever used as the result.
+        Two independent proofs gate every wake: the provider's own signature
+        over the raw body (for Kling, the `webhook-id`, `webhook-timestamp`
+        and `webhook-signature` headers, timestamp within 5 minutes,
+        rotation-grace multi-signatures honoured) and the per-job `token`
+        signed by NOLGIA. A verified callback without a `token` (the
+        provider's test callback) is acknowledged and wakes nothing.
+
+
+        Idempotent and replay-safe: a duplicate is a no-op, a callback for an
+        already-settled job is a no-op, and an unknown, forged or expired
+        token is rejected with a response that never says whether a job
+        exists. The poller keeps reconciling every job, so disabling
+        callbacks changes nothing but latency.
+      security: []
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          description: The provider whose signature scheme verifies the request.
+          schema:
+            type: string
+            enum: [kling]
+        - name: token
+          in: query
+          required: false
+          description: >
+            The per-job token NOLGIA minted into the callback URL. Absent on
+            a provider's test callback.
+          schema:
+            type: string
+            minLength: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: >
+                The provider's own callback payload, verbatim. Only its status
+                is read, to skip waking on a non-terminal state; outputs and
+                billing are never consumed.
+              additionalProperties: true
+      responses:
+        '200':
+          description: Callback verified and acknowledged.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderCallbackAck'
+        '401':
+          description: >
+            The signature did not verify, the timestamp is outside the replay
+            window, or the token is unknown, forged or expired. The body is
+            identical for every token failure.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: No callback endpoint is configured for this provider.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '413':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
   /assets:
     get:
       tags: [Assets]
@@ -10998,6 +11084,21 @@ components:
           type: integer
           minimum: 0
           examples: [1234]
+
+    ProviderCallbackAck:
+      type: object
+      description: Acknowledgement of a verified provider completion callback.
+      required: [received, woken]
+      properties:
+        received:
+          type: boolean
+          description: Always true on a 200; the callback verified.
+        woken:
+          type: boolean
+          description: >
+            Whether the job poller was asked to read the job now. False for a
+            test callback with no token and for a non-terminal status, where
+            a read would find nothing to settle.
 
     SSETicket:
       type: object
