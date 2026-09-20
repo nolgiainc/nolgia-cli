@@ -2304,6 +2304,51 @@ paths:
         default:
           $ref: '#/components/responses/ProblemResponse'
 
+  /remove-background/video:
+    post:
+      tags: [Generate]
+      operationId: removeBackgroundVideo
+      summary: Remove a video's background (asynchronous).
+      description: |
+        Extract the foreground of one source clip with no prompt. Returns a
+        normal video job; use `GET /jobs/{id}` or `GET /jobs/{id}/wait` to
+        retrieve the asset. Output is WebM/VP9 with an alpha channel, not MP4.
+        Glass and other genuinely transparent materials come back opaque.
+
+        Exactly one source asset or https URL is required. Billing uses the
+        stored source duration when available; otherwise `duration_seconds`
+        is required. Credits scale with source length at the flat per-5-second
+        rate on `GET /models`, independently of resolution. No quality tier,
+        prompt, or restore controls are accepted. These models publish
+        `remove_background: true`, not `restore: true`.
+
+        **Duplicate submissions are refused, not billed.** An identical
+        request within five minutes returns `409` naming the existing job;
+        send a distinct `Idempotency-Key` for a deliberate new run.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RemoveBackgroundVideoRequest'
+      responses:
+        '202':
+          description: Job accepted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '402':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
   /restore/video:
     post:
       tags: [Generate]
@@ -12830,6 +12875,16 @@ components:
             True for video-restoration lane models: they are submitted via
             `POST /restore/video` with a source clip and NO prompt, not via
             `POST /generate/video`. Absent for generation models.
+        remove_background:
+          type: boolean
+          description: |
+            True for promptless background-removal utilities. Image models
+            use `POST /generate/image` with exactly one source reference and
+            return a transparent PNG. Video models use
+            `POST /remove-background/video` and return WebM/VP9 with an alpha
+            channel. No quality, prompt, or sizing controls are accepted.
+            Glass and other genuinely transparent materials come back opaque.
+            Absent for other models; does not imply `restore` or `image_enhance`.
         image_enhance:
           type: boolean
           description: |
@@ -13733,6 +13788,12 @@ components:
         `seed` reaches the provider on `ideogram-v4` and `qwen-image-3` only
         (Reve and Seedream publish no seed).
 
+        `remove-background` is a promptless foreground-extraction utility:
+        submit exactly one source reference via `POST /generate/image` for
+        a transparent PNG. It publishes `remove_background: true` and takes
+        no prompt, negative prompt, identity conditioning, sizing, or quality
+        tier. Glass and other genuinely transparent materials come back opaque.
+
         The five `topaz-image-*` ids are ENHANCERS, not generators, and they
         are the only image models that publish `image_enhance: true` in
         `GET /models`. Each one re-renders a reference image you already have
@@ -13817,6 +13878,7 @@ components:
         - stable-diffusion-3.5
         - kling-image-v3
         - minimax-image-01
+        - remove-background
         - topaz-image-standard
         - topaz-image-high-fidelity
         - topaz-image-low-resolution
@@ -14044,6 +14106,46 @@ components:
           type: string
           description: The brain that wrote the rewrite.
           examples: ['deepseek-v4-flash']
+
+    RemoveBackgroundVideoModel:
+      type: string
+      enum: [remove-background-video]
+      description: >-
+        Promptless video background removal via `POST /remove-background/video`.
+        Returns WebM/VP9 with an alpha channel. Glass and other genuinely
+        transparent materials come back opaque.
+
+    RemoveBackgroundVideoRequest:
+      type: object
+      additionalProperties: false
+      required: [model]
+      properties:
+        model:
+          $ref: '#/components/schemas/RemoveBackgroundVideoModel'
+        source_asset_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: >-
+            One of your video assets. Exactly one of `source_asset_id` and
+            `source_url` is required. Stored duration, when known, takes
+            precedence over `duration_seconds` for billing.
+        source_url:
+          type: string
+          format: uri
+          nullable: true
+          description: >-
+            Raw https URL of the source clip. Exactly one of `source_asset_id`
+            and `source_url` is required. Requires `duration_seconds`.
+        duration_seconds:
+          type: integer
+          minimum: 1
+          maximum: 120
+          description: >-
+            Source clip length in seconds (round up). Required for a raw URL
+            or an asset without stored duration. Credits scale with source
+            length at the catalog's flat per-5-second rate, independently of
+            resolution. No quality tier or prompt is accepted.
 
     RestoreVideoModel:
       type: string
@@ -14436,9 +14538,9 @@ components:
           x-go-type-skip-optional-pointer: true
           description: |
             What to generate. Required on every generation model, and refused
-            on the `image_enhance` models, which re-render the reference image
+            on `remove-background` and the `image_enhance` models, which process the reference image
             from its own pixels and have no prompt slot at all: sending one
-            there is a 400 rather than an enhancement that quietly ignored it.
+            there is a 400 rather than a result that quietly ignored it.
             Optional on the `image_expand` model (`flux-expand`), where it
             describes what the newly painted margins should contain.
           examples: ['A neon cyberpunk cat DJing on a rooftop, cinematic']
@@ -14450,7 +14552,7 @@ components:
             Negative prompt text. The shared contract accepts up to 4,000
             characters; models with a lower provider limit publish it as
             `image.negative_prompt_max_length` in `GET /models` and reject
-            longer values before reserving credits.
+            longer values before reserving credits. Refused on `remove-background`.
         image_size:
           $ref: '#/components/schemas/ImageSize'
         aspect_ratio:
