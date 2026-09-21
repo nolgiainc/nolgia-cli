@@ -421,11 +421,12 @@ The Rust client is generated at build time from the vendored [OpenAPI snapshot](
 ### Submit and subscribe (Rust)
 
 `cargo add nolgia-client` is the whole install: the crate re-exports the async
-runtime and `serde_json`, so this compiles on a fresh project with no second
-dependency. `client()` reads `NOLGIA_TOKEN` (and `NOLGIA_API_URL` when set).
+runtime and `serde_json` and downloads finished assets itself, so this compiles
+and runs end to end on a fresh project with no second dependency. `client()`
+reads `NOLGIA_TOKEN` (and `NOLGIA_API_URL` when set).
 
 ```rust
-use nolgia_client::tokio;
+use nolgia_client::{ClientExt, tokio};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -437,13 +438,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Default::default(),
     )
     .await?;
-    println!("{}", result.url.unwrap_or_default());
+    nolgia.download(&result.url.unwrap_or_default(), "first.png").await?;
     Ok(())
 }
 ```
 
-From a synchronous `fn main`, use `nolgia_client::rt::block_on(future)`.
-`ClientBuilder` remains available for a hand-built client.
+`use nolgia_client::tokio;` is what makes `#[tokio::main]` resolve — the
+attribute expands to a bare `tokio`, so a re-export satisfies it only once it
+is in scope. `#[nolgia_client::rt::main(crate = "nolgia_client::tokio")]` is
+the equivalent with no `use`, and `nolgia_client::rt::block_on(future)` runs
+one future from a synchronous `fn main`. `ClientBuilder` remains available for
+a hand-built client.
+
+`ClientExt::download(url, path)` streams a finished asset to disk through a
+sibling `<path>.part`, so an interrupted download leaves no truncated file;
+`download_bytes(url)` returns it in memory instead. The client's bearer token
+is sent only when the URL is on the same origin as the client's base URL — an
+`asset.signed_url` carries its own credential and is fetched anonymously — and
+a query string never reaches an error message.
 
 Every generate request requires `model`; `flux-pro` is the CLI's default image
 model. `result.media` contains all assets (deduplicated in server order), while

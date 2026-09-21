@@ -1,3 +1,30 @@
+//! The Rust client for the [Nolgia](https://nolgia.ai) API.
+//!
+//! `cargo add nolgia-client` is the whole install. The crate carries its own
+//! async runtime, JSON macro and HTTP stack and re-exports what a first
+//! program needs, so no example here asks you to add a second crate.
+//!
+//! ```no_run
+//! use nolgia_client::{ClientExt, tokio};
+//!
+//! #[tokio::main]
+//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!     let nolgia = nolgia_client::client()?; // reads NOLGIA_TOKEN
+//!     let image = nolgia_client::subscribe(
+//!         &nolgia,
+//!         "/generate/image",
+//!         nolgia_client::json!({"model": "flux-pro", "prompt": "a paper-cut mountain range at dawn"}),
+//!         Default::default(),
+//!     )
+//!     .await?;
+//!     nolgia.download(&image.url.unwrap_or_default(), "first.png").await?;
+//!     Ok(())
+//! }
+//! ```
+//!
+//! `use nolgia_client::tokio;` is what makes `#[tokio::main]` resolve — see
+//! [`rt`] for that and for the synchronous alternative.
+
 mod generated {
     #![allow(clippy::all)]
     #![allow(clippy::unwrap_used)]
@@ -59,9 +86,57 @@ pub use tokio;
 
 /// The async runtime, for callers who would rather not name tokio.
 ///
-/// `#[nolgia_client::rt::main]` is tokio's `main` attribute, and
-/// [`block_on`](rt::block_on) runs one future from a synchronous `fn main`.
+/// # Getting an `async fn main`, three ways that work
+///
+/// Measured against a fresh `cargo new` with `nolgia-client` as the only
+/// dependency (NOL-1087) — this is not theory, and the obvious fourth way
+/// does not work:
+///
+/// ```ignore
+/// #[nolgia_client::rt::main]        // ✗ error[E0433]: cannot find crate `tokio`
+/// ```
+///
+/// [`main`] is tokio's own attribute macro, and its expansion names a **bare**
+/// `tokio`, which has to resolve in *your* crate. So either put it there:
+///
+/// ```no_run
+/// use nolgia_client::tokio;         // ✓ the shortest form, and idiomatic
+///
+/// #[tokio::main]
+/// async fn main() {}
+/// ```
+///
+/// or tell the macro where the runtime lives, which needs no `use` at all:
+///
+/// ```no_run
+/// #[nolgia_client::rt::main(crate = "nolgia_client::tokio")]   // ✓
+/// async fn main() {}
+/// ```
+///
+/// or keep `fn main` synchronous and run the one async call with
+/// [`block_on`]:
+///
+/// ```no_run
+/// fn main() {                                                  // ✓
+///     nolgia_client::rt::block_on(async {
+///         let _ = nolgia_client::client();
+///     });
+/// }
+/// ```
+// The `block_on` example's whole point is a synchronous `fn main`, which is
+// exactly what `needless_doctest_main` exists to remove. Keeping the example
+// compiled is worth the allow; the alternative is an `ignore` fence that
+// nothing checks.
+#[allow(clippy::needless_doctest_main)]
 pub mod rt {
+    /// tokio's `main` attribute.
+    ///
+    /// Its expansion names a bare `tokio`, so applied as
+    /// `#[nolgia_client::rt::main]` it fails to compile in a crate that does
+    /// not depend on tokio directly. Pass
+    /// `#[nolgia_client::rt::main(crate = "nolgia_client::tokio")]`, or
+    /// `use nolgia_client::tokio;` and write `#[tokio::main]`. See the
+    /// [module docs](self).
     pub use tokio::main;
 
     /// Run `future` to completion on a fresh current-thread runtime.
@@ -82,7 +157,7 @@ pub mod rt {
 /// when it is set (otherwise [`DEFAULT_BASE_URL`]).
 ///
 /// ```no_run
-/// use nolgia_client::tokio;
+/// use nolgia_client::{ClientExt, tokio};
 ///
 /// #[tokio::main]
 /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -94,7 +169,7 @@ pub mod rt {
 ///         Default::default(),
 ///     )
 ///     .await?;
-///     println!("{}", result.url.unwrap_or_default());
+///     nolgia.download(&result.url.unwrap_or_default(), "first.png").await?;
 ///     Ok(())
 /// }
 /// ```
@@ -102,8 +177,10 @@ pub fn client() -> StdResult<Client, ClientBuilderError> {
     ClientBuilder::from_env()?.build()
 }
 
-// Hand-written module; no codegen target writes to it.
+// Hand-written modules; no codegen target writes to either.
+pub mod download;
 pub mod subscribe;
+pub use download::DownloadError;
 pub use subscribe::{
     ErrorCode, GenerationError, GenerationResult, JobHandle, Media, StatusUpdate, SubscribeOptions,
     submit, subscribe,
@@ -120,6 +197,50 @@ pub use subscribe::{
 /// `assets tag --clear` must send the empty array literally. This helper does
 /// exactly that via a raw request that reuses the client's auth/base-url.
 pub trait ClientExt {
+    /// Save what is at `url` to `path`, returning the number of bytes written.
+    ///
+    /// This is how a generation's output reaches the disk: pass the finished
+    /// job's `asset.signed_url`, or a [`Media::url`] from
+    /// [`subscribe`]. It exists so a first program needs no HTTP crate of its
+    /// own — the whole install stays `cargo add nolgia-client` (NOL-1087).
+    ///
+    /// The body streams through a sibling `<path>.part` and is renamed into
+    /// place only after the last byte arrives, so an interrupted download
+    /// never leaves a truncated file behind. Any existing file at `path` is
+    /// replaced. The parent directory must already exist.
+    ///
+    /// **Credentials.** The client's `Authorization`, `X-Nolgia-Surface` and
+    /// `Idempotency-Key` headers are sent only when `url` is on the same
+    /// origin as the client's base URL. An `asset.signed_url` points at a
+    /// storage host and carries its own credential in the query string, so
+    /// the request is made anonymously rather than handing a third party a
+    /// token that can spend money.
+    ///
+    /// ```no_run
+    /// # use nolgia_client::{ClientExt, tokio};
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let nolgia = nolgia_client::client()?;
+    /// let bytes = nolgia.download("https://…/first.png", "first.png").await?;
+    /// println!("{bytes} bytes -> first.png");
+    /// # Ok(()) }
+    /// ```
+    fn download(
+        &self,
+        url: &str,
+        path: impl AsRef<std::path::Path> + Send,
+    ) -> impl std::future::Future<Output = StdResult<u64, DownloadError>> + Send;
+
+    /// [`download`](Self::download) into memory instead of onto the disk.
+    ///
+    /// For piping an asset somewhere else — an upload, an image library, a
+    /// response body. Prefer [`download`](Self::download) for video: this
+    /// holds the whole file in memory.
+    fn download_bytes(
+        &self,
+        url: &str,
+    ) -> impl std::future::Future<Output = StdResult<Vec<u8>, DownloadError>> + Send;
+
     /// PATCH `/assets/{id}` with `{"tags": []}` to clear an asset's tag set,
     /// returning the updated [`types::Asset`].
     fn clear_asset_tags(
@@ -161,6 +282,18 @@ pub trait ClientExt {
 }
 
 impl ClientExt for Client {
+    async fn download(
+        &self,
+        url: &str,
+        path: impl AsRef<std::path::Path> + Send,
+    ) -> StdResult<u64, DownloadError> {
+        download::to_path(self, url, path.as_ref()).await
+    }
+
+    async fn download_bytes(&self, url: &str) -> StdResult<Vec<u8>, DownloadError> {
+        download::bytes(self, url).await
+    }
+
     async fn clear_asset_tags(&self, id: Uuid) -> StdResult<types::Asset, ApiError<()>> {
         let url = format!("{}/assets/{}", self.baseurl(), id);
         let response = self
