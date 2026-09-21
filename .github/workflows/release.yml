@@ -70,7 +70,7 @@ jobs:
           components: rustfmt, clippy
           cache: true
 
-      - name: Install libdbus (keyring crate dependency)
+      - name: Install libdbus (the keyring feature is on for the test build)
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libdbus-1-dev pkg-config
 
       - name: Run tests
@@ -94,17 +94,28 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # NOL-1070: Linux ships STATIC musl. The glibc builds linked
+          # libdbus-1.so.3 (the opt-in keyring's C backend) and carried a glibc
+          # 2.38 floor from the runner, so they could not start on Debian 12,
+          # Ubuntu 22.04 or any slim image. --no-default-features drops the
+          # keyring dependency entirely; the default token store is a 0600 file.
+          # The asset keeps its historical name so the Homebrew tap, the npm
+          # wrapper and every previously published install.sh keep resolving.
           - os: ubuntu-latest
-            targets: x86_64-unknown-linux-gnu
+            targets: x86_64-unknown-linux-musl
             binary: nolgia
             output_ext: ''
             archive: nolgia-x86_64-unknown-linux-gnu
+            alias: nolgia-x86_64-unknown-linux-musl
+            cargo_flags: --no-default-features
             universal: false
           - os: ubuntu-24.04-arm
-            targets: aarch64-unknown-linux-gnu
+            targets: aarch64-unknown-linux-musl
             binary: nolgia
             output_ext: ''
             archive: nolgia-aarch64-unknown-linux-gnu
+            alias: nolgia-aarch64-unknown-linux-musl
+            cargo_flags: --no-default-features
             universal: false
           - os: macos-latest
             targets: x86_64-apple-darwin aarch64-apple-darwin
@@ -135,9 +146,9 @@ jobs:
           targets: ${{ matrix.targets }}
           cache: true
 
-      - name: Install libdbus (keyring crate dependency)
+      - name: Install the musl toolchain
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libdbus-1-dev pkg-config
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends musl-tools pkg-config
 
       - name: Build release binary
         shell: bash
@@ -145,7 +156,10 @@ jobs:
           set -euxo pipefail
           for target in ${{ matrix.targets }}; do
             rustup target add "$target"
-            cargo build --release --target "$target" --bin ${{ matrix.binary }} --locked
+            case "$target" in
+              *-musl) export RUSTFLAGS="${RUSTFLAGS:-} -C target-feature=+crt-static" ;;
+            esac
+            cargo build --release --target "$target" --bin ${{ matrix.binary }} --locked ${{ matrix.cargo_flags }}
           done
 
       - name: Create universal macOS binary
@@ -185,6 +199,40 @@ jobs:
           mv "${SRC}" "${ARCHIVE}"
           file "${ARCHIVE}"
           ls -la "${ARCHIVE}"
+
+      # A dynamically linked Linux asset is the bug this ticket exists to fix, so
+      # the release refuses to carry one rather than discovering it in a
+      # customer's container.
+      - name: Linux assets must be static
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          ARCHIVE="${{ matrix.archive }}"
+          if ldd "$ARCHIVE" 2>&1 | grep -qv "not a dynamic executable\|Not a valid dynamic program"; then
+            if ldd "$ARCHIVE" 2>&1 | grep -q "=>"; then
+              echo "::error::$ARCHIVE is dynamically linked; Linux releases must be static (NOL-1070)"
+              ldd "$ARCHIVE" || true
+              exit 1
+            fi
+          fi
+          echo "$ARCHIVE is statically linked."
+
+      # Same bytes under the truthful musl name. The historical -gnu name stays
+      # so nothing downstream breaks; a later release can drop it.
+      - name: Publish the musl-named alias
+        if: matrix.alias != ''
+        shell: bash
+        run: cp "${{ matrix.archive }}" "${{ matrix.alias }}"
+
+      - name: Upload the alias artifact
+        if: matrix.alias != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ matrix.alias }}
+          path: ${{ matrix.alias }}
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Upload binary as artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -250,7 +298,9 @@ jobs:
             nolgia-x86_64-apple-darwin \
             nolgia-x86_64-pc-windows-msvc.exe \
             nolgia-aarch64-unknown-linux-gnu \
-            nolgia-aarch64-pc-windows-msvc.exe; do
+            nolgia-aarch64-pc-windows-msvc.exe \
+            nolgia-x86_64-unknown-linux-musl \
+            nolgia-aarch64-unknown-linux-musl; do
             (cd "artifacts/${asset%.exe}" && sha256sum "$asset")
           done > SHA256SUMS
           cat SHA256SUMS
@@ -269,6 +319,8 @@ jobs:
             artifacts/nolgia-x86_64-pc-windows-msvc/nolgia-x86_64-pc-windows-msvc.exe
             artifacts/nolgia-aarch64-unknown-linux-gnu/nolgia-aarch64-unknown-linux-gnu
             artifacts/nolgia-aarch64-pc-windows-msvc/nolgia-aarch64-pc-windows-msvc.exe
+            artifacts/nolgia-x86_64-unknown-linux-musl/nolgia-x86_64-unknown-linux-musl
+            artifacts/nolgia-aarch64-unknown-linux-musl/nolgia-aarch64-unknown-linux-musl
 
   publish-crates:
     name: Publish to crates.io
@@ -297,7 +349,7 @@ jobs:
           toolchain: stable
           cache: true
 
-      - name: Install libdbus (keyring crate dependency)
+      - name: Install libdbus (the keyring feature is on for the test build)
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libdbus-1-dev pkg-config
 
       - name: Authenticate to crates.io via OIDC

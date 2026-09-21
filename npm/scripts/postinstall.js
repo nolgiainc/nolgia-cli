@@ -14,11 +14,13 @@ function assetName(platform = process.platform, arch = process.arch) {
     // Universal binary covers x64 and arm64.
     return "nolgia-x86_64-apple-darwin";
   }
+  // Statically linked musl builds since v0.2.30 (NOL-1070): they start on
+  // any Linux, including Debian 12, Ubuntu 22.04 and slim container images.
   if (platform === "linux" && arch === "x64") {
-    return "nolgia-x86_64-unknown-linux-gnu";
+    return "nolgia-x86_64-unknown-linux-musl";
   }
   if (platform === "linux" && arch === "arm64") {
-    return "nolgia-aarch64-unknown-linux-gnu";
+    return "nolgia-aarch64-unknown-linux-musl";
   }
   if (platform === "win32" && arch === "x64") {
     return "nolgia-x86_64-pc-windows-msvc.exe";

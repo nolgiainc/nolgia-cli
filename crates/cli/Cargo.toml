@@ -20,7 +20,7 @@ clap_complete.workspace = true
 chrono.workspace = true
 directories.workspace = true
 futures-util.workspace = true
-keyring.workspace = true
+keyring = { workspace = true, optional = true }
 nolgia-client.workspace = true
 reqwest.workspace = true
 serde.workspace = true
@@ -38,4 +38,12 @@ tempfile = "3"
 wiremock = "0.6"
 
 [features]
+default = ["keyring"]
+# The OS keyring is OPT-IN at runtime (NOLGIA_TOKEN_STORE=keyring); the default
+# store is a 0600 file. On Linux the backend links the C libdbus, which made
+# every released binary refuse to start on an image without it and blocked
+# static musl linking (NOL-1070). Building with --no-default-features drops the
+# dependency entirely and yields a binary that depends on nothing; asking for
+# the keyring store on such a build is a clear error, not a panic.
+keyring = ["dep:keyring"]
 e2e = []

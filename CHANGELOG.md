@@ -5,6 +5,17 @@ the matching GitHub release.
 
 ## Unreleased
 
+- **The Linux binaries now run everywhere.** They are statically linked musl
+  builds that depend on no system library, so the CLI starts on Debian 12,
+  Ubuntu 22.04, Alpine and slim container images — previously it installed and
+  then failed with `libdbus-1.so.3: cannot open shared object file` or a glibc
+  version error. They ship under `nolgia-<arch>-unknown-linux-musl` and keep the
+  historical `-gnu` names as the same bytes. The OS keyring is not compiled into
+  them; the default `0600` token file is unchanged, and asking for
+  `NOLGIA_TOKEN_STORE=keyring` now says so plainly instead of failing obscurely.
+  CI starts every Linux build inside `debian:bookworm-slim`, so this cannot
+  regress unnoticed.
+
 ## v0.2.29
 
 - **Supported platforms, stated plainly.** macOS binaries are universal and run
