@@ -5,6 +5,21 @@ the matching GitHub release.
 
 ## Unreleased
 
+- **A Rust project needs only `cargo add nolgia-client`.** The crate now
+  re-exports the async runtime (`nolgia_client::tokio`, plus
+  `nolgia_client::rt::block_on` for a synchronous `main`) and `serde_json`
+  (`nolgia_client::json!`), and `nolgia_client::client()` builds an
+  authenticated client from `NOLGIA_TOKEN`. The first example compiles with no
+  second dependency, and a missing token says exactly how to fix it.
+- **Install reliably on minimal Debian systems.** Looking up the latest release
+  no longer stops the installer with `curl: (23) Failed writing body`.
+- **Verify installer downloads.** Releases publish `SHA256SUMS` for all five
+  binaries; the installer checks your download with an available SHA-256 tool
+  and refuses a mismatch. Older releases without sums still install with a note.
+- **Use the CLI immediately after installation.** Every successful installer run,
+  including a no-op reinstall, ends with an `export PATH="<PREFIX>:$PATH"` line
+  you can run in your current shell.
+
 - **Select response fields and choose an output format.** Use repeatable
   `--field` paths such as `asset.signed_url` or `items[0].id`, and choose pretty
   JSON, aligned tables, or bare values with `--output json|table|value`.

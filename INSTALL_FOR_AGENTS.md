@@ -19,7 +19,7 @@ curl -fsSL https://raw.githubusercontent.com/nolgiainc/nolgia-cli/main/install.s
 
 The installer downloads the latest release binary for your platform, installs it to `~/.local/bin` by default with a `~/bin` fallback, and appends an export line to your shell profile when that directory is missing from PATH. It asks for no password. **Never run the installer with `sudo`.** You can pass `--prefix <dir>` for another user-writable directory or `--tag vX.Y.Z` to pin a release, using `bash -s --` in place of `bash` before those arguments. Use `--system` only when your operator deliberately wants `/usr/local/bin` and has made it writable; it is not needed here.
 
-**Check:** installation exits 0 and prints `installed nolgia <version> to <directory>/nolgia` (or says the requested version is already installed). In the verified clean-environment run this installed v0.2.28 into `$HOME/.local/bin` and created `$HOME/.zshrc`; the latest release can change. Do not assume a successful install has updated your running shell.
+**Check:** installation exits 0 and prints `installed nolgia <version> to <directory>/nolgia` (or says the requested version is already installed). For a downloaded binary, expect `verified <asset> sha256 <first 12 hex>… with <tool>` before the installed message; older releases without `SHA256SUMS` print a skip note, and a machine without a digest tool prints a warning instead. A checksum mismatch or a missing asset entry in a published sums file fails the install. A no-op re-run does not download or verify again. Every successful run ends stdout with exactly `export PATH="<directory>:$PATH"`, even when that directory is already on PATH. Do not assume a successful install has updated your running shell.
 
 When curl is unavailable, choose one available fallback, then verify with `command -v nolgia` and `nolgia --version`:
 
@@ -29,7 +29,15 @@ When curl is unavailable, choose one available fallback, then verify with `comma
 
 ### 2.1. Update PATH in your current process
 
-The installer edits your shell profile, but your already-running shell does not re-read it. Run this in the shell you will use for the remaining commands:
+The installer edits your shell profile, but your already-running shell does not re-read it. Your fastest correct move is to copy and run the installer's final `export PATH=…` line in the shell you will use for the remaining commands. You can also install (or safely re-run) and evaluate that last line directly:
+
+```sh
+eval "$(curl -fsSL https://raw.githubusercontent.com/nolgiainc/nolgia-cli/main/install.sh | bash | tail -n 1)"
+command -v nolgia
+nolgia --version
+```
+
+If you do not have the final line, use a manual export as the fallback:
 
 ```sh
 export PATH="$HOME/.local/bin:$PATH"
@@ -103,16 +111,26 @@ nolgia skills list
 
 The default target is `claude-user`, which writes `~/.claude/skills/<name>/SKILL.md`. The three bundled packs are `nolgia-platform`, `nolgia-video-prompting`, and `nolgia-ugc-ads`. These commands are local; `nolgia skills list` works even without a token.
 
-**Re-running is safe.** Missing packs are installed, byte-identical packs are
+**Re-running is safe from v0.2.29.** Missing packs are reported as `installed`,
+byte-identical packs are
 reported as `unchanged`, and differing copies are reported as `skipped` and left
 intact. Installation continues through all three packs and exits 0 unless a real
 filesystem error occurs. Review any skipped copy before deciding to replace it;
-it may contain your user's changes.
+it may contain your user's changes. Use `nolgia skills install <pack> --force`
+when a pack differs from the bundled copy and you intend to replace it; its
+status becomes `overwritten`. Identical packs remain `unchanged` even with
+`--force`.
 
 **Check:** installation exits 0 and reports all three packs, followed by counts
 for `installed`, `unchanged`, `skipped`, and `overwritten`. A clean installation
-reports `3 installed, 0 unchanged, 0 skipped, 0 overwritten`; an identical re-run
-reports `0 installed, 3 unchanged, 0 skipped, 0 overwritten`. `--json` returns an
+reports:
+
+```text
+3 installed, 0 unchanged, 0 skipped, 0 overwritten. Agents pick them up on their next session.
+```
+
+An identical re-run reports `0 installed, 3 unchanged, 0 skipped, 0 overwritten`
+with the same next-session reminder. `--json` returns an
 array of `{ "name", "path", "status" }` objects. The list contains all three
 names. Confirm their files exist:
 
@@ -175,13 +193,13 @@ test "$(od -An -tx1 -N8 nolgia-verify.png | tr -d ' \n')" = '89504e470d0a1a0a'
 
 | Symptom | What you do and how you check it |
 | --- | --- |
-| Binary is not on PATH | Run `export PATH="$HOME/.local/bin:$PATH"` (or prepend the actual install directory), then `command -v nolgia` and `nolgia --version`; both must work. |
+| Binary is not on PATH | Copy and run the installer's final export line, or use the `eval` command in step 2.1. If that line is unavailable, manually export the actual install directory. Then require `command -v nolgia` and `nolgia --version` to work; preserve PATH across fresh harness shells. |
 | 401 / not authenticated | Return to step 3. Replace an invalid `NOLGIA_TOKEN` securely or unset it before device login so it cannot override the stored login. Wait for approval, then require `nolgia auth status` to name a user. |
 | Out of credits | Run `nolgia billing credits`, tell your user which pool needs funding, and wait for them to resolve it. Re-check the balance before a new submission. |
 | Long-poll expires, exit 75 | Run `nolgia wait "$JOB_ID" --timeout 300` for the named job until terminal; never re-submit. Download the existing asset as described in step 5. |
 | Moderated prompt, exit 65 | Explain the filter refusal and change the prompt before a new generation; verify the replacement's result and PNG file. |
 | Duplicate guard, HTTP 409 | Follow the existing job named in the response. A fresh `--idempotency-key` is only for a deliberate, separately billed second take. |
-| `skills install` reports `skipped` | A local pack differs from the bundled copy and was preserved. Check the reported path and review its changes; other missing packs are still installed and the command exits 0. |
+| `skills install` reports `skipped` | A local pack differs from the bundled copy and was preserved. Review the reported path; missing packs still install, identical packs report `unchanged`, and the command exits 0 with summary counts unless a filesystem error occurs. Use `nolgia skills install <pack> --force` only to replace a differing copy deliberately; it reports `overwritten`. |
 | No prebuilt binary for your platform | Run `cargo install nolgia-cli`, add `$HOME/.cargo/bin` to PATH if needed, then verify `command -v nolgia` and `nolgia --version`. |
 
 You are done when:

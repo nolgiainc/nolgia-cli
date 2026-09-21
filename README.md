@@ -40,6 +40,9 @@ curl -fsSL https://raw.githubusercontent.com/nolgiainc/nolgia-cli/main/install.s
 
 The installer picks the binary for your platform (macOS universal; Linux x86_64 or arm64, arm64 from the first release after v0.2.26) from the latest GitHub release and installs without `sudo` to `~/.local/bin` (falling back to `~/bin`). It adds the selected directory to your shell profile when needed. Use `--prefix <DIR>` for another user-writable directory, `--tag vX.Y.Z` to pin a release, or `--system` when you intentionally want `/usr/local/bin` and will provide any required privilege yourself. Re-running the same version is idempotent.
 
+Downloads are checked against the release's `SHA256SUMS` using the first available `sha256sum`, `shasum`, or `openssl`; mismatches or missing asset entries fail, while older releases without sums and machines without a digest tool receive a notice and continue.
+Every successful run ends stdout with `export PATH="<PREFIX>:$PATH"`; run that line in your current shell to use the binary immediately, including after a no-op reinstall.
+
 This command executes a script fetched from the repository's `main` branch and then downloads a release binary. If your environment requires review or provenance checks, save and inspect `install.sh` first and pin the binary with `--tag`; on macOS the script removes the downloaded binary's quarantine attribute so it can run.
 
 ### npm
@@ -413,16 +416,30 @@ The Rust client is generated at build time from the vendored [OpenAPI snapshot](
 
 ### Submit and subscribe (Rust)
 
-Inside an async function returning `Result`, use the hand-written layer on
-`nolgia-client` to submit and wait for all of a job's assets:
+`cargo add nolgia-client` is the whole install: the crate re-exports the async
+runtime and `serde_json`, so this compiles on a fresh project with no second
+dependency. `client()` reads `NOLGIA_TOKEN` (and `NOLGIA_API_URL` when set).
 
 ```rust
-use nolgia_client::{ClientBuilder, subscribe, SubscribeOptions};
-let client = ClientBuilder::new("https://api.nolgia.ai/v1").bearer_token(std::env::var("NOLGIA_TOKEN")?).build()?;
-let args = serde_json::json!({ "model": "flux-pro", "prompt": "a paper-cut mountain range" });
-let result = subscribe(&client, "/generate/image", args, SubscribeOptions::default()).await?;
-println!("{}", result.url.unwrap_or_default());
+use nolgia_client::tokio;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let nolgia = nolgia_client::client()?;
+    let result = nolgia_client::subscribe(
+        &nolgia,
+        "/generate/image",
+        nolgia_client::json!({"model": "flux-pro", "prompt": "a paper-cut mountain range"}),
+        Default::default(),
+    )
+    .await?;
+    println!("{}", result.url.unwrap_or_default());
+    Ok(())
+}
 ```
+
+From a synchronous `fn main`, use `nolgia_client::rt::block_on(future)`.
+`ClientBuilder` remains available for a hand-built client.
 
 Every generate request requires `model`; `flux-pro` is the CLI's default image
 model. `result.media` contains all assets (deduplicated in server order), while
