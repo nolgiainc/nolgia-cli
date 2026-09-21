@@ -1,6 +1,8 @@
 mod agent_guard;
 mod auth;
+mod cli_parse;
 mod commands;
+mod help_json;
 mod livejob;
 mod moderation;
 mod output;
@@ -9,14 +11,14 @@ mod update_check;
 use std::process::ExitCode;
 
 use anyhow::Result;
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
 use commands::{
-    CommandContext, ability, account, assets, billing, characters, color_presets, compositions,
-    r#gen, jobs, masks, models, motions, org, pat, products, projects, render, restore, skills,
-    status, voices, wait,
+    CommandContext, ability, account, api, assets, billing, characters, color_presets,
+    compositions, r#gen, jobs, masks, models, motions, org, pat, products, projects, render,
+    restore, skills, status, voices, wait,
 };
 use nolgia_client::{Client, ClientBuilder};
-use output::OutputFormat;
+use output::{OutputFormat, OutputMode};
 
 const DEFAULT_BASE_URL: &str = "https://api.nolgia.ai";
 
@@ -30,6 +32,26 @@ const DEFAULT_BASE_URL: &str = "https://api.nolgia.ai";
 pub struct Cli {
     #[arg(long, global = true, help = "Emit machine-readable JSON")]
     pub json: bool,
+    #[arg(
+        long,
+        global = true,
+        value_name = "PATH",
+        help = "Print only this field of the JSON output (dotted path, array indexes like items[0].id); repeatable"
+    )]
+    pub field: Vec<String>,
+    #[arg(
+        long,
+        global = true,
+        value_enum,
+        value_name = "FORMAT",
+        help = "Output format: json (pretty JSON, same as --json), table (columns), value (bare values, the default when --field is given)"
+    )]
+    pub output: Option<OutputMode>,
+    #[arg(
+        long,
+        help = "Print the whole command tree as JSON (names, aliases, descriptions, flags, environment variable names) and exit"
+    )]
+    pub help_json: bool,
     // `hide_env_values` is mandatory on every env-backed arg, not just the
     // credential ones: clap's default is to render the *resolved value* of the
     // variable into `--help`, and help output is the least-guarded text in the
@@ -71,11 +93,15 @@ pub struct Cli {
     )]
     pub idempotency_key: Option<String>,
     #[command(subcommand)]
-    pub command: Commands,
+    pub command: Option<Commands>,
 }
 
 #[derive(Subcommand, Debug)]
 pub enum Commands {
+    #[command(
+        about = "Send one authenticated request to the API (any method, any path) and print the response"
+    )]
+    Api(api::ApiArgs),
     #[command(subcommand, about = "Authenticate this machine")]
     Auth(auth::AuthCommand),
     #[command(subcommand, about = "Generate images, video, or audio")]
@@ -184,12 +210,20 @@ fn detect_surface() -> String {
 
 #[tokio::main]
 async fn main() -> ExitCode {
-    let cli = Cli::parse();
-    let json = cli.json;
-    let update = update_check::start(json);
+    let cli = cli_parse::parse();
+    let format = OutputFormat::from_flags(
+        cli.json || matches!(cli.command, Some(Commands::Api(_))),
+        &cli.field,
+        cli.output,
+    );
+    if let Err(err) = output::configure(cli.field.clone(), cli.output) {
+        return report(Err(err), format);
+    }
+    let update =
+        update_check::start(format == OutputFormat::Json || cli.help_json || cli.command.is_none());
     let result = run_cli(cli).await;
     update.finish().await;
-    report(result, OutputFormat::from_json_flag(json))
+    report(result, format)
 }
 
 /// Render the outcome and choose the exit status.
@@ -231,21 +265,35 @@ fn report(result: Result<()>, format: OutputFormat) -> ExitCode {
 }
 
 pub async fn run_cli(cli: Cli) -> Result<()> {
-    let format = OutputFormat::from_json_flag(cli.json);
-    if let Commands::Auth(command) = cli.command {
+    if cli.help_json {
+        return help_json::print(Cli::command());
+    }
+    let format = OutputFormat::from_flags(
+        cli.json || matches!(cli.command, Some(Commands::Api(_))),
+        &cli.field,
+        cli.output,
+    );
+    let command = cli.command.unwrap_or_else(|| {
+        Cli::command()
+            .subcommand_required(true)
+            .arg_required_else_help(true)
+            .get_matches();
+        unreachable!("clap exits when the required subcommand is missing")
+    });
+    if let Commands::Auth(command) = command {
         return auth::run(command, format, &cli.api_url, cli.token).await;
     }
-    if let Commands::Skills(command) = cli.command {
+    if let Commands::Skills(command) = command {
         return skills::run(command, format);
     }
-    if let Commands::Completion(args) = cli.command {
+    if let Commands::Completion(args) = command {
         let mut cmd = <Cli as clap::CommandFactory>::command();
         clap_complete::generate(args.shell, &mut cmd, "nolgia", &mut std::io::stdout());
         return Ok(());
     }
     // `masks example` is a starter-JSON printer with no request to make, so
     // it must not depend on a stored login (or probe the keyring for one).
-    if let Commands::Masks(masks::MasksCommand::Example(args)) = cli.command {
+    if let Commands::Masks(masks::MasksCommand::Example(args)) = command {
         return masks::example(args, format);
     }
 
@@ -254,7 +302,8 @@ pub async fn run_cli(cli: Cli) -> Result<()> {
     let client = build_client(&cli.api_url, token, cli.idempotency_key)?;
     let ctx = CommandContext::new(client, format).with_agent(agent);
 
-    match cli.command {
+    match command {
+        Commands::Api(args) => api::run(args, &ctx).await,
         Commands::Auth(_) => unreachable!("auth handled before client construction"),
         Commands::Gen(command) => r#gen::run(command, &ctx).await,
         Commands::Restore(command) => restore::run(command, &ctx).await,

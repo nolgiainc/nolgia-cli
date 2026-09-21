@@ -22,6 +22,7 @@ The `nolgia` command-line client for the [Nolgia](https://nolgia.ai) generative-
 - [Credits](#credits)
 - [Organizations](#organizations)
 - [Output and scripting](#output-and-scripting)
+- [Raw API requests](#raw-api-requests)
 - [Command index](#command-index)
 - [Global flags and environment](#global-flags-and-environment)
 - [Shell completions](#shell-completions)
@@ -145,7 +146,7 @@ These are separate surfaces:
   nolgia skills install --target dir --dir ./agent-skills
   ```
 
-  The three bundled packs are `nolgia-platform`, `nolgia-video-prompting`, and `nolgia-ugc-ads`. `--force` is required to overwrite an existing file. The Hermes target writes to `$HERMES_HOME/skills` and defaults `HERMES_HOME` to `/opt/data` when it is unset.
+  The three bundled packs are `nolgia-platform`, `nolgia-video-prompting`, and `nolgia-ugc-ads`. Re-runs install missing packs, leave identical files unchanged, and skip differing copies without failing. Add `--force` to overwrite differing files; every pack reports its outcome. The Hermes target writes to `$HERMES_HOME/skills` and defaults `HERMES_HOME` to `/opt/data` when it is unset.
 
 - **Marketplace Abilities** are registry-backed packages installed for a Hermes agent through the API. The package manifest is `ability.json`; its agent instructions remain `SKILL.md` for Hermes compatibility:
 
@@ -224,9 +225,39 @@ Credit semantics in an organization context: every generation, whether authentic
 For a fire-and-poll script:
 
 ```bash
-job_uuid=$(nolgia gen video --prompt "..." --no-wait | jq -r .job_id)
-nolgia wait "$job_uuid" --timeout 600 --json | jq .asset.signed_url
+job_uuid=$(nolgia gen video --prompt "..." --no-wait --field job_id)
+nolgia wait "$job_uuid" --timeout 600 --field asset.signed_url
 ```
+
+### Field selection and output formats
+
+`--field <PATH>` selects a value from a command's JSON response and implies JSON
+output. Repeat it to print several values in order, one per line. Paths use
+literal dotted keys and zero-based array indexes: `asset.signed_url`,
+`items[0].id`, `models[0].cost.credits`, or `[0].name` for a top-level array.
+A leading dot is optional (`.id` is `id`); wildcards, filters, and fallback
+expressions are not supported. A Job's asset URL is `asset.signed_url`, not
+`asset.url`; `/pricing/models` returns its catalog under `models`.
+
+`--output <json|table|value>` also implies JSON output and controls rendering:
+
+- `json`: pretty JSON, like `--json`. One selected field is its value; multiple
+  fields become an array in selection order.
+- `value`: bare strings, numbers, booleans, and `null`; objects and arrays use
+  compact JSON. This is the default with `--field`. Without fields, it prints
+  the whole response on one line.
+- `table`: aligned columns separated by two spaces, with one row per object in
+  an array. Paginated responses such as `jobs list` render the rows in `items`.
+  Scalar arrays use a `VALUE` column, other objects use `KEY` and `VALUE`, and
+  scalars print directly.
+
+These flags work before or after subcommands on JSON-producing commands. With no
+new flags, existing text and `--json` output stay the same. A missing key, an
+out-of-range index, or traversal through a scalar exits `1`, prints nothing to
+stdout, and names the failing field and available keys or array length on stderr.
+The exit-code reports for a live job (`75`), content-filter block (`65`), or agent
+refusal (`77`) always print their full JSON object when JSON output is requested;
+field selection and output formatting never trim these recovery details.
 
 ### Exit code 75: a job is live, do not re-run
 
@@ -271,12 +302,41 @@ prompt or reference media, or switch models, before running the command again.
 With `--json`, stdout carries the full failed Job with `failure.kind: "moderated"`,
 and the human text goes to stderr. `wait` and `status` report the job and exit `0`
 for terminal jobs, including moderated ones. They also print the content-filter
-message to stderr in text mode. Scripts should read `.failure.kind`:
+message to stderr in text mode. To inspect a known moderated job, select its
+`failure.kind` through `wait` (which exits `0`):
 
 ```bash
-nolgia wait "$job_uuid" --json > job.json
-jq -r '.failure.kind // empty' job.json
+nolgia wait "$job_uuid" --field failure.kind
 ```
+
+## Raw API requests
+
+Use `nolgia api <METHOD> <PATH>` for the CLI equivalent of an authenticated curl
+request. It uses the same token or stored login and `--api-url` as other commands;
+public routes also work without a token. JSON responses are printed automatically
+(`--json` is implied), so field selection works directly:
+
+```bash
+nolgia api POST /jobs/<id>/sse-ticket --field ticket
+nolgia api GET /me --field email
+nolgia api POST /generate/image --body '{"model":"flux-pro","prompt":"..."}' --field id
+nolgia api GET /pricing/models --field 'models[0].id'
+```
+
+Replace `<id>` with a real job UUID. Methods are case-insensitive `GET`, `POST`,
+`PUT`, `PATCH`, `DELETE`, and `HEAD`. The path must begin with `/`; absolute URLs
+are refused so credentials cannot be sent to another host. A leading `/v1` is
+stripped because the client already includes it: `/pricing/models` and
+`/v1/pricing/models` address the same route.
+
+`--body` accepts inline JSON, `@file.json`, or `-` to read JSON from stdin; invalid
+JSON fails before making a request. POST, PUT, and PATCH without a body send
+`Content-Length: 0`. Repeat `--query KEY=VALUE` for URL-encoded query parameters
+and `--header 'NAME: VALUE'` for additional headers. Non-JSON responses pass
+through unchanged, and empty responses print nothing. A non-2xx response prints
+its full body without field selection, reports the status and problem detail on
+stderr, and exits `1`. Workspace switching and creation keep the same agent
+refusals as `org switch` and `org create`.
 
 ## Command index
 
@@ -287,10 +347,11 @@ Replace every `<PLACEHOLDER>` below with a real value; angle-bracket placeholder
 | Command | Subcommands and purpose |
 |---|---|
 | `auth` | `login`, `logout`, `status`/`whoami` (email, plan, and the active organization or personal space), `token` |
+| `api` | `<METHOD> <PATH>` sends an authenticated request with optional `--body`, repeatable `--query`, and repeatable `--header`; JSON output is implied |
 | `gen` | `image`, `video`, `audio` generation |
 | `restore` | `video` footage restoration/upscale (de-noise, de-haze, up-res to a target tier) on `seedvr2-restore` or a `topaz-*` master upscaler |
 | `status`, `wait` | Inspect or wait for a job by UUID |
-| `jobs` | `list` your jobs, newest first, with `--status queued\|running\|succeeded\|failed\|canceled`, `--modality image\|video\|audio`, `--limit` and `--cursor` |
+| `jobs` | `get <JOB_ID>` inspects a job exactly like `status`; `list` your jobs, newest first, with `--status queued\|running\|succeeded\|failed\|canceled`, `--modality image\|video\|audio`, `--limit` and `--cursor` |
 | `assets` | `list`, `get`, `delete`, `upload`, `tag`, `frame` |
 | `characters` | `list`, `get`, `create`, `update`, `delete` reusable characters |
 | `projects` | `list`, `get`, `create`, `update`, `delete`, `add-assets`, `remove-asset` |
@@ -299,7 +360,7 @@ Replace every `<PLACEHOLDER>` below with a real value; angle-bracket placeholder
 | `billing` | `subscription`, `credits`, `portal` |
 | `pat` | `create`, `list`, `revoke` personal access tokens |
 | `org` (alias `workspace`) | `list`, `status`, `switch <slug\|id\|personal>`, `create <name> [--slug]`, `members`, `invite <email> --role`, `credits`; the last three accept `--org <slug\|id>` (or `NOLGIA_ORG`) |
-| `skills` | `list`, `show`, `install` embedded agent packs |
+| `skills` | `list`, `show`, `install` embedded agent packs; repeated installs report installed, unchanged, or skipped packs, and `--force` replaces differing copies |
 | `ability` | `list`, `show`, `installed`, `install`, `uninstall`, `sync`, `init`, `pack`, `publish` marketplace Abilities |
 | `models` | `list`, `get` live catalog |
 | `voices` | `list [--model <TTS_MODEL_ID>]` the voice ids `gen audio --voice` accepts, from the live catalog |
@@ -315,6 +376,9 @@ Replace every `<PLACEHOLDER>` below with a real value; angle-bracket placeholder
 | `--api-url` / `NOLGIA_API_URL` | `https://api.nolgia.ai` | API base URL; the client appends `/v1` unless already present |
 | `--token` / `NOLGIA_TOKEN` | stored login | Bearer token; an explicit flag wins |
 | `--json` | off | Request structured output where the command supports it |
+| `--field <PATH>` | none | Select a JSON field with dotted keys and array indexes; repeatable, implies JSON output and defaults to bare values |
+| `--output <json\|table\|value>` | `value` with fields, otherwise `json` | Render JSON responses as pretty JSON, aligned tables, or bare values; implies JSON output |
+| `--help-json` | off | Print the whole visible command tree, aliases, descriptions, flags, and environment variable names as JSON, then exit without authentication |
 | `NOLGIA_TOKEN_STORE` | file with one-time migration | `file` disables keyring access; `keyring` opts into the OS keyring |
 | `--org` / `NOLGIA_ORG` | active organization | For `org members`, `org invite`, `org credits`: address another organization you belong to (slug or UUID) without switching the server-side context |
 | `NOLGIA_SURFACE` | auto-detected | Override the `X-Nolgia-Surface` value sent with API requests; any non-empty value also suppresses update hints |

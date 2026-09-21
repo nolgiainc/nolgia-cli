@@ -34,11 +34,10 @@ mod generated {
 
 use std::{fmt, result::Result as StdResult};
 
-use generated::ClientInfo;
 use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
 use uuid::Uuid;
 
-pub use generated::{Client, Error as ApiError, ResponseValue, types};
+pub use generated::{Client, ClientInfo, Error as ApiError, ResponseValue, types};
 
 // Hand-written module; no codegen target writes to it.
 pub mod subscribe;

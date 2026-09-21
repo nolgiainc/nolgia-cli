@@ -5,6 +5,20 @@ the matching GitHub release.
 
 ## Unreleased
 
+- **Select response fields and choose an output format.** Use repeatable
+  `--field` paths such as `asset.signed_url` or `items[0].id`, and choose pretty
+  JSON, aligned tables, or bare values with `--output json|table|value`.
+- **Send any API request with `nolgia api`.** Reuse your CLI authentication,
+  provide JSON inline, from a file, or on stdin, and select fields from responses.
+- **Discover commands with `--help-json`.** Read the full visible command tree,
+  flags, aliases, and environment variable names as machine-readable JSON.
+- **Inspect a job with `nolgia jobs get <JOB_ID>`.** It reports the same job
+  details and moderation information as `nolgia status`.
+- **Re-run `nolgia skills install` safely.** Missing packs install, identical
+  packs remain unchanged, and differing copies are skipped while the remaining
+  packs continue. Use `--force` to replace a differing copy; each pack and the
+  summary report what happened.
+
 - **`nolgia gen 3d`** turns one to four photos into a 3D model (GLB).
   Repeat `--input <PATH_OR_UUID>` in front, back, left, right order, or use
   `--image-url`. `--model hunyuan3d-v3` (the server default) costs 21 credits

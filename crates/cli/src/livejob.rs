@@ -30,7 +30,7 @@ use std::fmt;
 
 use uuid::Uuid;
 
-use crate::output::OutputFormat;
+use crate::output::{OutputFormat, print_json_unselected};
 
 /// Exit status for "a job is live; re-running is the wrong move".
 ///
@@ -253,12 +253,8 @@ impl LiveJob {
     /// while a human reading the same terminal still learns the job id.
     pub fn report(&self, format: OutputFormat) {
         eprintln!("{}", self.render_text());
-        if format == OutputFormat::Json {
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&self.render_json())
-                    .unwrap_or_else(|_| self.job_id().to_string())
-            );
+        if format == OutputFormat::Json && print_json_unselected(&self.render_json()).is_err() {
+            println!("{}", self.job_id());
         }
     }
 }

@@ -84,6 +84,16 @@ struct SkillInfo {
 struct Installed {
     name: &'static str,
     path: String,
+    status: InstallStatus,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+enum InstallStatus {
+    Installed,
+    Unchanged,
+    Skipped,
+    Overwritten,
 }
 
 /// Pull the (possibly folded multi-line) `description:` value out of the
@@ -184,29 +194,60 @@ fn install(args: InstallArgs, format: OutputFormat) -> Result<()> {
     for skill in selected {
         let dir = root.join(skill.name);
         let path = dir.join("SKILL.md");
-        if path.exists() && !args.force {
-            bail!(
-                "{} already exists — pass --force to overwrite",
-                path.display()
-            );
+        let status = match fs::read(&path) {
+            Ok(content) if content == skill.content.as_bytes() => InstallStatus::Unchanged,
+            Ok(_) if args.force => InstallStatus::Overwritten,
+            Ok(_) => InstallStatus::Skipped,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => InstallStatus::Installed,
+            Err(error) => {
+                return Err(error).with_context(|| format!("reading {}", path.display()));
+            }
+        };
+        if matches!(
+            status,
+            InstallStatus::Installed | InstallStatus::Overwritten
+        ) {
+            fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
+            fs::write(&path, skill.content)
+                .with_context(|| format!("writing {}", path.display()))?;
         }
-        fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
-        fs::write(&path, skill.content).with_context(|| format!("writing {}", path.display()))?;
         installed.push(Installed {
             name: skill.name,
             path: path.display().to_string(),
+            status,
         });
     }
 
     match format {
         OutputFormat::Json => print_json(&installed),
         OutputFormat::Text => {
+            let mut counts = [0; 4];
             for i in &installed {
-                println!("installed {} -> {}", i.name, i.path);
+                match i.status {
+                    InstallStatus::Installed => {
+                        counts[0] += 1;
+                        println!("installed {} -> {}", i.name, i.path);
+                    }
+                    InstallStatus::Unchanged => {
+                        counts[1] += 1;
+                        println!("unchanged {} (already at {})", i.name, i.path);
+                    }
+                    InstallStatus::Skipped => {
+                        counts[2] += 1;
+                        println!(
+                            "skipped {} (differs from the bundled copy; pass --force to update it) -> {}",
+                            i.name, i.path
+                        );
+                    }
+                    InstallStatus::Overwritten => {
+                        counts[3] += 1;
+                        println!("overwritten {} -> {}", i.name, i.path);
+                    }
+                }
             }
             println!(
-                "{} skill(s) installed. Agents pick them up on their next session.",
-                installed.len()
+                "{} installed, {} unchanged, {} skipped, {} overwritten. Agents pick them up on their next session.",
+                counts[0], counts[1], counts[2], counts[3]
             );
             Ok(())
         }
@@ -296,24 +337,27 @@ mod tests {
 
     #[test]
     fn install_writes_files_and_respects_force() {
-        let tmp = std::env::temp_dir().join(format!("nolgia-skills-test-{}", std::process::id()));
-        let args = InstallArgs {
+        let tmp = tempfile::tempdir().unwrap();
+        let args = |force| InstallArgs {
             names: vec!["nolgia-platform".into()],
             target: Target::Dir,
-            dir: Some(tmp.clone()),
-            force: false,
+            dir: Some(tmp.path().to_path_buf()),
+            force,
         };
-        install(args, OutputFormat::Text).unwrap();
-        let path = tmp.join("nolgia-platform/SKILL.md");
-        assert!(path.exists());
-        // second run without --force must fail
-        let again = InstallArgs {
-            names: vec!["nolgia-platform".into()],
-            target: Target::Dir,
-            dir: Some(tmp.clone()),
-            force: false,
-        };
-        assert!(install(again, OutputFormat::Text).is_err());
-        std::fs::remove_dir_all(&tmp).ok();
+        install(args(false), OutputFormat::Text).unwrap();
+        let path = tmp.path().join("nolgia-platform/SKILL.md");
+        assert_eq!(fs::read_to_string(&path).unwrap(), SKILLS[0].content);
+
+        let modified = fs::metadata(&path).unwrap().modified().unwrap();
+        install(args(false), OutputFormat::Text).unwrap();
+        install(args(true), OutputFormat::Text).unwrap();
+        assert_eq!(fs::metadata(&path).unwrap().modified().unwrap(), modified);
+
+        fs::write(&path, "customized skill").unwrap();
+        install(args(false), OutputFormat::Text).unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "customized skill");
+
+        install(args(true), OutputFormat::Text).unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), SKILLS[0].content);
     }
 }

@@ -8,6 +8,8 @@ use crate::output::{OutputFormat, print_json};
 
 #[derive(Subcommand, Debug)]
 pub enum JobsCommand {
+    /// Show current job status
+    Get(super::status::StatusArgs),
     /// List your generation jobs
     List(ListArgs),
 }
@@ -30,6 +32,7 @@ pub struct ListArgs {
 
 pub async fn run(command: JobsCommand, ctx: &CommandContext) -> Result<()> {
     match command {
+        JobsCommand::Get(args) => super::status::run(args, ctx).await,
         JobsCommand::List(args) => list(args, ctx).await,
     }
 }
