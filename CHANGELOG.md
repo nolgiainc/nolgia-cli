@@ -5,6 +5,8 @@ the matching GitHub release.
 
 ## Unreleased
 
+## v0.2.29
+
 - **Supported platforms, stated plainly.** macOS binaries are universal and run
   everywhere. Linux binaries require **glibc 2.38 or newer** and the system
   `libdbus-1.so.3` library, so they do not run on Debian 12, Ubuntu 22.04 or
