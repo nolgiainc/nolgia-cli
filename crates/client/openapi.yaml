@@ -9995,16 +9995,58 @@ components:
       type: object
       additionalProperties: false
       description: |
-        One model's published price, as a pricing page prints it. Every field
-        is copied verbatim from the same model's entry in `GET /models`, so
-        the two can never quote different numbers; the capability fields a
-        price does not need are simply absent here.
-      required: [id, modality, min_tier, aspect_ratios]
+        One model's public identity, capabilities and published price, as a
+        pricing page or a model reference page prints it. Every capability and
+        price field is copied verbatim from the same model's entry in
+        `GET /models`, so the two can never disagree.
+
+        This response is world-readable. It carries no provider COGS, no
+        internal routing name and no per-caller data; `maker` names who MADE a
+        model, which is public knowledge about the model, never the reseller
+        route we buy it through.
+      required: [id, display_name, modality, min_tier, aspect_ratios]
       properties:
         id:
           type: string
           description: The catalog id a generation request sends as `model`.
           examples: ['veo-3.1']
+        display_name:
+          type: string
+          description: >-
+            What to call this model on a customer-facing surface. Always present: no published model is nameless, because a raw id is sometimes a provider route path and must never be rendered.
+          examples: ['Veo 3.1']
+        maker:
+          type: string
+          description: >-
+            The company that made the model (`Google`, `Kuaishou`, `Black Forest Labs`). A fact about the model, not about how we reach it — this is never the reseller we route through. Absent when no attribution could be established that was safe to assert; an absent maker renders as nothing, never as "Unknown", and never withholds the model.
+          examples: ['Google']
+        summary:
+          type: string
+          description: >-
+            One sentence about the model. Absent until written; copy arrives incrementally, and an absent summary renders as nothing.
+        recommended:
+          type: boolean
+          description: Mirrors `Model.recommended` — the pick for its modality.
+        video:
+          $ref: '#/components/schemas/VideoCapabilities'
+        audio:
+          $ref: '#/components/schemas/AudioCapabilities'
+        image:
+          $ref: '#/components/schemas/ImageCapabilities'
+        references:
+          $ref: '#/components/schemas/ReferenceCapabilities'
+        restore:
+          type: boolean
+          description: Mirrors `Model.restore`.
+        remove_background:
+          type: boolean
+          description: Mirrors `Model.remove_background`.
+        image_enhance:
+          type: boolean
+          description: Mirrors `Model.image_enhance`.
+        image_expand:
+          type: boolean
+          description: Mirrors `Model.image_expand`.
         modality:
           $ref: '#/components/schemas/Modality'
         min_tier:
