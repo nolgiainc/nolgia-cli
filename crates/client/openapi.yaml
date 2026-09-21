@@ -2477,7 +2477,7 @@ paths:
           in: query
           required: false
           description: >
-            Return only assets attributed to the given chat session — either the generating job's `agent_session_id` (causal attribution recorded at job creation, not a time window, so it holds for async video that lands long after the turn) or, for agent uploads with no job (NOL-207), the asset's `metadata.agent_session_id`. Jobs created before this attribution shipped are not matched. Composes with the other filters and is reflected in the page `total`.
+            Return only assets attributed to the given chat session — either the generating job's `agent_session_id` (causal attribution recorded at job creation, not a time window, so it holds for async video that lands long after the turn) or, for agent uploads with no job, the asset's `metadata.agent_session_id`. Jobs created before this attribution shipped are not matched. Composes with the other filters and is reflected in the page `total`.
 
           schema:
             type: string
@@ -3822,7 +3822,7 @@ paths:
       operationId: importProduct
       summary: Import a product from a public https store link.
       description: >
-        Click-to-Ad import (NOL-880): the server fetches the product page once, reads its JSON-LD Product, Shopify product JSON, Amazon-style markup and OpenGraph/product meta tags, stores up to eight product images as image assets in your library, and saves a Product (name, brand, price text, description and a short canonical description) that every later generation can reuse through `product_id`. The fetch is https only, on port 443, with every hop's address resolved once and refused when it is private, loopback, link-local or a metadata address, a 5 second timeout, a 5 MB page cap, a 10 MB cap per image and a content-type allow-list (HTML pages; JPEG, PNG and WebP images). Imports are rate limited per account. With `project_id` the images are filed into that project and the product is appended to the project's products.
+        Click-to-Ad import: the server fetches the product page once, reads its JSON-LD Product, Shopify product JSON, Amazon-style markup and OpenGraph/product meta tags, stores up to eight product images as image assets in your library, and saves a Product (name, brand, price text, description and a short canonical description) that every later generation can reuse through `product_id`. The fetch is https only, on port 443, with every hop's address resolved once and refused when it is private, loopback, link-local or a metadata address, a 5 second timeout, a 5 MB page cap, a 10 MB cap per image and a content-type allow-list (HTML pages; JPEG, PNG and WebP images). Imports are rate limited per account. With `project_id` the images are filed into that project and the product is appended to the project's products.
 
       requestBody:
         required: true
@@ -6195,7 +6195,7 @@ paths:
       operationId: listMyShareLinks
       summary: List every active share link in the caller's library, newest first.
       description: >
-        The creator-side view of sharing (tester feedback, NOL-841): every unrevoked, unexpired share link on assets and renders in the caller's library scope, newest first, each with what it points at (the target's title and a short-lived signed thumbnail when the media has one) and how it has been doing (`access_count`, `last_accessed_at`), so a "My links" page needs one call instead of one per asset. Scope follows the library rule: the personal space lists the links the caller created on personal media; organization context lists every link on the organization's media whoever created it. Tokens are stored hashed, so rows carry `token_prefix` and never the token or URL; revoke through the asset or render revoke endpoint with the row's `id`. At most 200 rows.
+        The creator-side view of sharing: every unrevoked, unexpired share link on assets and renders in the caller's library scope, newest first, each with what it points at (the target's title and a short-lived signed thumbnail when the media has one) and how it has been doing (`access_count`, `last_accessed_at`), so a "My links" page needs one call instead of one per asset. Scope follows the library rule: the personal space lists the links the caller created on personal media; organization context lists every link on the organization's media whoever created it. Tokens are stored hashed, so rows carry `token_prefix` and never the token or URL; revoke through the asset or render revoke endpoint with the row's `id`. At most 200 rows.
 
       responses:
         '200':
@@ -7110,11 +7110,11 @@ paths:
         One turn is in flight PER SESSION at a time: submitting while that
         session's reply is still pending returns `409` carrying the pending
         agent message id (use steering to keep talking mid-turn). Turns
-        running in the user's OTHER sessions never block a submit
-        (NOL-187): the new turn is accepted (`202`) and — when the user's
+        running in the user's OTHER sessions never block a submit:
+        the new turn is accepted (`202`) and — when the user's
         concurrent execution slots are full — QUEUED, starting
         automatically (FIFO by submit time) as slots free up. Up to a small
-        number of one user's turns execute concurrently (NOL-207, currently
+        number of one user's turns execute concurrently (currently
         2) when the agent pod supports per-turn attribution credentials, so
         every generation still names the exact turn that caused it; older
         pods execute one turn at a time. A queued reply row reports
@@ -7572,7 +7572,7 @@ paths:
       description: >
         Opens a `text/event-stream` connection scoped to one chat session that pushes transcript writes as they land. This stream is the ONLY live transport (there is no client polling): reconnection is protocol-level SSE. The server opens with a `retry:` hint; every `message` frame carries a monotonic `id:` line (the row's change watermark in epoch nanoseconds); a reconnecting client presents `Last-Event-ID` and the server REPLAYS every write at/after that watermark from the database before resuming live delivery, so no event is ever lost to a disconnect. Comment heartbeats (`: heartbeat`) flow every 20 seconds.
 
-        Connect sequence: `retry:` hint, then (given `Last-Event-ID`) the replayed `message` frames, then a `session_status` snapshot frame per session of the caller's that has an agent turn (running, queued, or settled with its `last_turn_work_observed`, so a verdict missed while disconnected is restored; NOL-813), then a `ready` frame whose `id:` is the session's current watermark and whose `replay` field reports `none` (no usable Last-Event-ID; hydrate via `GET /agent/messages`), `complete` (fully caught up) or `truncated` (gap exceeded the replay budget; rehydrate).
+        Connect sequence: `retry:` hint, then (given `Last-Event-ID`) the replayed `message` frames, then a `session_status` snapshot frame per session of the caller's that has an agent turn (running, queued, or settled with its `last_turn_work_observed`, so a verdict missed while disconnected is restored), then a `ready` frame whose `id:` is the session's current watermark and whose `replay` field reports `none` (no usable Last-Event-ID; hydrate via `GET /agent/messages`), `complete` (fully caught up) or `truncated` (gap exceeded the replay budget; rehydrate).
 
         Event names equal the envelope's `type` — `message` (a transcript row was created or settled; `data` is an `AgentSessionEvent` whose `message` is the full row as `GET /agent/messages` serves it, omitted only when the row was too large for the event bus, in which case `message_id` alone signals "refetch"), `step` (a step batch was persisted for a reply row; steps are summarized, refetch `GET /agent/steps` with a `since` cursor), and `session_status` (a session of the caller's flipped between running / queued / idle; delivered on EVERY stream the caller has open, for any of their sessions, so a sessions sidebar shows live multi-session activity). The envelope is forward-compatible: new `type` values may appear and consumers must ignore event types they do not recognize.
 
@@ -8014,61 +8014,6 @@ paths:
           $ref: '#/components/responses/ProblemResponse'
         default:
           $ref: '#/components/responses/ProblemResponse'
-    patch:
-      tags: [Abilities]
-      operationId: updateAbility
-      summary: Update an ability's marketplace lifecycle (admin only). Currently the only mutable field is `visibility` — flipping it to `private` "holds" the ability (removed from the public catalog and no longer newly installable), flipping back to `public` unholds it. Existing installs keep working regardless. Ability content is immutable; editing publishes a new version via `POST /abilities/{slug}/versions`.
-      parameters:
-        - $ref: '#/components/parameters/AbilitySlug'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/UpdateAbilityRequest'
-      responses:
-        '200':
-          description: The updated ability.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Ability'
-        '400':
-          $ref: '#/components/responses/ProblemResponse'
-        '401':
-          $ref: '#/components/responses/ProblemResponse'
-        '403':
-          $ref: '#/components/responses/ProblemResponse'
-        '404':
-          $ref: '#/components/responses/ProblemResponse'
-        default:
-          $ref: '#/components/responses/ProblemResponse'
-    delete:
-      tags: [Abilities]
-      operationId: deleteAbility
-      summary: Yank an entire ability and all its versions (admin only). Refused with 409 when any agent has it installed, unless `force=true` is passed (which cascade-uninstalls it from every agent). Prefer holding (PATCH visibility=private) over deleting when agents depend on it.
-      parameters:
-        - $ref: '#/components/parameters/AbilitySlug'
-        - name: force
-          in: query
-          required: false
-          description: When true, delete even if agents have the ability installed, cascade-removing it from every agent. Without it, a delete of an installed ability is refused with 409.
-          schema:
-            type: boolean
-            default: false
-      responses:
-        '204':
-          description: Ability deleted.
-        '401':
-          $ref: '#/components/responses/ProblemResponse'
-        '403':
-          $ref: '#/components/responses/ProblemResponse'
-        '404':
-          $ref: '#/components/responses/ProblemResponse'
-        '409':
-          $ref: '#/components/responses/ProblemResponse'
-        default:
-          $ref: '#/components/responses/ProblemResponse'
   /abilities/{slug}/content:
     get:
       tags: [Abilities]
@@ -8093,140 +8038,6 @@ paths:
         '401':
           $ref: '#/components/responses/ProblemResponse'
         '402':
-          $ref: '#/components/responses/ProblemResponse'
-        '404':
-          $ref: '#/components/responses/ProblemResponse'
-        default:
-          $ref: '#/components/responses/ProblemResponse'
-  /abilities/{slug}/files:
-    get:
-      tags: [Abilities]
-      operationId: getAbilityFiles
-      summary: Inspect the unpacked contents of the latest published version (admin only). Server-side unpacks the package tar.gz and returns each file's path, size, and (for text files) its decoded body. Not a customer feature — this is the admin abilities inspector.
-      parameters:
-        - $ref: '#/components/parameters/AbilitySlug'
-      responses:
-        '200':
-          description: Unpacked ability files.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AbilityFiles'
-        '401':
-          $ref: '#/components/responses/ProblemResponse'
-        '403':
-          $ref: '#/components/responses/ProblemResponse'
-        '404':
-          $ref: '#/components/responses/ProblemResponse'
-        default:
-          $ref: '#/components/responses/ProblemResponse'
-  /abilities/{slug}/versions:
-    get:
-      tags: [Abilities]
-      operationId: listAbilityVersions
-      summary: List every published version of an ability, highest first by semver ordering (admin only). Read companion to `deleteAbilityVersion` — the admin version-delete UI uses this to show a picker of deletable versions instead of asking the operator to type a semver. Each entry flags `is_latest` (the latest version cannot be deleted).
-      parameters:
-        - $ref: '#/components/parameters/AbilitySlug'
-      responses:
-        '200':
-          description: Published versions in the same semver-first ordering that resolves `latest_version` (highest semver first; non-semver strings after, newest publish first), so the top entry is always the latest.
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/AbilityVersion'
-        '401':
-          $ref: '#/components/responses/ProblemResponse'
-        '403':
-          $ref: '#/components/responses/ProblemResponse'
-        '404':
-          $ref: '#/components/responses/ProblemResponse'
-        default:
-          $ref: '#/components/responses/ProblemResponse'
-    post:
-      tags: [Abilities]
-      operationId: publishAbilityVersionFromFiles
-      summary: Publish a new immutable version from an edited file set (admin only). Repacks the given files into a tar.gz, recomputes `has_code`, inserts a new immutable version and moves `latest`. This is the save path for the admin code editor — versions are immutable, so an edit is a new version. Ability metadata (name, visibility, access, min_tier) is preserved from the current ability; only the package payload and version change.
-      parameters:
-        - $ref: '#/components/parameters/AbilitySlug'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/PublishAbilityVersionRequest'
-      responses:
-        '201':
-          description: New version published.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Ability'
-        '400':
-          $ref: '#/components/responses/ProblemResponse'
-        '401':
-          $ref: '#/components/responses/ProblemResponse'
-        '403':
-          $ref: '#/components/responses/ProblemResponse'
-        '404':
-          $ref: '#/components/responses/ProblemResponse'
-        '409':
-          $ref: '#/components/responses/ProblemResponse'
-        default:
-          $ref: '#/components/responses/ProblemResponse'
-  /abilities/{slug}/versions/{version}:
-    delete:
-      tags: [Abilities]
-      operationId: deleteAbilityVersion
-      summary: Delete a single non-latest version of an ability (admin only). Deleting the latest version is refused with 409 — it would silently change what installed agents receive; publish a new version or delete the whole ability instead. Deleting the only version is likewise refused, as is deleting a version any agent install has pinned.
-      parameters:
-        - $ref: '#/components/parameters/AbilitySlug'
-        - name: version
-          in: path
-          required: true
-          description: Semver version to delete.
-          schema:
-            type: string
-            pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
-            examples: ['1.0.0']
-      responses:
-        '204':
-          description: Version deleted.
-        '401':
-          $ref: '#/components/responses/ProblemResponse'
-        '403':
-          $ref: '#/components/responses/ProblemResponse'
-        '404':
-          $ref: '#/components/responses/ProblemResponse'
-        '409':
-          $ref: '#/components/responses/ProblemResponse'
-        default:
-          $ref: '#/components/responses/ProblemResponse'
-  /abilities/{slug}/versions/{version}/files:
-    get:
-      tags: [Abilities]
-      operationId: getAbilityVersionFiles
-      summary: Inspect the unpacked contents of one specific published version (admin only). The by-version companion of `getAbilityFiles` (which always serves the latest version) — server-side unpacks that version's package tar.gz and returns each file's path, size, and (for text files) its decoded body. Not a customer feature — this is the admin abilities inspector reading version history.
-      parameters:
-        - $ref: '#/components/parameters/AbilitySlug'
-        - name: version
-          in: path
-          required: true
-          description: Exact version string to inspect, as returned by `listAbilityVersions`. Deliberately not pattern-restricted — inspection must work for any stored version row, including ones written outside the strict-semver publish paths.
-          schema:
-            type: string
-            examples: ['1.0.0']
-      responses:
-        '200':
-          description: Unpacked ability files for that version.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AbilityFiles'
-        '401':
-          $ref: '#/components/responses/ProblemResponse'
-        '403':
           $ref: '#/components/responses/ProblemResponse'
         '404':
           $ref: '#/components/responses/ProblemResponse'
@@ -8263,31 +8074,6 @@ paths:
           $ref: '#/components/responses/ProblemResponse'
         default:
           $ref: '#/components/responses/ProblemResponse'
-    post:
-      tags: [Presets]
-      operationId: upsertPreset
-      summary: Create or update a preset by slug (admin only). Presets are mutable metadata — unlike abilities there are no immutable versions; posting an existing slug overwrites all of its content fields with the request body. The lifecycle fields (`sort_order`, `visibility`, `featured`) are preserved when omitted, so a catalog sync cannot unpublish or unfeature curated presets; change them explicitly here or via `PATCH /presets/{slug}`. The page-authored fields (`page_category`, `options`, `long_description`, `use_cases`, `examples`, `model_ids`) follow the same preserve-when-omitted rule. For a content-only edit of a LIVE preset use `PATCH /presets/{slug}/page`, which cannot touch visibility or the card fields.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/UpsertPresetRequest'
-      responses:
-        '201':
-          description: Preset created or updated.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Preset'
-        '400':
-          $ref: '#/components/responses/ProblemResponse'
-        '401':
-          $ref: '#/components/responses/ProblemResponse'
-        '403':
-          $ref: '#/components/responses/ProblemResponse'
-        default:
-          $ref: '#/components/responses/ProblemResponse'
   /presets/{slug}:
     get:
       tags: [Presets]
@@ -8307,196 +8093,6 @@ paths:
               schema:
                 $ref: '#/components/schemas/Preset'
         '401':
-          $ref: '#/components/responses/ProblemResponse'
-        '404':
-          $ref: '#/components/responses/ProblemResponse'
-        default:
-          $ref: '#/components/responses/ProblemResponse'
-    patch:
-      tags: [Presets]
-      operationId: updatePreset
-      summary: Update a preset's lifecycle (admin only). The mutable fields here are `visibility`, `featured` and `sort_order` (at least one must be provided). Flipping `visibility` to `private` "holds" the preset (removed from the customer catalog), flipping back to `public` unholds it — mirroring abilities; `featured` curates the catalog's featured rail and `sort_order` sets the position presets are displayed in. All other fields are edited by re-POSTing `/presets` with the same slug.
-      parameters:
-        - $ref: '#/components/parameters/PresetSlug'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/UpdatePresetRequest'
-      responses:
-        '200':
-          description: The updated preset.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Preset'
-        '400':
-          $ref: '#/components/responses/ProblemResponse'
-        '401':
-          $ref: '#/components/responses/ProblemResponse'
-        '403':
-          $ref: '#/components/responses/ProblemResponse'
-        '404':
-          $ref: '#/components/responses/ProblemResponse'
-        default:
-          $ref: '#/components/responses/ProblemResponse'
-    delete:
-      tags: [Presets]
-      operationId: deletePreset
-      summary: Delete a preset (admin only). Presets are metadata-only, so deletion has no install fallout — prefer holding (PATCH visibility=private) when the removal may be temporary.
-      parameters:
-        - $ref: '#/components/parameters/PresetSlug'
-      responses:
-        '204':
-          description: Preset deleted.
-        '401':
-          $ref: '#/components/responses/ProblemResponse'
-        '403':
-          $ref: '#/components/responses/ProblemResponse'
-        '404':
-          $ref: '#/components/responses/ProblemResponse'
-        default:
-          $ref: '#/components/responses/ProblemResponse'
-  /presets/{slug}/page:
-    patch:
-      tags: [Presets]
-      operationId: updatePresetPage
-      summary: Update ONLY a preset's page content (admin and agent).
-      description: |
-        Updates the PAGE-authored fields of an existing preset —
-        `long_description`, `use_cases`, `examples`, `model_ids` — and nothing
-        else. The card fields (`name`, `description`, `best_for`,
-        `estimated_time`, `estimated_credits`, `recommended_models`,
-        `thumbnail_url`, `preview_asset_id`, `guardrails`, the target) and the
-        lifecycle fields (`visibility`, `featured`, `sort_order`) are not
-        readable or writable here and are left exactly as they are.
-
-        This route exists because `POST /presets` cannot do a content-only edit
-        of a LIVE preset. That endpoint is a whole-preset upsert: an
-        agent-credentialed call to it is forced to `visibility: private` and is
-        refused outright against an already-public slug (the agent drafts, a
-        human promotes — correct for AUTHORING a preset), and a human call
-        restates every card field, so an edit that forgets one blanks it.
-        Updating page copy is a different act from publishing a preset, and it
-        gets its own route rather than a flag on the old one.
-
-        Consequently the agent-surface guard does NOT fire here: an
-        agent-credentialed caller may edit the page content of a public preset
-        and the preset STAYS PUBLIC. That is safe precisely because the route
-        cannot reach visibility — the guard on `POST /presets` protects the
-        live catalog from being unpublished and overwritten, and neither is
-        possible through this endpoint.
-
-        Every field follows the preserve-on-nil rule the upsert uses: an
-        omitted field keeps what is stored, an explicit `""` / `[]` clears it.
-        All of #341's validation applies unchanged (length ceilings, every
-        example resolving to an existing asset or succeeded render, every model
-        id published by `GET /models`, and the no-em-dash rule on copy). At
-        least one field must be provided. Writes a `catalog_audit` row
-        (`update_preset_page`) naming the fields the call carried.
-
-        `intake` (guided intake flows, 2026-09-10) is the fifth page field and
-        the way a LIVE preset gets its flow authored: omitted preserves, `null`
-        clears, an object is validated against the preset's stored target and
-        card options (see `PresetIntake` for the rules) and refused with a
-        `400` whose detail names the step id and the reason.
-      parameters:
-        - $ref: '#/components/parameters/PresetSlug'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/UpdatePresetPageRequest'
-            examples:
-              imagePresetIntake:
-                summary: An image preset asking for a logo, a brief and a style
-                value:
-                  intake:
-                    version: 1
-                    lucky: {enabled: true, label: 'Just make one'}
-                    steps:
-                      - id: 'mark'
-                        kind: 'asset'
-                        label: 'Your current mark or sketch'
-                        help: 'Optional. A logo, a sketch or a reference we should stay close to.'
-                        required: false
-                        modality: 'image'
-                        role: 'logo'
-                        max: 1
-                        accept: ['upload', 'library']
-                        binds_to: 'reference_asset_ids'
-                      - id: 'brand'
-                        kind: 'text'
-                        label: 'What is the brand?'
-                        help: 'The name, what it sells and the feeling it should give.'
-                        required: true
-                        placeholder: 'Ember, a small coffee roaster: warm, quiet, honest'
-                        max_chars: 600
-                        binds_to: 'prompt_slot:THE BRAND'
-                      - id: 'style'
-                        kind: 'choice'
-                        label: 'Pick a style'
-                        required: true
-                        default: 'wordmark'
-                        options:
-                          - {value: 'wordmark', label: 'Wordmark', description: 'The name set in type, nothing else.'}
-                          - {value: 'emblem', label: 'Emblem', description: 'A badge or crest the name sits inside.'}
-                          - {value: 'monogram', label: 'Monogram', description: 'Initials drawn as one mark.'}
-                        binds_to: 'prompt_slot:THE STYLE'
-                    submit: {kind: 'generate'}
-              studioIntentIntake:
-                summary: A studio intent (Color grade footage) attaching footage or a timeline to the agent brief
-                value:
-                  intake:
-                    version: 1
-                    lucky: {enabled: true, label: 'Just grade it'}
-                    steps:
-                      - id: 'footage'
-                        kind: 'asset'
-                        label: 'The footage to grade'
-                        help: 'Drop the clips, or pick them from your library.'
-                        required: false
-                        modality: 'video'
-                        role: 'footage'
-                        min: 0
-                        max: 6
-                        accept: ['upload', 'library']
-                        binds_to: 'attach'
-                      - id: 'timeline'
-                        kind: 'timeline'
-                        label: 'Or pick a Studio timeline'
-                        required: false
-                        binds_to: 'attach'
-                      - id: 'look'
-                        kind: 'choice'
-                        label: 'What look are you after?'
-                        required: true
-                        options:
-                          - {value: 'teal-orange', label: 'Teal and orange'}
-                          - {value: 'film', label: 'Soft film'}
-                          - {value: 'match', label: 'Match a reference'}
-                        binds_to: 'attach'
-                      - id: 'notes'
-                        kind: 'text'
-                        label: 'Anything the grade must keep?'
-                        required: false
-                        max_chars: 800
-                        binds_to: 'brief'
-                    submit: {kind: 'agent', note: 'Your agent grades the footage and hands back a timeline.'}
-      responses:
-        '200':
-          description: The updated preset.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Preset'
-        '400':
-          $ref: '#/components/responses/ProblemResponse'
-        '401':
-          $ref: '#/components/responses/ProblemResponse'
-        '403':
           $ref: '#/components/responses/ProblemResponse'
         '404':
           $ref: '#/components/responses/ProblemResponse'
@@ -12217,7 +11813,7 @@ components:
           format: uuid
           nullable: true
           description: >-
-            One of your locations (`GET /locations`, NOL-862): the place this render is set in. The location's `primary_reference_asset_id` is appended to `reference_asset_ids` (after the caller's own references, so their order is unchanged) and its `canonical_description` rides into the prompt verbatim after any `character_id` description, so the same room, storefront or set comes back scene after scene. Its own additive field beside `character_id`: a shot casts a character INTO a location, so the two never compete for one slot. The location must belong to the caller - an unknown or foreign id is a 400. The reference counts against `image.reference_images_max`; a model with no reference input or no spare slot is a 400 NAMING location_id, never a silent drop. A location with no reference image contributes its description only. The job's persisted params echo `location_id` for audit.
+            One of your locations (`GET /locations`): the place this render is set in. The location's `primary_reference_asset_id` is appended to `reference_asset_ids` (after the caller's own references, so their order is unchanged) and its `canonical_description` rides into the prompt verbatim after any `character_id` description, so the same room, storefront or set comes back scene after scene. Its own additive field beside `character_id`: a shot casts a character INTO a location, so the two never compete for one slot. The location must belong to the caller - an unknown or foreign id is a 400. The reference counts against `image.reference_images_max`; a model with no reference input or no spare slot is a 400 NAMING location_id, never a silent drop. A location with no reference image contributes its description only. The job's persisted params echo `location_id` for audit.
         brand_kit_id:
           type: string
           format: uuid
@@ -12231,13 +11827,13 @@ components:
           format: uuid
           nullable: true
           description: >-
-            One of your products (`GET /products`, NOL-880): the product this render shows. Up to three of its images, primary first, are appended to `reference_asset_ids` after the caller's own, the location's and the cast's references, within the model's remaining `image.reference_images_max` budget, and its `canonical_description` rides into the prompt verbatim after any character and location description. The product must belong to the caller - an unknown or foreign id is a 400. A model with no reference input, or no room for the primary image, is a 400 NAMING product_id, never a silent drop; gallery images past the budget do not ride. A product with no image contributes its description only. The job's persisted params echo `product_id` for audit.
+            One of your products (`GET /products`): the product this render shows. Up to three of its images, primary first, are appended to `reference_asset_ids` after the caller's own, the location's and the cast's references, within the model's remaining `image.reference_images_max` budget, and its `canonical_description` rides into the prompt verbatim after any character and location description. The product must belong to the caller - an unknown or foreign id is a 400. A model with no reference input, or no room for the primary image, is a 400 NAMING product_id, never a silent drop; gallery images past the budget do not ride. A product with no image contributes its description only. The job's persisted params echo `product_id` for audit.
         style_id:
           type: string
           format: uuid
           nullable: true
           description: >-
-            One of your saved styles (`GET /styles`, NOL-921). Its prompt fragment is appended after your own words, which are never replaced, and its reference images ride as extra references after every reference you, a location, a product or a character attached, only within the model's remaining `image.reference_images_max` budget: a style reference that does not fit is left out rather than refused, because the style is a look, not a subject. An unknown or foreign id is a 400. The job's persisted params and the asset's generation metadata echo `style_id`. When omitted, the project the output is filed into (explicit `project_id` or the session's project) contributes its pinned style key; pass `style_id` to override it for one generation.
+            One of your saved styles (`GET /styles`). Its prompt fragment is appended after your own words, which are never replaced, and its reference images ride as extra references after every reference you, a location, a product or a character attached, only within the model's remaining `image.reference_images_max` budget: a style reference that does not fit is left out rather than refused, because the style is a look, not a subject. An unknown or foreign id is a 400. The job's persisted params and the asset's generation metadata echo `style_id`. When omitted, the project the output is filed into (explicit `project_id` or the session's project) contributes its pinned style key; pass `style_id` to override it for one generation.
         element_ids:
           type: array
           nullable: true
@@ -12603,7 +12199,7 @@ components:
           format: uuid
           nullable: true
           description: >-
-            One of your locations (`GET /locations`, NOL-862): the place this clip is set in. The location's `primary_reference_asset_id` is attached as an element reference (appended after any `element_asset_ids`/`image_urls` and after the `character_id` reference, so it takes the next `@Image` slot) and its `canonical_description` rides into the prompt verbatim after the character's, keeping the place consistent between a still and a clip. Its own additive field beside `character_id`. The location must belong to the caller - an unknown or foreign id is a 400. Requires a model with room for one more element reference (`references.element_refs_max` on `GET /models`); a model that cannot carry it is a 400 NAMING location_id, never a silent drop. A location with no reference image contributes its description only. Not identity-scored (the Aura gate scores faces, not places).
+            One of your locations (`GET /locations`): the place this clip is set in. The location's `primary_reference_asset_id` is attached as an element reference (appended after any `element_asset_ids`/`image_urls` and after the `character_id` reference, so it takes the next `@Image` slot) and its `canonical_description` rides into the prompt verbatim after the character's, keeping the place consistent between a still and a clip. Its own additive field beside `character_id`. The location must belong to the caller - an unknown or foreign id is a 400. Requires a model with room for one more element reference (`references.element_refs_max` on `GET /models`); a model that cannot carry it is a 400 NAMING location_id, never a silent drop. A location with no reference image contributes its description only. Not identity-scored (the Aura gate scores faces, not places).
         brand_kit_id:
           type: string
           format: uuid
@@ -12617,7 +12213,7 @@ components:
           format: uuid
           nullable: true
           description: >-
-            One of your products (`GET /products`, NOL-880): the product this clip shows. Up to three of its images, primary first, are attached as element references (after any `element_asset_ids`/`image_urls`, the character's and the location's references, so they take the next `@Image` slots) within the model's remaining `references.element_refs_max` budget, and its `canonical_description` rides into the prompt verbatim after the character's and the location's. The product must belong to the caller - an unknown or foreign id is a 400. A model that cannot carry the primary image is a 400 NAMING product_id, never a silent drop. Cannot be combined with `source_video_asset_id` (a regeneration composes no new shot). A product with no image contributes its description only.
+            One of your products (`GET /products`): the product this clip shows. Up to three of its images, primary first, are attached as element references (after any `element_asset_ids`/`image_urls`, the character's and the location's references, so they take the next `@Image` slots) within the model's remaining `references.element_refs_max` budget, and its `canonical_description` rides into the prompt verbatim after the character's and the location's. The product must belong to the caller - an unknown or foreign id is a 400. A model that cannot carry the primary image is a 400 NAMING product_id, never a silent drop. Cannot be combined with `source_video_asset_id` (a regeneration composes no new shot). A product with no image contributes its description only.
         style_id:
           type: string
           format: uuid
@@ -12959,7 +12555,7 @@ components:
           format: uuid
           nullable: true
           description: >
-            The chat session that produced this asset — the generating job's `agent_session_id`, or the agent upload's `metadata.agent_session_id` for job-less uploads (NOL-207). Null when the asset carries no session attribution. Populated on list responses (`GET /assets`) so a client can group a session's media directly instead of inferring it.
+            The chat session that produced this asset — the generating job's `agent_session_id`, or the agent upload's `metadata.agent_session_id` for job-less uploads. Null when the asset carries no session attribution. Populated on list responses (`GET /assets`) so a client can group a session's media directly instead of inferring it.
 
         display_name:
           type: string
@@ -13078,7 +12674,7 @@ components:
           minimum: -1
           maximum: 1
           description: >
-            ArcFace-family cosine similarity against the generation's identity reference (Aura identity gate, NOL-462/NOL-542). On image assets generated with a `face_reference_asset_id`, the render's dominant face scored against that reference; on video assets generated with a `character_id`, the best frame sampled at 2fps scored against the character's primary reference. Both lanes gate delivery at >= 0.60 with one automatic re-roll. Absent when no identity reference rode the generation or scoring was unavailable.
+            ArcFace-family cosine similarity against the generation's identity reference (Aura identity gate). On image assets generated with a `face_reference_asset_id`, the render's dominant face scored against that reference; on video assets generated with a `character_id`, the best frame sampled at 2fps scored against the character's primary reference. Both lanes gate delivery at >= 0.60 with one automatic re-roll. Absent when no identity reference rode the generation or scoring was unavailable.
 
           examples: [0.81]
         identity_rerolls:
@@ -13099,7 +12695,7 @@ components:
           type: array
           nullable: true
           description: >
-            Per-character identity outcome of a multi-character cast render (`character_ids`, NOL-861), in cast order: each member's own ArcFace-family cosine (its best-matching face in the render, or the best frame of a clip) and whether it clears the 0.60 gate. `identity_score` is the weakest member's score. Absent when the generation carried no cast or scoring was unavailable.
+            Per-character identity outcome of a multi-character cast render (`character_ids`), in cast order: each member's own ArcFace-family cosine (its best-matching face in the render, or the best frame of a clip) and whether it clears the 0.60 gate. `identity_score` is the weakest member's score. Absent when the generation carried no cast or scoring was unavailable.
 
           items:
             $ref: '#/components/schemas/AssetCharacterScore'
@@ -13278,8 +12874,8 @@ components:
         readiness:
           type: string
           description: |
-            Whether the character's PRIMARY reference can anchor its identity
-            (NOL-860), derived from the face verdict stored when the
+            Whether the character's PRIMARY reference can anchor its identity,
+            derived from the face verdict stored when the
             reference joined the character. One of `ready`,
             `needs_front_view`, `no_face`, `multiple_faces`, `unverified`
             (a closed set, not declared as an enum so its `ready` value does
@@ -13323,7 +12919,7 @@ components:
       required: [asset_id, face_count, quality, frontal, is_primary_ok]
       description: |
         What the in-process face detector found in one character reference
-        image (NOL-860). Counts and a rounded quality figure only; face
+        image. Counts and a rounded quality figure only; face
         geometry never leaves the process.
       properties:
         asset_id:
@@ -13894,7 +13490,7 @@ components:
       additionalProperties: false
       required: [id, user_id, name, description, canonical_description, reference_assets, created_at, updated_at]
       description: >
-        User-owned reusable place for image/video generation (NOL-862): the place-twin of a Character. Reference images document the place from several angles; the primary one is what a generation attaches; the canonical description is the continuity contract folded into prompts verbatim.
+        User-owned reusable place for image/video generation: the place-twin of a Character. Reference images document the place from several angles; the primary one is what a generation attaches; the canonical description is the continuity contract folded into prompts verbatim.
 
       properties:
         id:
@@ -17601,7 +17197,7 @@ components:
         queued:
           type: boolean
           description: >
-            Present and true on a `pending` agent reply that has not started executing yet: a user's turns execute in a bounded number of concurrent slots (one on older pods, currently up to 2 when the pod supports per-turn attribution — NOL-207), so a turn submitted while the slots are full waits its turn (FIFO by submit time). Absent once execution starts (and on settled rows) - render queued rows as "queued", not "thinking".
+            Present and true on a `pending` agent reply that has not started executing yet: a user's turns execute in a bounded number of concurrent slots (one on older pods, currently up to 2 when the pod supports per-turn attribution), so a turn submitted while the slots are full waits its turn (FIFO by submit time). Absent once execution starts (and on settled rows) - render queued rows as "queued", not "thinking".
 
         feedback:
           $ref: '#/components/schemas/AgentMessageFeedback'
@@ -17774,13 +17370,13 @@ components:
             - $ref: '#/components/schemas/AgentMessageStatus'
           nullable: true
           description: >
-            Status of the session's newest agent turn: `pending` while a production is still running (the session is actively producing), `complete`, `failed`, or `interrupted` once it settled. Null when the session has no agent turns yet. Lets a sessions list surface a live "producing" indicator and a finished/failed outcome without opening each session — the durable-run surface's find-your-run signal (NOL-150). Sessions run independently: several sessions may be `pending` at once (up to the concurrent execution cap executing, the rest queued — see `last_turn_queued`).
+            Status of the session's newest agent turn: `pending` while a production is still running (the session is actively producing), `complete`, `failed`, or `interrupted` once it settled. Null when the session has no agent turns yet. Lets a sessions list surface a live "producing" indicator and a finished/failed outcome without opening each session — the durable-run surface's find-your-run signal. Sessions run independently: several sessions may be `pending` at once (up to the concurrent execution cap executing, the rest queued — see `last_turn_queued`).
 
         last_turn_work_observed:
           type: boolean
           nullable: true
           description: >
-            Whether the session's newest agent turn produced work: the `work_observed` verdict of that turn's reply (`false` means it completed without calling a tool or producing an asset, `true` means it did). Null while the last turn is pending or when unknown (a failed turn, a turn the platform did not evaluate, a session with no agent turns yet). Lets a sessions list say "replied" instead of "ready" for a chat that only answered, without opening its transcript (NOL-813).
+            Whether the session's newest agent turn produced work: the `work_observed` verdict of that turn's reply (`false` means it completed without calling a tool or producing an asset, `true` means it did). Null while the last turn is pending or when unknown (a failed turn, a turn the platform did not evaluate, a session with no agent turns yet). Lets a sessions list say "replied" instead of "ready" for a chat that only answered, without opening its transcript.
 
         last_turn_queued:
           type: boolean
@@ -18138,63 +17734,6 @@ components:
         content_base64:
           type: string
           description: Base64-encoded tar.gz of the ability package directory.
-    AbilityVersion:
-      type: object
-      additionalProperties: false
-      required: [version, is_latest, created_at]
-      description: One published version of an ability, for the admin version-delete picker. Versions are immutable and ordered by the semver `latest_version` rule (highest first); `is_latest` marks the version unpinned installs follow (which `deleteAbilityVersion` refuses to delete).
-      properties:
-        version:
-          type: string
-          description: Semver version.
-          examples: ['1.0.0']
-        is_latest:
-          type: boolean
-          description: True for the latest published version (the one installs follow). The latest version cannot be deleted via `deleteAbilityVersion`.
-        size_bytes:
-          type: integer
-          minimum: 0
-          description: Uncompressed size of the version's package payload in bytes, as recorded at publish time.
-          examples: [20480]
-        created_at:
-          type: string
-          format: date-time
-          description: When this version was published.
-    AbilityFiles:
-      type: object
-      additionalProperties: false
-      required: [version, files]
-      description: The unpacked contents of an ability package version, for the admin inspector.
-      properties:
-        version:
-          type: string
-          description: The version these files belong to (the latest published version).
-        files:
-          type: array
-          items:
-            $ref: '#/components/schemas/AbilityFile'
-          description: One entry per file in the package, SKILL.md and the manifest (`ability.json`) first, then the rest alphabetically by path.
-    AbilityFile:
-      type: object
-      additionalProperties: false
-      required: [path, size_bytes, is_binary]
-      properties:
-        path:
-          type: string
-          description: Slash-separated path of the file within the package.
-          examples: ['SKILL.md', 'pipeline/render.py']
-        size_bytes:
-          type: integer
-          description: Uncompressed size of the file in bytes.
-        is_binary:
-          type: boolean
-          description: True when the file is detected as binary (null bytes or invalid UTF-8); `content` is omitted for binary files.
-        content:
-          type: string
-          description: The UTF-8 file body, present only for text files. Truncated to 256 KiB when the file is larger (see `truncated`).
-        truncated:
-          type: boolean
-          description: True when `content` was truncated because the text file exceeded the 256 KiB inline cap.
     AgentInstalledAbility:
       type: object
       additionalProperties: false
@@ -18240,7 +17779,7 @@ components:
       type: object
       additionalProperties: false
       required: [abilities]
-      description: The pod's upstream visibility report (NOL-416). Carries the ability versions the pod has materialized; additive fields may join later.
+      description: The pod's upstream visibility report. Carries the ability versions the pod has materialized; additive fields may join later.
       properties:
         abilities:
           type: array
@@ -18348,96 +17887,6 @@ components:
         content_base64:
           type: string
           description: Base64-encoded tar.gz of the ability package directory (max 5 MiB decoded).
-    UpdateAbilityRequest:
-      type: object
-      additionalProperties: false
-      description: |
-        Partial in-place update of an existing ability's mutable metadata and lifecycle. Every
-        field is optional; only the fields present are changed, and any subset may be sent.
-        `visibility` still drives the hold/unhold lifecycle (flipping to `private` holds the
-        ability, `public` unholds it). The remaining fields edit catalog metadata in place —
-        they do not create a new version (package content is edited via `POST /abilities/{slug}/versions`).
-        When `access` is set, the same `premium_addon`↔`price_cents`/`interval` consistency
-        rules as publishing apply.
-      properties:
-        name:
-          type: string
-          minLength: 1
-          maxLength: 128
-          description: Display name of the ability.
-        description:
-          type: string
-          maxLength: 4000
-          description: Catalog description of the ability.
-        min_tier:
-          allOf:
-            - $ref: '#/components/schemas/AbilityMinTier'
-          description: Minimum subscription tier required to install/download the ability. Empty means free.
-        access:
-          allOf:
-            - $ref: '#/components/schemas/AbilityAccess'
-          description: Commercial access model. `premium_addon` requires `price_cents` + `interval`; `included` rejects them.
-        price_cents:
-          type: integer
-          nullable: true
-          minimum: 0
-          description: Add-on price in cents, required for `premium_addon` (and rejected for `included`). Metadata only — no purchase flow yet.
-        interval:
-          allOf:
-            - $ref: '#/components/schemas/AbilityInterval'
-          nullable: true
-          description: Billing interval of `price_cents`, required for `premium_addon` (and rejected for `included`).
-        required_env:
-          type: array
-          items:
-            type: string
-          description: Environment variables the ability expects on the agent pod.
-        credit_cost_hint:
-          type: string
-          maxLength: 500
-          description: Free-text hint of how the ability spends credits.
-        visibility:
-          $ref: '#/components/schemas/AbilityVisibility'
-    AbilityFileInput:
-      type: object
-      additionalProperties: false
-      required: [path, content]
-      description: 'A single file in an edited ability package. Binary files are carried base64-encoded (set `base64: true`); text files are sent verbatim. Unchanged files can be carried over from the latest version with `keep: true` instead of re-uploading their bytes.'
-      properties:
-        path:
-          type: string
-          description: Slash-separated path within the package (e.g. `SKILL.md`, `pipeline/render.py`). No leading slash, `.`, or `..` segments.
-          examples: ['SKILL.md', 'pipeline/render.py']
-        content:
-          type: string
-          description: File body. UTF-8 text by default, or base64-encoded bytes when `base64` is true. Must be empty when `keep` is true.
-        base64:
-          type: boolean
-          default: false
-          description: When true, `content` is base64-decoded to the file's raw bytes (used for binary files the editor round-trips unchanged). Must not be combined with `keep`.
-        keep:
-          type: boolean
-          default: false
-          description: >
-            When true, the server copies this path's bytes from the CURRENT latest version's package instead of taking them from `content` (which must be empty; `400` otherwise). `400` when the ability has no prior version or the path is not present in the latest version's package.
-
-    PublishAbilityVersionRequest:
-      type: object
-      additionalProperties: false
-      required: [version, files]
-      description: An edited file set for a new immutable version of an existing ability. The server repacks the files into a tar.gz, recomputes `has_code`, and moves `latest`. Ability metadata is preserved from the current ability.
-      properties:
-        version:
-          type: string
-          description: New semver version; must not already exist for this slug (versions are immutable). Each numeric field is capped at 18 digits so the version always orders numerically against the published set.
-          pattern: '^[0-9]{1,18}(\.[0-9]{1,18}){2}$'
-          examples: ['1.1.0']
-        files:
-          type: array
-          minItems: 1
-          items:
-            $ref: '#/components/schemas/AbilityFileInput'
-          description: The complete file set for the new version (not a diff). Repacked into the package tar.gz in the order given. Max 4096 entries, 5 MiB decoded total.
     ColorPreset:
       type: object
       required: [slug, name, description]
@@ -19124,34 +18573,6 @@ components:
       x-enum-varnames: [PresetExampleKindImage, PresetExampleKindVideo, PresetExampleKindAudio]
       description: >-
         Media kind of an example's source, recorded when its durable media is derived. `image` and `video` examples carry a poster; an `audio` example carries only `media_url` (a durable copy of the track) and is rendered as a player.
-    PresetExampleInput:
-      type: object
-      additionalProperties: false
-      required: [caption]
-      description: >-
-        One example output on the admin upsert. Exactly one of `asset_id` (a platform asset: a generated image or video) or `render_id` (a composition render; its output asset is what gets served) must be set, and it must exist. Captions and prompts are customer copy, so the no-em-dash rule applies to both.
-      properties:
-        asset_id:
-          type: string
-          format: uuid
-          nullable: true
-          description: Platform asset this example shows. Mutually exclusive with `render_id`.
-        render_id:
-          type: string
-          format: uuid
-          nullable: true
-          description: Composition render whose output this example shows. Mutually exclusive with `asset_id`.
-        caption:
-          type: string
-          minLength: 1
-          maxLength: 280
-          description: One line under the example saying what it is.
-          examples: ['Sneaker drop teaser, 9:16, generated from a single product photo']
-        prompt:
-          type: string
-          nullable: true
-          maxLength: 4000
-          description: The prompt that produced this example, shown to the customer so they can start from it.
     PresetExample:
       type: object
       additionalProperties: false
@@ -19189,138 +18610,6 @@ components:
           description: >-
             Durable playable media for the example. For a `video` example a silent preview clip (full source duration, at most 720p, faststart): load with `preload="none"` and `poster_url` as the poster. For an `audio` example a durable copy of the track in its source container (`preview.mp3`, `preview.wav`, ...): render it with a native audio player, `preload="metadata"`, no autoplay. `null` for image examples (the poster IS the media) and until derived.
           examples: ['https://nolgia.ai/preset-media/v2/3f/3f9c…/preview.mp4', 'https://nolgia.ai/preset-media/v2/3f/3f9c…/preview.mp3']
-    UpsertPresetRequest:
-      type: object
-      additionalProperties: false
-      required: [slug, name, output_type, target]
-      description: >-
-        Create-or-update payload for a preset. Posting an existing slug overwrites its content fields with this body (omitted optional content fields reset to their defaults) — presets are mutable metadata, there are no versions. The lifecycle fields (`sort_order`, `visibility`, `featured`) are the exception: omitting one preserves the existing row's curated value instead of resetting it, and applies the default (`0` / `private` / `false`) only when the preset is first created.
-      properties:
-        prompt_doctrine:
-          type: string
-          nullable: true
-          maxLength: 12000
-          description: >-
-            Admin authored craft doctrine: the contract blocks STYLE, OPTICS, LIGHTING, REALISM LOCK and OUTPUT SETTINGS under which assembly writes the final prompt. Omitted preserves; null or empty clears. A child without its own inherits its parent's doctrine.
-        slug:
-          type: string
-          pattern: '^[a-z0-9][a-z0-9-]{0,63}$'
-          examples: ['ugc-ad']
-        name:
-          type: string
-          minLength: 1
-          maxLength: 128
-        description:
-          type: string
-          maxLength: 4000
-        best_for:
-          type: string
-          maxLength: 500
-        output_type:
-          $ref: '#/components/schemas/PresetOutputType'
-        estimated_time:
-          type: string
-          maxLength: 100
-        estimated_credits:
-          type: string
-          maxLength: 100
-        recommended_models:
-          type: array
-          items:
-            type: string
-        thumbnail_url:
-          type: string
-          nullable: true
-          description: >-
-            Optional literal preview media URL (self-hosted). Superseded by `preview_asset_id` when both are set. Prefer `preview_asset_id` (a dogfooded platform asset) — agent-authored presets must use it.
-        preview_asset_id:
-          type: string
-          format: uuid
-          nullable: true
-          description: >-
-            Optional platform asset (a generated image or short video) dogfooded as this preset's card preview; resolved to a fresh signed URL at read time and surfaced as `thumbnail_url`. Wins over a literal `thumbnail_url`. REQUIRED for agent-authored presets (X-Nolgia-Surface: hermes) — a human upsert may omit it.
-        ability_slug:
-          type: string
-          nullable: true
-          pattern: '^[a-z0-9][a-z0-9-]{0,63}$'
-        guardrails:
-          type: string
-          maxLength: 4000
-          description: >-
-            Style/scope constraints phrased as instructions to a creative agent, injected into turns of chat sessions created under this preset. Defaults to empty when omitted.
-        target:
-          $ref: '#/components/schemas/PresetTarget'
-        page_category:
-          allOf:
-            - $ref: '#/components/schemas/PresetPageCategory'
-          description: >-
-            The /presets page section (round 39, TASK 7). Omit to keep an existing preset's current category (defaults to empty on first create); send '' explicitly to clear it.
-        options:
-          type: array
-          nullable: true
-          maxItems: 24
-          items:
-            $ref: '#/components/schemas/PresetOption'
-          description: >-
-            Customer-visible pick-one chips. Omit to keep an existing preset's current options (defaults to none on first create); send [] explicitly to clear them. Option copy is customer-facing — the no-em-dash rule applies.
-        long_description:
-          type: string
-          nullable: true
-          maxLength: 8000
-          description: >-
-            Long-form customer copy for the preset page (markdown-lite, see `Preset.long_description`). Authored once in the admin panel, so it follows the preserve-on-omit rule of `page_category` and `options`: omit to keep an existing preset's copy (defaults to empty on first create); send '' explicitly to clear it. The no-em-dash rule applies.
-        use_cases:
-          type: array
-          nullable: true
-          maxItems: 12
-          items:
-            type: string
-            minLength: 1
-            maxLength: 200
-          description: >-
-            Customer-facing use cases, one line each. Omit to keep an existing preset's list (defaults to none on first create); send [] explicitly to clear it. The no-em-dash rule applies.
-        examples:
-          type: array
-          nullable: true
-          maxItems: 12
-          items:
-            $ref: '#/components/schemas/PresetExampleInput'
-          description: >-
-            Example outputs, each a platform asset or a composition render with a caption and optionally the prompt that made it. Omit to keep an existing preset's examples (defaults to none on first create); send [] explicitly to clear them. Every referenced asset or render must exist (400 otherwise). The durable `poster_url` / `media_url` are derived after the write by the preset-media pipeline; do not send them.
-        model_ids:
-          type: array
-          nullable: true
-          maxItems: 12
-          items:
-            type: string
-          description: >-
-            Machine ids of the models the preset runs on. Each must be a model id published by `GET /models` (400 names the first unknown one). Omit to keep an existing preset's list (defaults to none on first create); send [] explicitly to clear it.
-          examples: [['veo-3.1', 'gpt-image-2']]
-        intake:
-          allOf:
-            - $ref: '#/components/schemas/PresetIntake'
-          nullable: true
-          description: >-
-            The guided intake flow. Omit to keep an existing preset's flow (none on first create); send `null` to clear it; send an object to validate it against the target THIS body declares (and the card options this body carries, or the stored ones when omitted) and write it. Refused with `400` naming the step id and the reason.
-        parent_slug:
-          type: string
-          pattern: '^$|^[a-z0-9][a-z0-9-]{0,63}$'
-          description: >-
-            Family link. Omit to keep an existing preset's current parent (`null` on first create); send `""` to make the preset a root; send a slug to file it under that parent. Refused with `400` when the parent does not exist, and with `409` when it would make the tree deeper than two levels (the named parent is itself a child, or this preset has children of its own) or when a PUBLIC preset would be filed under a PRIVATE parent (publish the parent first, or hold the child).
-          examples: ['logo-racetrack']
-        sort_order:
-          type: integer
-          description: >-
-            Ascending display order. Lifecycle field: omit to keep an existing preset's current position; defaults to `0` on first create.
-        visibility:
-          allOf:
-            - $ref: '#/components/schemas/PresetVisibility'
-          description: >-
-            Lifecycle field: omit to keep an existing preset's current visibility (an omitted value never unpublishes a public preset); defaults to `private` on first create — publish explicitly with `public`.
-        featured:
-          type: boolean
-          description: >-
-            Marks the preset for the /presets page's featured rail. Lifecycle field: omit to keep an existing preset's current flag; defaults to `false` on first create. Clear it by sending `false` explicitly.
     PresetParentRef:
       type: object
       additionalProperties: false
@@ -20049,64 +19338,6 @@ components:
           type: string
           description: The brain that wrote the suggestions.
           examples: ['deepseek-v4-flash']
-    UpdatePresetRequest:
-      type: object
-      additionalProperties: false
-      description: Lifecycle update for an existing preset. The mutable fields are `visibility` (hold/unhold, mirroring abilities), `featured` (the featured-rail curation flag) and `sort_order` (the rail/catalog display position); at least one must be provided. Everything else is edited by re-POSTing `/presets`.
-      properties:
-        visibility:
-          $ref: '#/components/schemas/PresetVisibility'
-        featured:
-          type: boolean
-          description: Sets (`true`) or clears (`false`) the preset's featured flag when provided.
-        sort_order:
-          type: integer
-          description: >-
-            Ascending display order on the /presets page and in the featured rail. Provided alone this reorders the preset without touching its visibility or featured flag, so ordering the rail no longer needs a full-overwrite `POST /presets`. Omit to leave the position unchanged.
-    UpdatePresetPageRequest:
-      type: object
-      additionalProperties: false
-      description: >-
-        Page-content update for an existing preset. Carries ONLY the page-authored fields; the card copy and the lifecycle trio are out of reach here by construction, which is what makes this route safe to expose to the agent against a live preset. At least one field must be provided; an omitted field preserves what is stored, an explicit empty value clears it.
-      properties:
-        prompt_doctrine:
-          type: string
-          nullable: true
-          maxLength: 12000
-          description: >-
-            Admin authored craft doctrine: the contract blocks STYLE, OPTICS, LIGHTING, REALISM LOCK and OUTPUT SETTINGS under which assembly writes the final prompt. Omitted preserves; null or empty clears. A child without its own inherits its parent's doctrine.
-        long_description:
-          type: string
-          maxLength: 8000
-          description: >-
-            Long-form customer copy for the preset page (markdown-lite: paragraphs, `**bold**`, `-` bullets; no headings, links or raw HTML). `""` clears it, and the page falls back to `description`.
-        use_cases:
-          type: array
-          maxItems: 12
-          description: One line of copy per entry. `[]` clears the list.
-          items:
-            type: string
-            maxLength: 200
-        examples:
-          type: array
-          maxItems: 12
-          description: >-
-            Example outputs by reference. Each names exactly one existing `asset_id` or `render_id`; the served media is DERIVED, never resolved at read time. `[]` clears the list.
-          items:
-            $ref: '#/components/schemas/PresetExampleInput'
-        model_ids:
-          type: array
-          maxItems: 12
-          description: >-
-            Machine model ids as published by `GET /models`, validated against the registry on write. `[]` clears the list.
-          items:
-            type: string
-        intake:
-          allOf:
-            - $ref: '#/components/schemas/PresetIntake'
-          nullable: true
-          description: >-
-            The guided intake flow (2026-09-10). Omitted preserves the stored flow, `null` clears it, an object is validated against the preset's STORED target and card options and written. This is how a LIVE preset gets its flow authored. Refused with `400` naming the step id and the reason.
     AgentDashboardTicket:
       type: object
       additionalProperties: false
