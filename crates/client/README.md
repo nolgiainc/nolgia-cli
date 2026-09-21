@@ -6,6 +6,8 @@ Rust API client for `nolgia-api`, generated from `openapi.yaml` with Progenitor.
 
 - Re-exports the generated `Client`, `types`, `Error`, and `ResponseValue` types.
 - Re-exports `tokio` and `serde_json` so one `cargo add` is the whole install.
+- `ClientExt::download` / `download_bytes` fetch a finished asset, so no HTTP
+  crate of your own is needed to save what you generated.
 - `client()` / `ClientBuilder::from_env()` build an authenticated client from
   `NOLGIA_TOKEN` and `NOLGIA_API_URL`.
 - Provides `ClientBuilder` for convenient base URL normalization and optional auth.
@@ -19,7 +21,8 @@ cargo add nolgia-client
 
 That is the whole install. The crate re-exports the async runtime
 (`nolgia_client::tokio`) and `serde_json` (`nolgia_client::json!`,
-`nolgia_client::Value`), so the example below needs no second crate.
+`nolgia_client::Value`), and downloads finished assets itself, so the example
+below runs end to end with no second crate.
 
 ## Quickstart
 
@@ -27,7 +30,7 @@ That is the whole install. The crate re-exports the async runtime
 `NOLGIA_API_URL`.
 
 ```rust
-use nolgia_client::tokio;
+use nolgia_client::{ClientExt, tokio};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -39,13 +42,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Default::default(),
     )
     .await?;
-    println!("{}", result.url.unwrap_or_default());
+    nolgia.download(&result.url.unwrap_or_default(), "first.png").await?;
     Ok(())
 }
 ```
 
-From a synchronous `fn main`, `nolgia_client::rt::block_on(future)` runs one
-call without naming tokio at all.
+`use nolgia_client::tokio;` is what makes `#[tokio::main]` resolve: the
+attribute expands to a bare `tokio`, so the re-export satisfies it once it is
+in scope. `#[nolgia_client::rt::main(crate = "nolgia_client::tokio")]` is the
+equivalent with no `use`, and from a synchronous `fn main`,
+`nolgia_client::rt::block_on(future)` runs one call without naming tokio at
+all.
+
+## Downloading what you generated
+
+```rust
+// Streams to disk through a sibling `first.png.part`, renamed into place only
+// once the last byte arrives, and returns the number of bytes written.
+let bytes = nolgia.download(&asset.signed_url, "first.png").await?;
+// Or into memory:
+let data = nolgia.download_bytes(&asset.signed_url).await?;
+```
+
+Your bearer token is sent only when the URL is on the same origin as the
+client's base URL. An `asset.signed_url` points at a storage host and carries
+its own credential in the query string, so it is fetched anonymously — and
+that query string never appears in an error message.
 
 ## Usage
 
