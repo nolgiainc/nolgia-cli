@@ -5,6 +5,14 @@ the matching GitHub release.
 
 ## Unreleased
 
+- **Supported platforms, stated plainly.** macOS binaries are universal and run
+  everywhere. Linux binaries require **glibc 2.38 or newer** and the system
+  `libdbus-1.so.3` library, so they do not run on Debian 12, Ubuntu 22.04 or
+  slim container images; use `cargo install nolgia-cli` there for now.
+  The installer no longer reports success when the binary it installed cannot
+  start — it prints the loader error and exits non-zero — and a re-run over a
+  binary that cannot execute now repairs the install instead of ending
+  silently. Static Linux builds that depend on nothing are coming next.
 - **A Rust project needs only `cargo add nolgia-client`.** The crate now
   re-exports the async runtime (`nolgia_client::tokio`, plus
   `nolgia_client::rt::block_on` for a synchronous `main`) and `serde_json`

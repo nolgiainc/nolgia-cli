@@ -43,6 +43,10 @@ The installer picks the binary for your platform (macOS universal; Linux x86_64 
 Downloads are checked against the release's `SHA256SUMS` using the first available `sha256sum`, `shasum`, or `openssl`; mismatches or missing asset entries fail, while older releases without sums and machines without a digest tool receive a notice and continue.
 Every successful run ends stdout with `export PATH="<PREFIX>:$PATH"`; run that line in your current shell to use the binary immediately, including after a no-op reinstall.
 
+#### Supported platforms
+
+macOS (universal, 11+) works everywhere. **Linux binaries currently require glibc 2.38 or newer**, so they run on Ubuntu 24.04, Debian 13 (trixie) and Fedora 39+, but **not** on Debian 12 (bookworm), Ubuntu 22.04, or most slim container images — the binary cannot start there at all. They also link `libdbus-1.so.3`, which minimal images do not ship, even though the OS keyring is opt-in and the default token store is a `0600` file. If the installer reports that the binary does not run on your machine, this is why. Statically linked Linux builds that depend on nothing are tracked in NOL-1070; until then use `cargo install nolgia-cli` on those systems, which builds against your own glibc (it needs `pkg-config` and `libdbus-1-dev`).
+
 This command executes a script fetched from the repository's `main` branch and then downloads a release binary. If your environment requires review or provenance checks, save and inspect `install.sh` first and pin the binary with `--tag`; on macOS the script removes the downloaded binary's quarantine attribute so it can run.
 
 ### npm
