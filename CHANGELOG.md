@@ -5,6 +5,25 @@ the matching GitHub release.
 
 ## Unreleased
 
+## v0.2.31
+
+- **`cargo add nolgia-client` now runs the whole quickstart, download and all.**
+  The crate can fetch a finished asset itself: `client.download(url, path)`
+  saves it to disk and `client.download_bytes(url)` returns it in memory, so a
+  first Rust program no longer needs an HTTP crate of its own. The download
+  streams through a sibling `<path>.part` and is renamed into place only once
+  the last byte arrives, so an interrupted video leaves no truncated file that
+  looks finished. Your bearer token is sent only when the URL is on the same
+  origin as the API — an `asset.signed_url` points at storage and carries its
+  own credential, so it is fetched anonymously — and a URL's query string never
+  reaches an error message. An expired signed URL now says it expired.
+- **An `async fn main` that compiles the first time.** `use nolgia_client::tokio;`
+  with `#[tokio::main]` is the short form; `#[nolgia_client::rt::main(crate =
+  "nolgia_client::tokio")]` needs no `use` at all, and `rt::block_on` runs one
+  future from a synchronous `fn main`. All three are documented on
+  `nolgia_client::rt`, along with why the bare `#[nolgia_client::rt::main]`
+  cannot work.
+
 ## v0.2.30
 
 - **The Linux binaries now run everywhere.** They are statically linked musl
