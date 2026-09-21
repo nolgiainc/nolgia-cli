@@ -30,6 +30,7 @@ REPO="nolgiainc/nolgia-cli"
 PREFIX=""
 TAG=""
 SYSTEM=0
+fallback_asset=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -64,12 +65,18 @@ case "$os" in
     asset="nolgia-x86_64-apple-darwin"
     ;;
   Linux)
+    # Since v0.2.30 the Linux assets are statically linked musl builds that
+    # depend on nothing (NOL-1070). The historical -gnu name is still published
+    # as the same bytes, and is the only name older releases carry, so it is the
+    # fallback when --tag points at one of those.
     case "$arch" in
       x86_64 | amd64)
-        asset="nolgia-x86_64-unknown-linux-gnu"
+        asset="nolgia-x86_64-unknown-linux-musl"
+        fallback_asset="nolgia-x86_64-unknown-linux-gnu"
         ;;
       aarch64 | arm64)
-        asset="nolgia-aarch64-unknown-linux-gnu"
+        asset="nolgia-aarch64-unknown-linux-musl"
+        fallback_asset="nolgia-aarch64-unknown-linux-gnu"
         ;;
       *)
         echo "no prebuilt binary for Linux/$arch yet; install with: cargo install nolgia-cli" >&2
@@ -190,7 +197,14 @@ if [ -n "${NOLGIA_INSTALL_SOURCE:-}" ]; then
 else
   url="$BASE/$asset"
   echo "downloading nolgia $TAG ($asset)..."
-  if ! curl -fL --progress-bar "$url" -o "$tmp/nolgia"; then
+  if ! curl -fL --progress-bar "$url" -o "$tmp/nolgia" && [ -n "$fallback_asset" ]; then
+    echo "$asset is not in nolgia $TAG; trying $fallback_asset..."
+    asset="$fallback_asset"
+    fallback_asset=""
+    url="$BASE/$asset"
+    curl -fL --progress-bar "$url" -o "$tmp/nolgia" || true
+  fi
+  if [ ! -s "$tmp/nolgia" ]; then
     echo "could not download $asset for nolgia $TAG" >&2
     echo "the release may predate a build for $os/$arch (Linux and Windows arm64 builds start after v0.2.26); install with: cargo install nolgia-cli (or pass --tag for a newer release)" >&2
     exit 1

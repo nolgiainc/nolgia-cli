@@ -247,6 +247,25 @@ jobs:
         if: needs.detect.outputs.code != 'false'
         run: cargo fmt --all -- --check
 
+      # NOL-1070: the released Linux binary once installed fine and then could
+      # not start (libdbus-1.so.3 missing, glibc 2.38 floor). Nothing caught it
+      # because CI builds and runs on a machine that has both. Build the real
+      # release configuration and start it inside the oldest image we support.
+      - name: Linux binary starts on debian:bookworm-slim
+        if: needs.detect.outputs.code != 'false'
+        run: |
+          set -euo pipefail
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends musl-tools
+          rustup target add x86_64-unknown-linux-musl
+          RUSTFLAGS="-C target-feature=+crt-static" \
+            cargo build --release --target x86_64-unknown-linux-musl \
+            --bin nolgia --locked --no-default-features
+          BIN=target/x86_64-unknown-linux-musl/release/nolgia
+          if ldd "$BIN" 2>&1 | grep -q "=>"; then
+            echo "::error::the Linux binary is dynamically linked (NOL-1070)"; ldd "$BIN"; exit 1
+          fi
+          docker run --rm -v "$PWD/$BIN:/nolgia:ro" debian:bookworm-slim /nolgia --version
+
       - name: Test install.sh (hermetic sandbox, no network)
         if: needs.detect.outputs.code != 'false'
         run: bash tests/install_sh_test.sh

@@ -128,8 +128,8 @@ chmod 700 "$sandbox/readonly"
 # 5. Resolve assets independently of the host platform, without downloading.
 for arch in aarch64 arm64 x86_64; do
   case "$arch" in
-    aarch64 | arm64) asset="nolgia-aarch64-unknown-linux-gnu" ;;
-    x86_64) asset="nolgia-x86_64-unknown-linux-gnu" ;;
+    aarch64 | arm64) asset="nolgia-aarch64-unknown-linux-musl" ;;
+    x86_64) asset="nolgia-x86_64-unknown-linux-musl" ;;
   esac
   prefix="$sandbox/home/linux-$arch"
   if out=$(env -i HOME="$sandbox/home" SHELL=/bin/zsh PATH="$test_path" \
@@ -203,7 +203,9 @@ for response in no-tag missing; do
     'could not resolve the latest release tag; pass one with --tag vX.Y.Z' <<<"$out"
 done
 
-asset="nolgia-x86_64-unknown-linux-gnu"
+# The checksum cases run with NOLGIA_INSTALL_OS/ARCH forced to Linux/x86_64,
+# which now selects the static musl asset (NOL-1070).
+asset="nolgia-x86_64-unknown-linux-musl"
 if command -v sha256sum >/dev/null 2>&1; then
   digest=$(sha256sum "$sandbox/fake-nolgia" | awk '{print $1}')
 elif command -v shasum >/dev/null 2>&1; then

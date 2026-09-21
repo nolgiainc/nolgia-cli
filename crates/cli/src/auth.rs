@@ -19,6 +19,9 @@ use tokio::time::Instant;
 
 use crate::output::{OutputContext, OutputFormat, print_json};
 
+// Only the keyring backend names these; a keyring-less build keeps them so
+// the two configurations stay one source of truth (NOL-1070).
+#[cfg_attr(not(feature = "keyring"), allow(dead_code))]
 pub const SERVICE_NAME: &str = "com.nolgiainc.nolgia";
 /// Pre-rename keyring service name. This is the ONLY remaining reference to
 /// the old org identifier, and it exists solely so `KeyringTokenStore::load`
@@ -26,8 +29,17 @@ pub const SERVICE_NAME: &str = "com.nolgiainc.nolgia";
 /// service into `SERVICE_NAME` — otherwise the rename would silently log out
 /// users who opted into the keyring store. Safe to delete once users have
 /// upgraded past this release.
+// Only the keyring backend names these; a keyring-less build keeps them so
+// the two configurations stay one source of truth (NOL-1070).
+#[cfg_attr(not(feature = "keyring"), allow(dead_code))]
 const LEGACY_SERVICE_NAME: &str = "com.nolgiacorp.nolgia";
+// Only the keyring backend names these; a keyring-less build keeps them so
+// the two configurations stay one source of truth (NOL-1070).
+#[cfg_attr(not(feature = "keyring"), allow(dead_code))]
 pub const ACCESS_TOKEN_ACCOUNT: &str = "access_token";
+// Only the keyring backend names these; a keyring-less build keeps them so
+// the two configurations stay one source of truth (NOL-1070).
+#[cfg_attr(not(feature = "keyring"), allow(dead_code))]
 pub const REFRESH_TOKEN_ACCOUNT: &str = "refresh_token";
 const TOKENS_FILE: &str = "tokens.json";
 const KEYRING_MIGRATION_MARKER: &str = ".keyring-migration-done";
@@ -324,6 +336,7 @@ pub trait TokenStore: Send + Sync {
 #[derive(Clone, Copy, Debug, Default)]
 pub struct KeyringTokenStore;
 
+#[cfg(feature = "keyring")]
 impl TokenStore for KeyringTokenStore {
     fn load(&self) -> std::result::Result<Option<StoredTokens>, AuthError> {
         match load_current_keyring()? {
@@ -358,6 +371,32 @@ impl TokenStore for KeyringTokenStore {
         Ok(())
     }
 }
+
+/// Built without the `keyring` feature: there is no OS keyring in this binary.
+///
+/// `load` reports "nothing stored" so the default file store's one-time
+/// migration read is a silent no-op, exactly as it is on a machine whose
+/// keyring is empty. Writing is a clear refusal rather than silent data loss,
+/// because a caller that asked for the keyring store must not be told its
+/// token was saved somewhere it was not.
+#[cfg(not(feature = "keyring"))]
+impl TokenStore for KeyringTokenStore {
+    fn load(&self) -> std::result::Result<Option<StoredTokens>, AuthError> {
+        Ok(None)
+    }
+
+    fn save(&self, _tokens: &StoredTokens) -> std::result::Result<(), AuthError> {
+        Err(AuthError::Keyring(NO_KEYRING_SUPPORT.to_string()))
+    }
+
+    fn delete(&self) -> std::result::Result<(), AuthError> {
+        Err(AuthError::Keyring(NO_KEYRING_SUPPORT.to_string()))
+    }
+}
+
+#[cfg(not(feature = "keyring"))]
+const NO_KEYRING_SUPPORT: &str = "this build has no OS keyring support, so NOLGIA_TOKEN_STORE=keyring cannot be \
+     honored; unset it to use the default token file (0600, like gh and gcloud)";
 
 /// File-backed token store: `$XDG_CONFIG_HOME/nolgia/tokens.json` (default
 /// `~/.config/nolgia/tokens.json`), written `0600` in a `0700` directory.
@@ -1039,10 +1078,12 @@ fn normalize_base_url(base_url: &str) -> String {
     }
 }
 
+#[cfg(feature = "keyring")]
 fn entry(account: &str) -> std::result::Result<keyring::Entry, AuthError> {
     keyring::Entry::new(SERVICE_NAME, account).map_err(|err| AuthError::Keyring(err.to_string()))
 }
 
+#[cfg(feature = "keyring")]
 fn delete_entry(account: &str) -> std::result::Result<(), AuthError> {
     match entry(account)?.delete_credential() {
         Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
@@ -1050,11 +1091,13 @@ fn delete_entry(account: &str) -> std::result::Result<(), AuthError> {
     }
 }
 
+#[cfg(feature = "keyring")]
 fn legacy_entry(account: &str) -> std::result::Result<keyring::Entry, AuthError> {
     keyring::Entry::new(LEGACY_SERVICE_NAME, account)
         .map_err(|err| AuthError::Keyring(err.to_string()))
 }
 
+#[cfg(feature = "keyring")]
 fn delete_legacy_entry(account: &str) -> std::result::Result<(), AuthError> {
     match legacy_entry(account)?.delete_credential() {
         Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
@@ -1064,6 +1107,7 @@ fn delete_legacy_entry(account: &str) -> std::result::Result<(), AuthError> {
 
 /// Serializes the access entry's payload: every field except the refresh token,
 /// which lives in its own entry.
+#[cfg(feature = "keyring")]
 fn access_entry_payload(tokens: &StoredTokens) -> std::result::Result<String, AuthError> {
     let mut access_only = tokens.clone();
     access_only.refresh_token = None;
@@ -1072,6 +1116,7 @@ fn access_entry_payload(tokens: &StoredTokens) -> std::result::Result<String, Au
 
 /// Reads the tokens stored under the current `SERVICE_NAME`, without touching
 /// the legacy service. `Ok(None)` means there is no access-token entry.
+#[cfg(feature = "keyring")]
 fn load_current_keyring() -> std::result::Result<Option<StoredTokens>, AuthError> {
     let access_json = match entry(ACCESS_TOKEN_ACCOUNT)?.get_password() {
         Ok(value) => value,
@@ -1093,6 +1138,7 @@ fn load_current_keyring() -> std::result::Result<Option<StoredTokens>, AuthError
 /// `LEGACY_SERVICE_NAME`, they are re-homed under the current service and the
 /// legacy entries are removed, so a keyring user is not logged out by the
 /// rename. Returns `Ok(None)` when there is nothing under either service.
+#[cfg(feature = "keyring")]
 fn migrate_legacy_keyring() -> std::result::Result<Option<StoredTokens>, AuthError> {
     let access_json = match legacy_entry(ACCESS_TOKEN_ACCOUNT)?.get_password() {
         Ok(value) => value,
@@ -1151,6 +1197,7 @@ fn migrate_legacy_keyring() -> std::result::Result<Option<StoredTokens>, AuthErr
 /// Errors are returned rather than ignored: if the partial entry cannot be
 /// confirmed gone it keeps shadowing the legacy credentials, which is the
 /// `MissingRefreshToken` dead end the rollback exists to prevent.
+#[cfg(feature = "keyring")]
 fn roll_back_partial_migration(
     access_payload: &str,
     refresh_token: Option<&str>,
