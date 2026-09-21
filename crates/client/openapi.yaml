@@ -10077,6 +10077,13 @@ components:
           description: >-
             Mirrors `image.inpaint_mask` from `GET /models`: this model can edit only PART of an image, guided by a mask. It is published here — on an endpoint that otherwise carries pricing only — for the same reason `aspect_ratios` is: a public page has to be able to say what a model can do before anyone signs in, and the answer must come from the catalog rather than from a second hand-kept list. It is a capability flag, never a price: a masked edit costs exactly what the same model's ordinary generation costs. Absent on every non-image model, and on any model that cannot take a mask.
           examples: [true]
+        capabilities:
+          type: array
+          description: >-
+            Mirrors `Model.capabilities`: the video capability CLASSES this model exists to serve, as opposed to the individual inputs it accepts. Published here for the same reason `aspect_ratios` and `inpaint_mask` are, and the reason is sharper for this field than for either of them: a public playground has to know that a model is a lip-sync engine before it offers a prompt box, because `lip_sync` means a portrait plus a voice track rather than a sentence, and a form generated without it would ask for the wrong thing entirely. Absent for the plain generation models, which is nearly all of them.
+          items:
+            $ref: '#/components/schemas/VideoCapabilityTag'
+          examples: [['lip_sync']]
     ProviderStatusList:
       type: object
       additionalProperties: false
@@ -11457,6 +11464,8 @@ components:
       enum: ['16:9', '9:16', '1:1', '4:3', '3:4', '3:2', '2:3', '21:9', '9:21', '2:1', '1:2', '5:4', '4:5', '3:1', '1:3', '4:1', '1:4']
     AspectRatio:
       type: string
+      description: >-
+        The shape of the rendered clip. Only the values in the selected model's `video.aspect_ratios` are accepted; anything else is a `400`. The choice never changes the price.
       enum: ['16:9', '9:16', '1:1', '4:3', '3:4', '3:2', '2:3', '21:9']
     BitrateMode:
       type: string
@@ -11718,11 +11727,15 @@ components:
         aspect_ratio:
           $ref: '#/components/schemas/ImageAspectRatio'
         num_images:
+          description: >-
+            How many images to render from this one request. Each one is billed, so four images cost four times one. The ceiling is per-model (`image.num_images_max`); most models allow four.
           type: integer
           minimum: 1
           maximum: 4
           default: 1
         seed:
+          description: >-
+            Reproducibility seed. The same seed with the same prompt and settings gives the same image on a model whose provider honors one; omit it for a different result every time. Not every provider honors it.
           type: integer
           nullable: true
           minimum: 0
@@ -11888,6 +11901,8 @@ components:
           examples: ['5a2f7c58-9e5a-4f1a-9c7f-2f0b6c3d1e42']
     AudioFormat:
       type: string
+      description: >-
+        Container for the returned audio file. `mp3` is the default and the smallest; `wav` and `flac` are lossless and much larger. The format does not change what the model renders, and it never changes the price.
       enum: [mp3, wav, ogg, flac]
     GenerateAudioRequest:
       type: object
@@ -12040,6 +12055,8 @@ components:
           description: >-
             Text prompt. On reference-to-video models, address the supplied references as `@Video1`..`@Video3` and `@Image1`..`@Image9`, and optionally use `[0-3s]`-style timeline markers to time actions; these tokens are passed through verbatim (including inside multi-shot `shots[]` prompts).
         negative_prompt:
+          description: >-
+            What to keep OUT of the clip. Phrase it as the thing itself ("text overlay", "camera shake"), not as an instruction not to do it. Providers differ in how much weight they give it and several ignore it entirely; it never changes the price.
           type: string
           nullable: true
           maxLength: 4000
