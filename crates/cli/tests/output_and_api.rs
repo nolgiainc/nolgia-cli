@@ -60,6 +60,51 @@ fn document(assertion: &assert_cmd::assert::Assert) -> Value {
 }
 
 #[tokio::test]
+async fn offline_masks_example_uses_selected_output_and_preserves_default_json() {
+    let api = MockServer::start().await;
+    for flag in ["--json", "--output=json"] {
+        cmd(&api)
+            .args(["masks", "example", "polygon", flag])
+            .assert()
+            .success()
+            .stdout(concat!(
+                "{\n",
+                "  \"shape\": \"polygon\",\n",
+                "  \"points\": [[0, 0], [100, 0], [50, 100]],\n",
+                "  \"feather\": 8\n",
+                "}\n"
+            ));
+    }
+    for (args, expected) in [
+        (vec!["--field", "shape"], "polygon\n"),
+        (vec!["--field", "points[2][1]"], "100\n"),
+        (
+            vec!["--field", "shape", "--output", "json"],
+            "\"polygon\"\n",
+        ),
+        (
+            vec!["--field", "points[0]", "--output", "table"],
+            "VALUE\n0\n0\n",
+        ),
+        (vec!["--field", "points[0]", "--output", "value"], "[0,0]\n"),
+    ] {
+        cmd(&api)
+            .args(["masks", "example", "polygon"])
+            .args(args)
+            .assert()
+            .success()
+            .stdout(expected);
+    }
+    cmd(&api)
+        .args(["masks", "example", "polygon", "--field", "missing"])
+        .assert()
+        .failure()
+        .stdout("")
+        .stderr(predicate::str::contains("field \"missing\" not found"));
+    assert!(api.received_requests().await.unwrap().is_empty());
+}
+
+#[tokio::test]
 async fn status_and_jobs_get_select_signed_url_before_or_after_subcommand() {
     let api = MockServer::start().await;
     respond(&api, "GET", &format!("/v1/jobs/{JOB_ID}"), 200, job_json()).await;
@@ -578,6 +623,32 @@ async fn live_job_report_ignores_field_and_table_selection() {
     assert_eq!(body["job_id"], JOB_ID);
     assert_eq!(body["outcome"], "still_running");
     assert_eq!(body["billed_twice"], false);
+}
+
+#[tokio::test]
+async fn accepted_generation_keeps_job_id_when_no_wait_field_selection_fails() {
+    let api = MockServer::start().await;
+    let mut queued = job_json();
+    queued["status"] = json!("queued");
+    queued["asset"] = Value::Null;
+    respond(&api, "POST", "/v1/generate/image", 202, queued).await;
+    let result = cmd(&api)
+        .args([
+            "gen",
+            "image",
+            "--prompt",
+            "a cat",
+            "--no-wait",
+            "--field",
+            "id",
+        ])
+        .assert()
+        .code(75)
+        .stderr(predicate::str::contains("field \"id\" not found"));
+    let body = document(&result);
+    assert_eq!(body["job_id"], JOB_ID);
+    assert_eq!(body["outcome"], "detached");
+    assert_eq!(api.received_requests().await.unwrap().len(), 1);
 }
 
 #[tokio::test]

@@ -102,7 +102,7 @@ async fn list(ctx: &CommandContext) -> Result<()> {
         .context("listing projects")?
         .into_inner();
     match ctx.format() {
-        OutputFormat::Json => print_json(&list),
+        OutputFormat::Json => print_json(ctx.output(), &list),
         OutputFormat::Text => {
             for project in list.projects {
                 print_project_line(&project);
@@ -122,7 +122,7 @@ async fn get(args: GetProjectArgs, ctx: &CommandContext) -> Result<()> {
         .context("fetching project")?
         .into_inner();
     match ctx.format() {
-        OutputFormat::Json => print_json(&project),
+        OutputFormat::Json => print_json(ctx.output(), &project),
         OutputFormat::Text => {
             print_project_line(&project);
             Ok(())
@@ -157,7 +157,7 @@ async fn create(args: CreateProjectArgs, ctx: &CommandContext) -> Result<()> {
         .context("creating project")?
         .into_inner();
     match ctx.format() {
-        OutputFormat::Json => print_json(&project),
+        OutputFormat::Json => print_json(ctx.output(), &project),
         OutputFormat::Text => {
             print_project_line(&project);
             Ok(())
@@ -213,7 +213,7 @@ async fn update(args: UpdateProjectArgs, ctx: &CommandContext) -> Result<()> {
         .context("updating project")?
         .into_inner();
     match ctx.format() {
-        OutputFormat::Json => print_json(&project),
+        OutputFormat::Json => print_json(ctx.output(), &project),
         OutputFormat::Text => {
             print_project_line(&project);
             Ok(())
@@ -229,7 +229,10 @@ async fn delete(args: DeleteProjectArgs, ctx: &CommandContext) -> Result<()> {
         .await
         .context("deleting project")?;
     match ctx.format() {
-        OutputFormat::Json => print_json(&serde_json::json!({ "deleted": args.project_id })),
+        OutputFormat::Json => print_json(
+            ctx.output(),
+            &serde_json::json!({ "deleted": args.project_id }),
+        ),
         OutputFormat::Text => {
             println!("deleted {}", args.project_id);
             Ok(())
@@ -250,10 +253,13 @@ async fn add_assets(args: AddAssetsArgs, ctx: &CommandContext) -> Result<()> {
         .await
         .context("adding assets to project")?;
     match ctx.format() {
-        OutputFormat::Json => print_json(&serde_json::json!({
-            "project_id": args.project_id,
-            "added": count,
-        })),
+        OutputFormat::Json => print_json(
+            ctx.output(),
+            &serde_json::json!({
+                "project_id": args.project_id,
+                "added": count,
+            }),
+        ),
         OutputFormat::Text => {
             println!("added {count} asset(s) to {}", args.project_id);
             Ok(())
@@ -270,10 +276,13 @@ async fn remove_asset(args: RemoveAssetArgs, ctx: &CommandContext) -> Result<()>
         .await
         .context("removing asset from project")?;
     match ctx.format() {
-        OutputFormat::Json => print_json(&serde_json::json!({
-            "project_id": args.project_id,
-            "removed": args.asset_id,
-        })),
+        OutputFormat::Json => print_json(
+            ctx.output(),
+            &serde_json::json!({
+                "project_id": args.project_id,
+                "removed": args.asset_id,
+            }),
+        ),
         OutputFormat::Text => {
             println!("removed {} from {}", args.asset_id, args.project_id);
             Ok(())

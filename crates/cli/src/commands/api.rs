@@ -5,9 +5,11 @@ use clap::{Args, ValueEnum};
 use nolgia_client::ClientInfo;
 use reqwest::header::{CONTENT_LENGTH, HeaderName, HeaderValue};
 use serde_json::Value;
+use uuid::Uuid;
 
 use super::CommandContext;
 use crate::agent_guard::AgentRefused;
+use crate::livejob::{self, LiveJob};
 use crate::output::{print_json, print_json_unselected};
 
 #[derive(Args, Debug)]
@@ -66,6 +68,33 @@ fn api_path(path: &str) -> Result<&str> {
     })
 }
 
+// URL paths retain percent escapes. Decode them for route checks so encoded
+// spellings receive the same agent refusal and live-job handling as plain paths.
+fn decoded_path(path: &str) -> String {
+    let mut decoded = Vec::with_capacity(path.len());
+    let mut bytes = path.as_bytes().iter().copied();
+    while let Some(byte) = bytes.next() {
+        if byte == b'%' {
+            let mut escape = bytes.clone();
+            if let (Some(high), Some(low)) = (escape.next(), escape.next())
+                && let (Some(high), Some(low)) =
+                    ((high as char).to_digit(16), (low as char).to_digit(16))
+            {
+                decoded.push((high * 16 + low) as u8);
+                bytes = escape;
+                continue;
+            }
+        }
+        decoded.push(byte);
+    }
+    String::from_utf8_lossy(&decoded).into_owned()
+}
+
+fn wait_job_id(path: &str) -> Option<Uuid> {
+    let id = path.strip_prefix("/jobs/")?.strip_suffix("/wait")?;
+    Uuid::parse_str(id).ok()
+}
+
 fn read_body(source: &str) -> Result<Value> {
     let text = match source {
         "-" => {
@@ -88,8 +117,10 @@ pub async fn run(args: ApiArgs, ctx: &CommandContext) -> Result<()> {
     // the authenticated client's host.
     let url = reqwest::Url::parse(&format!("{}{path}", ctx.client().baseurl()))
         .context("building API request URL")?;
+    let decoded = decoded_path(url.path());
+    let route = api_path(&decoded)?;
     if ctx.agent().is_some() {
-        match (args.method, api_path(url.path())?) {
+        match (args.method, route) {
             (Method::Put, "/me/active-organization") => return Err(AgentRefused::Switch.into()),
             (Method::Post, "/organizations") => return Err(AgentRefused::Create.into()),
             _ => {}
@@ -121,25 +152,72 @@ pub async fn run(args: ApiArgs, ctx: &CommandContext) -> Result<()> {
         request = request.header(name, value);
     }
     let action = format!("api {method} {}", args.path);
+    let started = std::time::Instant::now();
     let response = request.send().await.with_context(|| action.clone())?;
     let status = response.status();
-    let body = response.bytes().await.context("reading API response")?;
-    if !body.is_empty() {
-        match serde_json::from_slice::<Value>(&body) {
-            Ok(value) if status.is_success() => print_json(&value)?,
-            Ok(value) => print_json_unselected(&value)?,
-            Err(_) => std::io::stdout().lock().write_all(&body)?,
+    if matches!(args.method, Method::Get)
+        && status == reqwest::StatusCode::REQUEST_TIMEOUT
+        && let Some(job_id) = wait_job_id(route)
+    {
+        return Err(LiveJob::StillRunning {
+            job_id,
+            waited_seconds: started.elapsed().as_secs(),
         }
+        .into());
     }
-    if !status.is_success() {
-        let message = serde_json::from_slice::<super::Problem>(&body)
+    let generation = matches!(args.method, Method::Post) && route.starts_with("/generate/");
+    let body = response.bytes().await.context("reading API response")?;
+    let message = if status.is_success() {
+        None
+    } else {
+        serde_json::from_slice::<super::Problem>(&body)
             .ok()
             .and_then(|problem| problem.detail.or(problem.title))
             .or_else(|| {
                 let text = String::from_utf8_lossy(&body);
                 let text = text.trim();
                 (!text.is_empty()).then(|| text.to_owned())
-            });
+            })
+    };
+    // Return before writing the raw problem body so main prints one recovery
+    // document, unaffected by field selection or output mode.
+    if generation
+        && status == reqwest::StatusCode::CONFLICT
+        && let Some(detail) = message.as_deref()
+        && let Some(job_id) = livejob::find_job_id(detail)
+    {
+        return Err(LiveJob::Duplicate {
+            job_id,
+            detail: detail.to_owned(),
+            retry_command: format!("nolgia api POST {route}"),
+        }
+        .into());
+    }
+    if !body.is_empty() {
+        match serde_json::from_slice::<Value>(&body) {
+            Ok(value) if status.is_success() => {
+                let job_id = if generation {
+                    value
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .and_then(|id| Uuid::parse_str(id).ok())
+                } else {
+                    None
+                };
+                print_json(ctx.output(), &value).map_err(|err| match job_id {
+                    Some(job_id) => LiveJob::Detached {
+                        job_id,
+                        cause: format!("{err:#}"),
+                    }
+                    .into(),
+                    None => err,
+                })?;
+            }
+            Ok(value) => print_json_unselected(&value)?,
+            Err(_) => std::io::stdout().lock().write_all(&body)?,
+        }
+    }
+    if !status.is_success() {
         return Err(super::describe(&action, status, message));
     }
     Ok(())
@@ -147,7 +225,24 @@ pub async fn run(args: ApiArgs, ctx: &CommandContext) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::api_path;
+    use super::{api_path, decoded_path};
+
+    #[test]
+    fn decodes_path_once_and_preserves_malformed_escapes() {
+        for (input, expected) in [
+            ("/me/%61ctive%2Dorganization", "/me/active-organization"),
+            ("/me%2factive-organization", "/me/active-organization"),
+            ("/%2561", "/%61"),
+            ("/%", "/%"),
+            ("/%6", "/%6"),
+            ("/%GG", "/%GG"),
+            ("/%GG%61", "/%GGa"),
+            ("/%FF", "/\u{fffd}"),
+            ("/%C3%A9", "/é"),
+        ] {
+            assert_eq!(decoded_path(input), expected, "{input}");
+        }
+    }
 
     #[test]
     fn strips_only_the_v1_path_segment() {

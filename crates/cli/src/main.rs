@@ -18,7 +18,7 @@ use commands::{
     restore, skills, status, voices, wait,
 };
 use nolgia_client::{Client, ClientBuilder};
-use output::{OutputFormat, OutputMode};
+use output::{OutputContext, OutputFormat, OutputMode};
 
 const DEFAULT_BASE_URL: &str = "https://api.nolgia.ai";
 
@@ -216,9 +216,6 @@ async fn main() -> ExitCode {
         &cli.field,
         cli.output,
     );
-    if let Err(err) = output::configure(cli.field.clone(), cli.output) {
-        return report(Err(err), format);
-    }
     let update =
         update_check::start(format == OutputFormat::Json || cli.help_json || cli.command.is_none());
     let result = run_cli(cli).await;
@@ -273,6 +270,7 @@ pub async fn run_cli(cli: Cli) -> Result<()> {
         &cli.field,
         cli.output,
     );
+    let output = OutputContext::from(format).with_selection(cli.field, cli.output);
     let command = cli.command.unwrap_or_else(|| {
         Cli::command()
             .subcommand_required(true)
@@ -281,10 +279,10 @@ pub async fn run_cli(cli: Cli) -> Result<()> {
         unreachable!("clap exits when the required subcommand is missing")
     });
     if let Commands::Auth(command) = command {
-        return auth::run(command, format, &cli.api_url, cli.token).await;
+        return auth::run(command, &output, &cli.api_url, cli.token).await;
     }
     if let Commands::Skills(command) = command {
-        return skills::run(command, format);
+        return skills::run(command, &output);
     }
     if let Commands::Completion(args) = command {
         let mut cmd = <Cli as clap::CommandFactory>::command();
@@ -294,13 +292,13 @@ pub async fn run_cli(cli: Cli) -> Result<()> {
     // `masks example` is a starter-JSON printer with no request to make, so
     // it must not depend on a stored login (or probe the keyring for one).
     if let Commands::Masks(masks::MasksCommand::Example(args)) = command {
-        return masks::example(args, format);
+        return masks::example(args, &output);
     }
 
     let token = cli.token.or_else(auth::load_token).unwrap_or_default();
     let agent = agent_guard::detect(&token, |key| std::env::var_os(key));
     let client = build_client(&cli.api_url, token, cli.idempotency_key)?;
-    let ctx = CommandContext::new(client, format).with_agent(agent);
+    let ctx = CommandContext::new(client, output).with_agent(agent);
 
     match command {
         Commands::Api(args) => api::run(args, &ctx).await,
@@ -352,7 +350,31 @@ fn build_client(base_url: &str, token: String, idempotency_key: Option<String>) 
 #[cfg(test)]
 mod tests {
     use super::Cli;
-    use clap::CommandFactory;
+    use clap::{CommandFactory, Parser};
+
+    #[tokio::test]
+    async fn run_cli_keeps_output_selection_local_to_each_invocation() {
+        for args in [
+            vec!["nolgia", "skills", "list", "--field", "missing"],
+            vec![
+                "nolgia", "masks", "example", "ellipse", "--field", "missing",
+            ],
+        ] {
+            let err = super::run_cli(Cli::try_parse_from(args).unwrap())
+                .await
+                .unwrap_err();
+            assert!(err.to_string().contains("field \"missing\" not found"));
+        }
+        for args in [
+            vec!["nolgia", "skills", "list", "--field", "[0].name"],
+            vec!["nolgia", "masks", "example", "ellipse", "--field", "shape"],
+            vec!["nolgia", "skills", "list", "--json"],
+        ] {
+            super::run_cli(Cli::try_parse_from(args).unwrap())
+                .await
+                .unwrap();
+        }
+    }
 
     /// NOL-317: clap renders the *resolved value* of an `env`-backed arg into
     /// `--help` unless `hide_env_values` is set — which is how a live PAT

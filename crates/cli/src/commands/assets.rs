@@ -120,7 +120,7 @@ async fn list(args: ListAssetsArgs, ctx: &CommandContext) -> Result<()> {
     let page = request.send().await.context("listing assets")?.into_inner();
 
     match ctx.format() {
-        OutputFormat::Json => print_json(&page),
+        OutputFormat::Json => print_json(ctx.output(), &page),
         OutputFormat::Text => {
             for asset in page.items {
                 println!("{} {} {}", asset.id, asset.modality, asset.signed_url);
@@ -143,7 +143,10 @@ async fn get(args: GetAssetArgs, ctx: &CommandContext) -> Result<()> {
     if let Some(out) = args.out {
         super::r#gen::download(&asset.signed_url, &out).await?;
         match ctx.format() {
-            OutputFormat::Json => print_json(&serde_json::json!({"asset": asset, "wrote": out})),
+            OutputFormat::Json => print_json(
+                ctx.output(),
+                &serde_json::json!({"asset": asset, "wrote": out}),
+            ),
             OutputFormat::Text => {
                 println!("wrote {}", out.display());
                 Ok(())
@@ -151,7 +154,7 @@ async fn get(args: GetAssetArgs, ctx: &CommandContext) -> Result<()> {
         }
     } else {
         match ctx.format() {
-            OutputFormat::Json => print_json(&asset),
+            OutputFormat::Json => print_json(ctx.output(), &asset),
             OutputFormat::Text => {
                 println!(
                     "{} {} {} {}",
@@ -171,7 +174,10 @@ async fn delete(args: DeleteAssetArgs, ctx: &CommandContext) -> Result<()> {
         .await
         .context("deleting asset")?;
     match ctx.format() {
-        OutputFormat::Json => print_json(&serde_json::json!({ "deleted": args.asset_id })),
+        OutputFormat::Json => print_json(
+            ctx.output(),
+            &serde_json::json!({ "deleted": args.asset_id }),
+        ),
         OutputFormat::Text => {
             println!("deleted {}", args.asset_id);
             Ok(())
@@ -213,7 +219,7 @@ async fn tag(args: TagAssetArgs, ctx: &CommandContext) -> Result<()> {
             .into_inner()
     };
     match ctx.format() {
-        OutputFormat::Json => print_json(&asset),
+        OutputFormat::Json => print_json(ctx.output(), &asset),
         OutputFormat::Text => {
             let tags: Vec<&str> = asset.tags.iter().map(|t| t.as_str()).collect();
             println!("{} tags: [{}]", asset.id, tags.join(", "));
@@ -235,7 +241,7 @@ async fn frame(args: FrameAssetArgs, ctx: &CommandContext) -> Result<()> {
         super::r#gen::download(&asset.signed_url, out).await?;
     }
     match ctx.format() {
-        OutputFormat::Json => print_json(&asset),
+        OutputFormat::Json => print_json(ctx.output(), &asset),
         OutputFormat::Text => {
             println!("{} {} {}", asset.id, asset.modality, asset.signed_url);
             if let Some(out) = args.out {
@@ -249,7 +255,7 @@ async fn frame(args: FrameAssetArgs, ctx: &CommandContext) -> Result<()> {
 async fn upload(args: UploadAssetArgs, ctx: &CommandContext) -> Result<()> {
     let asset = super::r#gen::upload_asset_file(&args.file, ctx, args.project_id).await?;
     match ctx.format() {
-        OutputFormat::Json => print_json(&asset),
+        OutputFormat::Json => print_json(ctx.output(), &asset),
         OutputFormat::Text => {
             println!("{} {} {}", asset.id, asset.modality, asset.signed_url);
             Ok(())

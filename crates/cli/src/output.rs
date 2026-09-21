@@ -1,6 +1,4 @@
-use std::sync::OnceLock;
-
-use anyhow::{Result, bail};
+use anyhow::Result;
 use clap::ValueEnum;
 use serde::Serialize;
 use serde_json::Value;
@@ -21,16 +19,40 @@ struct Selection {
     output: Option<OutputMode>,
 }
 
-// One output selection belongs to one binary invocation. A process-wide setting
-// reaches the roughly 100 existing print_json callers without command-specific
-// selection logic; tests exercise the pure renderers instead of this OnceLock.
-static SELECTION: OnceLock<Selection> = OnceLock::new();
+pub struct OutputContext {
+    format: OutputFormat,
+    selection: Selection,
+}
 
-pub fn configure(fields: Vec<String>, output: Option<OutputMode>) -> Result<()> {
-    if SELECTION.set(Selection { fields, output }).is_err() {
-        bail!("output selection is already configured");
+impl OutputContext {
+    pub fn with_selection(mut self, fields: Vec<String>, output: Option<OutputMode>) -> Self {
+        if !fields.is_empty() || output.is_some() {
+            self.format = OutputFormat::Json;
+        }
+        self.selection = Selection { fields, output };
+        self
     }
-    Ok(())
+
+    pub fn format(&self) -> OutputFormat {
+        self.format
+    }
+
+    pub fn is_selected(&self) -> bool {
+        !self.selection.fields.is_empty()
+            || matches!(
+                self.selection.output,
+                Some(OutputMode::Table | OutputMode::Value)
+            )
+    }
+}
+
+impl From<OutputFormat> for OutputContext {
+    fn from(format: OutputFormat) -> Self {
+        Self {
+            format,
+            selection: Selection::default(),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -49,10 +71,8 @@ impl OutputFormat {
     }
 }
 
-pub fn print_json<T: Serialize>(value: &T) -> Result<()> {
-    let default = Selection::default();
-    let selection = SELECTION.get().unwrap_or(&default);
-    println!("{}", render(value, selection)?);
+pub fn print_json<T: Serialize>(output: &OutputContext, value: &T) -> Result<()> {
+    println!("{}", render(value, &output.selection)?);
     Ok(())
 }
 
@@ -204,6 +224,39 @@ mod tests {
     }
 
     #[test]
+    fn command_contexts_keep_independent_output_selections() {
+        use crate::commands::CommandContext;
+
+        let client = || {
+            nolgia_client::ClientBuilder::new("http://localhost")
+                .build()
+                .unwrap()
+        };
+        let first = CommandContext::new(
+            client(),
+            OutputContext::from(OutputFormat::Text).with_selection(vec!["id".into()], None),
+        );
+        let second = CommandContext::new(
+            client(),
+            OutputContext::from(OutputFormat::Json)
+                .with_selection(vec!["name".into()], Some(OutputMode::Json)),
+        );
+        let default = CommandContext::new(client(), OutputFormat::Json);
+        let value = json!({"id": 7, "name": "example"});
+        assert_eq!(first.format(), OutputFormat::Json);
+        assert_eq!(render(&value, &first.output().selection).unwrap(), "7");
+        assert_eq!(
+            render(&value, &second.output().selection).unwrap(),
+            "\"example\""
+        );
+        assert_eq!(
+            render(&value, &default.output().selection).unwrap(),
+            serde_json::to_string_pretty(&value).unwrap()
+        );
+        assert_eq!(render(&value, &first.output().selection).unwrap(), "7");
+    }
+
+    #[test]
     fn plain_json_preserves_struct_field_order() {
         #[derive(Serialize)]
         struct Record {
@@ -211,10 +264,28 @@ mod tests {
             a: u8,
         }
         let value = Record { z: 1, a: 2 };
-        assert_eq!(
-            render(&value, &Selection::default()).unwrap(),
-            "{\n  \"z\": 1,\n  \"a\": 2\n}"
-        );
+        for output in [None, Some(OutputMode::Json)] {
+            assert_eq!(
+                render(
+                    &value,
+                    &Selection {
+                        fields: vec![],
+                        output
+                    }
+                )
+                .unwrap(),
+                "{\n  \"z\": 1,\n  \"a\": 2\n}"
+            );
+        }
+    }
+
+    #[test]
+    fn table_keeps_nested_only_and_empty_object_rows() {
+        let rows = json!([{"nested": {"id": 1}}, {"nested": [2]}, {}]);
+        let expected = "VALUE\n{\"nested\":{\"id\":1}}\n{\"nested\":[2]}\n{}";
+        assert_eq!(table::render(&rows), expected);
+        assert_eq!(table::render(&json!({"items": rows})), expected);
+        assert_eq!(table::render(&json!([{}, {}])), "VALUE\n{}\n{}");
     }
 
     #[test]

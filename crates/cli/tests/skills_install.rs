@@ -74,6 +74,32 @@ fn partially_installed_machine_installs_remaining_packs_without_force() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn force_overwrites_write_only_skill_files() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let pack_dir = dir.path().join("nolgia-platform");
+    std::fs::create_dir(&pack_dir).unwrap();
+    let path = pack_dir.join("SKILL.md");
+    std::fs::write(&path, "customized skill").unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o200)).unwrap();
+
+    // Privileged test runners may still be able to read a write-only file.
+    if std::fs::read(&path).is_err() {
+        install(dir.path()).assert().code(1);
+    }
+    let result = install(dir.path())
+        .args(["--force", "--json"])
+        .assert()
+        .success();
+    let packs: Vec<Value> = serde_json::from_slice(&result.get_output().stdout).unwrap();
+    assert_eq!(packs[0]["status"], "overwritten");
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    assert!(std::fs::read_to_string(&path).unwrap().starts_with("---\n"));
+}
+
 #[test]
 fn filesystem_errors_still_fail_installation() {
     let dir = tempfile::tempdir().unwrap();

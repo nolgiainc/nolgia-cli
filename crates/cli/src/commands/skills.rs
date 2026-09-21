@@ -10,7 +10,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::output::{OutputFormat, print_json};
+use crate::output::{OutputContext, OutputFormat, print_json};
 
 pub struct BundledSkill {
     pub name: &'static str,
@@ -147,15 +147,15 @@ fn target_root(target: Target, dir: Option<&Path>) -> Result<PathBuf> {
     }
 }
 
-pub fn run(command: SkillsCommand, format: OutputFormat) -> Result<()> {
+pub fn run(command: SkillsCommand, output: &OutputContext) -> Result<()> {
     match command {
-        SkillsCommand::List => list(format),
+        SkillsCommand::List => list(output),
         SkillsCommand::Show(args) => show(args),
-        SkillsCommand::Install(args) => install(args, format),
+        SkillsCommand::Install(args) => install(args, output),
     }
 }
 
-fn list(format: OutputFormat) -> Result<()> {
+fn list(output: &OutputContext) -> Result<()> {
     let infos: Vec<SkillInfo> = SKILLS
         .iter()
         .map(|s| SkillInfo {
@@ -163,8 +163,8 @@ fn list(format: OutputFormat) -> Result<()> {
             description: description_of(s.content),
         })
         .collect();
-    match format {
-        OutputFormat::Json => print_json(&infos),
+    match output.format() {
+        OutputFormat::Json => print_json(output, &infos),
         OutputFormat::Text => {
             for info in infos {
                 println!("{:24} {}", info.name, info.description);
@@ -179,7 +179,7 @@ fn show(args: ShowArgs) -> Result<()> {
     Ok(())
 }
 
-fn install(args: InstallArgs, format: OutputFormat) -> Result<()> {
+fn install(args: InstallArgs, output: &OutputContext) -> Result<()> {
     let root = target_root(args.target, args.dir.as_deref())?;
     let selected: Vec<&BundledSkill> = if args.names.is_empty() {
         SKILLS.iter().collect()
@@ -199,6 +199,7 @@ fn install(args: InstallArgs, format: OutputFormat) -> Result<()> {
             Ok(_) if args.force => InstallStatus::Overwritten,
             Ok(_) => InstallStatus::Skipped,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => InstallStatus::Installed,
+            Err(_) if args.force => InstallStatus::Overwritten,
             Err(error) => {
                 return Err(error).with_context(|| format!("reading {}", path.display()));
             }
@@ -218,8 +219,8 @@ fn install(args: InstallArgs, format: OutputFormat) -> Result<()> {
         });
     }
 
-    match format {
-        OutputFormat::Json => print_json(&installed),
+    match output.format() {
+        OutputFormat::Json => print_json(output, &installed),
         OutputFormat::Text => {
             let mut counts = [0; 4];
             for i in &installed {
@@ -344,20 +345,20 @@ mod tests {
             dir: Some(tmp.path().to_path_buf()),
             force,
         };
-        install(args(false), OutputFormat::Text).unwrap();
+        install(args(false), &OutputFormat::Text.into()).unwrap();
         let path = tmp.path().join("nolgia-platform/SKILL.md");
         assert_eq!(fs::read_to_string(&path).unwrap(), SKILLS[0].content);
 
         let modified = fs::metadata(&path).unwrap().modified().unwrap();
-        install(args(false), OutputFormat::Text).unwrap();
-        install(args(true), OutputFormat::Text).unwrap();
+        install(args(false), &OutputFormat::Text.into()).unwrap();
+        install(args(true), &OutputFormat::Text.into()).unwrap();
         assert_eq!(fs::metadata(&path).unwrap().modified().unwrap(), modified);
 
         fs::write(&path, "customized skill").unwrap();
-        install(args(false), OutputFormat::Text).unwrap();
+        install(args(false), &OutputFormat::Text.into()).unwrap();
         assert_eq!(fs::read_to_string(&path).unwrap(), "customized skill");
 
-        install(args(true), OutputFormat::Text).unwrap();
+        install(args(true), &OutputFormat::Text.into()).unwrap();
         assert_eq!(fs::read_to_string(&path).unwrap(), SKILLS[0].content);
     }
 }

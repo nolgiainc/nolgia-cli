@@ -55,7 +55,7 @@ async fn list(ctx: &CommandContext) -> Result<()> {
         .context("listing products")?
         .into_inner();
     match ctx.format() {
-        OutputFormat::Json => print_json(&list),
+        OutputFormat::Json => print_json(ctx.output(), &list),
         OutputFormat::Text => {
             for product in list.products {
                 print_product_line(&product);
@@ -79,7 +79,7 @@ async fn import(args: ImportProductArgs, ctx: &CommandContext) -> Result<()> {
         Err(err) => return Err(super::api_error(err, "importing product").await),
     };
     match ctx.format() {
-        OutputFormat::Json => print_json(&result),
+        OutputFormat::Json => print_json(ctx.output(), &result),
         OutputFormat::Text => {
             print_product_line(&result.product);
             println!(
@@ -101,7 +101,7 @@ async fn get(args: GetProductArgs, ctx: &CommandContext) -> Result<()> {
         .context("fetching product")?
         .into_inner();
     match ctx.format() {
-        OutputFormat::Json => print_json(&product),
+        OutputFormat::Json => print_json(ctx.output(), &product),
         OutputFormat::Text => {
             print_product_line(&product);
             if !product.source_url.is_empty() {
@@ -134,7 +134,10 @@ async fn delete(args: DeleteProductArgs, ctx: &CommandContext) -> Result<()> {
         .await
         .context("deleting product")?;
     match ctx.format() {
-        OutputFormat::Json => print_json(&serde_json::json!({ "deleted": args.product_id })),
+        OutputFormat::Json => print_json(
+            ctx.output(),
+            &serde_json::json!({ "deleted": args.product_id }),
+        ),
         OutputFormat::Text => {
             println!("deleted {}", args.product_id);
             Ok(())

@@ -41,7 +41,7 @@ async fn list(ctx: &CommandContext) -> Result<()> {
         Err(err) => return Err(super::api_error(err, "listing color presets").await),
     };
     match ctx.format() {
-        OutputFormat::Json => print_json(&catalog),
+        OutputFormat::Json => print_json(ctx.output(), &catalog),
         OutputFormat::Text => {
             let slug_width = catalog
                 .presets
@@ -93,9 +93,10 @@ async fn cube(args: CubeArgs, ctx: &CommandContext) -> Result<()> {
             }
             fs::write(&out, &cube).with_context(|| format!("writing {}", out.display()))?;
             match ctx.format() {
-                OutputFormat::Json => {
-                    print_json(&serde_json::json!({"slug": args.slug, "wrote": out}))
-                }
+                OutputFormat::Json => print_json(
+                    ctx.output(),
+                    &serde_json::json!({"slug": args.slug, "wrote": out}),
+                ),
                 OutputFormat::Text => {
                     println!("wrote {}", out.display());
                     Ok(())
@@ -103,7 +104,10 @@ async fn cube(args: CubeArgs, ctx: &CommandContext) -> Result<()> {
             }
         }
         None => match ctx.format() {
-            OutputFormat::Json => print_json(&serde_json::json!({"slug": args.slug, "cube": cube})),
+            OutputFormat::Json => print_json(
+                ctx.output(),
+                &serde_json::json!({"slug": args.slug, "cube": cube}),
+            ),
             OutputFormat::Text => {
                 print!("{cube}");
                 Ok(())

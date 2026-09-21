@@ -439,9 +439,15 @@ async fn image(args: ImageArgs, ctx: &CommandContext) -> Result<()> {
         }
     };
     if args.no_wait {
-        return print_json(&AsyncJob {
-            job_id: job.id.to_string(),
-        });
+        return livejob::guard(job.id, async {
+            print_json(
+                ctx.output(),
+                &AsyncJob {
+                    job_id: job.id.to_string(),
+                },
+            )
+        })
+        .await;
     }
     let job_id = job.id;
     livejob::announce(job_id, DEFAULT_WAIT_TIMEOUT_SECONDS);
@@ -455,7 +461,7 @@ async fn image(args: ImageArgs, ctx: &CommandContext) -> Result<()> {
             download(&asset.signed_url, &out).await?;
         }
         match ctx.format() {
-            OutputFormat::Json => print_json(&job),
+            OutputFormat::Json => print_json(ctx.output(), &job),
             OutputFormat::Text => {
                 println!("{}", asset.signed_url);
                 Ok(())
@@ -599,9 +605,15 @@ async fn video(args: VideoArgs, ctx: &CommandContext) -> Result<()> {
         }
     };
     if args.no_wait || !args.wait {
-        return print_json(&AsyncJob {
-            job_id: job.id.to_string(),
-        });
+        return livejob::guard(job.id, async {
+            print_json(
+                ctx.output(),
+                &AsyncJob {
+                    job_id: job.id.to_string(),
+                },
+            )
+        })
+        .await;
     }
     let job_id = job.id;
     livejob::announce(job_id, args.timeout);
@@ -611,7 +623,7 @@ async fn video(args: VideoArgs, ctx: &CommandContext) -> Result<()> {
             download(&asset.signed_url, out).await?;
         }
         match ctx.format() {
-            OutputFormat::Json => print_json(&job),
+            OutputFormat::Json => print_json(ctx.output(), &job),
             OutputFormat::Text => {
                 println!("{} {}", job.id, job.status);
                 Ok(())
@@ -645,9 +657,15 @@ async fn audio(args: AudioArgs, ctx: &CommandContext) -> Result<()> {
         }
     };
     if args.no_wait {
-        return print_json(&AsyncJob {
-            job_id: job.id.to_string(),
-        });
+        return livejob::guard(job.id, async {
+            print_json(
+                ctx.output(),
+                &AsyncJob {
+                    job_id: job.id.to_string(),
+                },
+            )
+        })
+        .await;
     }
     let job_id = job.id;
     livejob::announce(job_id, DEFAULT_WAIT_TIMEOUT_SECONDS);
@@ -661,7 +679,7 @@ async fn audio(args: AudioArgs, ctx: &CommandContext) -> Result<()> {
             download(&asset.signed_url, &out).await?;
         }
         match ctx.format() {
-            OutputFormat::Json => print_json(&job),
+            OutputFormat::Json => print_json(ctx.output(), &job),
             OutputFormat::Text => {
                 println!("{}", asset.signed_url);
                 Ok(())
@@ -1267,9 +1285,15 @@ async fn three_d(args: ThreeDArgs, ctx: &CommandContext) -> Result<()> {
         }
     };
     if args.no_wait {
-        return print_json(&AsyncJob {
-            job_id: job.id.to_string(),
-        });
+        return livejob::guard(job.id, async {
+            print_json(
+                ctx.output(),
+                &AsyncJob {
+                    job_id: job.id.to_string(),
+                },
+            )
+        })
+        .await;
     }
     let job_id = job.id;
     livejob::announce(job_id, args.timeout);
@@ -1283,7 +1307,7 @@ async fn three_d(args: ThreeDArgs, ctx: &CommandContext) -> Result<()> {
             download(&asset.signed_url, out).await?;
         }
         match ctx.format() {
-            OutputFormat::Json => print_json(&job),
+            OutputFormat::Json => print_json(ctx.output(), &job),
             OutputFormat::Text => {
                 println!("{} {}\n{}", job.id, job.status, asset.signed_url);
                 Ok(())

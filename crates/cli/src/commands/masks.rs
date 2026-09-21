@@ -21,7 +21,7 @@ use std::{
 };
 
 use super::CommandContext;
-use crate::output::{OutputFormat, print_json};
+use crate::output::{OutputContext, OutputFormat, print_json};
 use nolgia_client::types::{Mask, MaskProblem, MaskValidateRequest};
 
 #[derive(Subcommand, Debug)]
@@ -65,7 +65,7 @@ pub enum ExampleShape {
 pub async fn run(command: MasksCommand, ctx: &CommandContext) -> Result<()> {
     match command {
         MasksCommand::Validate(args) => validate(args, ctx).await,
-        MasksCommand::Example(args) => example(args, ctx.format()),
+        MasksCommand::Example(args) => example(args, ctx.output()),
     }
 }
 
@@ -78,11 +78,14 @@ async fn validate(args: ValidateArgs, ctx: &CommandContext) -> Result<()> {
     };
 
     match ctx.format() {
-        OutputFormat::Json => print_json(&Verdict {
-            mask: validation.mask.as_ref().map(CanonicalMask::from),
-            identity: validation.identity,
-            problems: &validation.problems,
-        })?,
+        OutputFormat::Json => print_json(
+            ctx.output(),
+            &Verdict {
+                mask: validation.mask.as_ref().map(CanonicalMask::from),
+                identity: validation.identity,
+                problems: &validation.problems,
+            },
+        )?,
         OutputFormat::Text => {
             match &validation.mask {
                 Some(mask) => println!(
@@ -251,14 +254,18 @@ const POLYGON_EXAMPLE: &str = r#"{
 
 /// Print a starter mask. Runs before any client is built: nothing here needs
 /// a login or a request.
-pub fn example(args: ExampleArgs, format: OutputFormat) -> Result<()> {
+pub fn example(args: ExampleArgs, output: &OutputContext) -> Result<()> {
     let mask = match args.shape {
         ExampleShape::Rectangle => RECTANGLE_EXAMPLE,
         ExampleShape::Ellipse => ELLIPSE_EXAMPLE,
         ExampleShape::Polygon => POLYGON_EXAMPLE,
     };
+    if output.is_selected() {
+        let value: serde_json::Value = serde_json::from_str(mask)?;
+        return print_json(output, &value);
+    }
     println!("{mask}");
-    if format == OutputFormat::Text {
+    if output.format() == OutputFormat::Text {
         println!(
             "\nCoordinates are % of the clip box; feather/expansion/cornerRadius are native \
              canvas px. Paste it into a `data-mask` attribute or an overlay `mask` field, \

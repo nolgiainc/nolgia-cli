@@ -590,7 +590,7 @@ async fn list(args: ListArgs, ctx: &CommandContext) -> Result<()> {
         models.retain(|m| filter.matches(&m.modality));
     }
     match ctx.format() {
-        OutputFormat::Json => print_json(&models),
+        OutputFormat::Json => print_json(ctx.output(), &models),
         OutputFormat::Text => {
             for model in &models {
                 let star = if model.recommended { "*" } else { " " };
@@ -617,7 +617,7 @@ async fn get(args: GetArgs, ctx: &CommandContext) -> Result<()> {
         )
     })?;
     match ctx.format() {
-        OutputFormat::Json => print_json(model),
+        OutputFormat::Json => print_json(ctx.output(), model),
         OutputFormat::Text => {
             println!("{}", model.id);
             println!("  modality:    {}", model.modality);

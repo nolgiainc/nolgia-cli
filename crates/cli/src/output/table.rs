@@ -19,6 +19,11 @@ pub(super) fn render(value: &Value) -> String {
                         .is_some_and(|value| !value.is_array() && !value.is_object())
                 })
             });
+            if headers.is_empty() {
+                let mut cells = vec![vec!["VALUE".to_string()]];
+                cells.extend(rows.iter().map(|row| vec![cell(row)]));
+                return align(cells);
+            }
             let mut cells = vec![headers.clone()];
             cells.extend(rows.iter().map(|row| {
                 headers

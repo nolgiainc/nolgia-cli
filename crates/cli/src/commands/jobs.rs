@@ -56,7 +56,7 @@ async fn list(args: ListArgs, ctx: &CommandContext) -> Result<()> {
         Err(err) => return Err(super::api_error(err, "listing jobs").await),
     };
     match ctx.format() {
-        OutputFormat::Json => print_json(&page),
+        OutputFormat::Json => print_json(ctx.output(), &page),
         OutputFormat::Text => {
             if page.items.is_empty() {
                 println!("no jobs");

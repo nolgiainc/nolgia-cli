@@ -47,7 +47,7 @@ async fn create(args: CreatePatArgs, ctx: &CommandContext) -> Result<()> {
         .context("creating personal access token")?
         .into_inner();
     match ctx.format() {
-        OutputFormat::Json => print_json(&created),
+        OutputFormat::Json => print_json(ctx.output(), &created),
         OutputFormat::Text => {
             println!("created {} ({})", created.pat.id, created.pat.name.as_str());
             println!("token: {}", created.token);
@@ -66,7 +66,7 @@ async fn list(ctx: &CommandContext) -> Result<()> {
         .context("listing personal access tokens")?
         .into_inner();
     match ctx.format() {
-        OutputFormat::Json => print_json(&page),
+        OutputFormat::Json => print_json(ctx.output(), &page),
         OutputFormat::Text => {
             for pat in page.items {
                 let last_used = pat
@@ -95,7 +95,9 @@ async fn revoke(args: RevokePatArgs, ctx: &CommandContext) -> Result<()> {
         .await
         .context("revoking personal access token")?;
     match ctx.format() {
-        OutputFormat::Json => print_json(&serde_json::json!({ "revoked": args.pat_id })),
+        OutputFormat::Json => {
+            print_json(ctx.output(), &serde_json::json!({ "revoked": args.pat_id }))
+        }
         OutputFormat::Text => {
             println!("revoked {}", args.pat_id);
             Ok(())
