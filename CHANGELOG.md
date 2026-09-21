@@ -5,6 +5,43 @@ the matching GitHub release.
 
 ## Unreleased
 
+- **Supported platforms, stated plainly.** macOS binaries are universal and run
+  everywhere. Linux binaries require **glibc 2.38 or newer** and the system
+  `libdbus-1.so.3` library, so they do not run on Debian 12, Ubuntu 22.04 or
+  slim container images; use `cargo install nolgia-cli` there for now.
+  The installer no longer reports success when the binary it installed cannot
+  start — it prints the loader error and exits non-zero — and a re-run over a
+  binary that cannot execute now repairs the install instead of ending
+  silently. Static Linux builds that depend on nothing are coming next.
+- **A Rust project needs only `cargo add nolgia-client`.** The crate now
+  re-exports the async runtime (`nolgia_client::tokio`, plus
+  `nolgia_client::rt::block_on` for a synchronous `main`) and `serde_json`
+  (`nolgia_client::json!`), and `nolgia_client::client()` builds an
+  authenticated client from `NOLGIA_TOKEN`. The first example compiles with no
+  second dependency, and a missing token says exactly how to fix it.
+- **Install reliably on minimal Debian systems.** Looking up the latest release
+  no longer stops the installer with `curl: (23) Failed writing body`.
+- **Verify installer downloads.** Releases publish `SHA256SUMS` for all five
+  binaries; the installer checks your download with an available SHA-256 tool
+  and refuses a mismatch. Older releases without sums still install with a note.
+- **Use the CLI immediately after installation.** Every successful installer run,
+  including a no-op reinstall, ends with an `export PATH="<PREFIX>:$PATH"` line
+  you can run in your current shell.
+
+- **Select response fields and choose an output format.** Use repeatable
+  `--field` paths such as `asset.signed_url` or `items[0].id`, and choose pretty
+  JSON, aligned tables, or bare values with `--output json|table|value`.
+- **Send any API request with `nolgia api`.** Reuse your CLI authentication,
+  provide JSON inline, from a file, or on stdin, and select fields from responses.
+- **Discover commands with `--help-json`.** Read the full visible command tree,
+  flags, aliases, and environment variable names as machine-readable JSON.
+- **Inspect a job with `nolgia jobs get <JOB_ID>`.** It reports the same job
+  details and moderation information as `nolgia status`.
+- **Re-run `nolgia skills install` safely.** Missing packs install, identical
+  packs remain unchanged, and differing copies are skipped while the remaining
+  packs continue. Use `--force` to replace a differing copy; each pack and the
+  summary report what happened.
+
 - **`nolgia gen 3d`** turns one to four photos into a 3D model (GLB).
   Repeat `--input <PATH_OR_UUID>` in front, back, left, right order, or use
   `--image-url`. `--model hunyuan3d-v3` (the server default) costs 21 credits

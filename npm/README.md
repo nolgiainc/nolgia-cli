@@ -54,8 +54,8 @@ For CI or agents, prefer a personal access token in `NOLGIA_TOKEN` or a secret m
 `--json` is a global flag for commands that implement structured output; it is not a universal output contract. Generation with `--no-wait` prints a JSON job object, while `gen video --cost-only`, `auth token`, `completion`, and `skills show` remain text. `auth status`/`whoami` also print human text around any JSON response; `auth login --json` narrates on stderr so stdout holds only the JSON result. A script can capture a job UUID and then wait for it:
 
 ```bash
-job_uuid=$(nolgia gen video --prompt "..." --no-wait | jq -r .job_id)
-nolgia wait "$job_uuid" --json | jq .asset.signed_url
+job_uuid=$(nolgia gen video --prompt "..." --no-wait --field job_id)
+nolgia wait "$job_uuid" --field asset.signed_url
 ```
 
 Treat any signed URL returned by the CLI as a temporary bearer capability; avoid writing it to persistent CI logs or telemetry.

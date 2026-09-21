@@ -35,7 +35,7 @@ async fn credits(ctx: &CommandContext) -> Result<()> {
         .context("fetching credit balance")?
         .into_inner();
     match ctx.format() {
-        OutputFormat::Json => print_json(&balance),
+        OutputFormat::Json => print_json(ctx.output(), &balance),
         OutputFormat::Text => {
             println!(
                 "subscription: {} (resets with plan)  api top-ups: {}",
@@ -56,7 +56,7 @@ async fn subscription(ctx: &CommandContext) -> Result<()> {
         .context("fetching subscription")?
         .into_inner();
     match ctx.format() {
-        OutputFormat::Json => print_json(&subscription),
+        OutputFormat::Json => print_json(ctx.output(), &subscription),
         OutputFormat::Text => {
             println!("{} {}", subscription.tier, subscription.status);
             Ok(())
@@ -79,7 +79,7 @@ async fn portal(args: PortalArgs, ctx: &CommandContext) -> Result<()> {
         .context("creating portal link")?
         .into_inner();
     match ctx.format() {
-        OutputFormat::Json => print_json(&portal),
+        OutputFormat::Json => print_json(ctx.output(), &portal),
         OutputFormat::Text => {
             println!("{}", portal.url);
             Ok(())

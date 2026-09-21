@@ -2,7 +2,7 @@ use std::fmt;
 
 use nolgia_client::types::Job;
 
-use crate::output::{OutputFormat, print_json};
+use crate::output::{OutputFormat, print_json_unselected};
 
 /// sysexits.h EX_DATAERR ("the input data was incorrect"): the provider's
 /// content filter refused the prompt or references. Edit them or switch models
@@ -47,7 +47,7 @@ impl Moderated {
     pub fn report(&self, format: OutputFormat) {
         eprintln!("{}", self.render_text());
         if format == OutputFormat::Json
-            && let Err(err) = print_json(&self.job)
+            && let Err(err) = print_json_unselected(&self.job)
         {
             eprintln!("Could not print the job as JSON: {err}");
         }

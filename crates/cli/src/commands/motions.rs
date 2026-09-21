@@ -28,7 +28,7 @@ async fn list(ctx: &CommandContext) -> Result<()> {
         Err(err) => return Err(super::api_error(err, "listing camera moves").await),
     };
     match ctx.format() {
-        OutputFormat::Json => print_json(&catalog),
+        OutputFormat::Json => print_json(ctx.output(), &catalog),
         OutputFormat::Text => {
             let id_width = catalog
                 .motions

@@ -1,6 +1,6 @@
 use std::{ffi::OsString, fmt};
 
-use crate::output::{OutputFormat, print_json};
+use crate::output::{OutputFormat, print_json_unselected};
 
 /// sysexits.h EX_NOPERM: an agent cannot change the owner's workspace.
 pub const EXIT_AGENT_REFUSED: u8 = 77;
@@ -82,7 +82,7 @@ impl AgentRefused {
     pub fn report(&self, format: OutputFormat) {
         eprintln!("{self}");
         if format == OutputFormat::Json
-            && let Err(err) = print_json(&serde_json::json!({
+            && let Err(err) = print_json_unselected(&serde_json::json!({
                 "error": "agent_refused",
                 "command": self.command(),
                 "message": self.message(),

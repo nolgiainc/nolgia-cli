@@ -253,10 +253,13 @@ async fn create(args: CreateArgs, ctx: &CommandContext) -> Result<()> {
     // Stop here unless a render was asked for.
     if !args.render && !args.wait {
         return match ctx.format() {
-            OutputFormat::Json => print_json(&serde_json::json!({
-                "composition_id": composition_id,
-                "clips": clips.len(),
-            })),
+            OutputFormat::Json => print_json(
+                ctx.output(),
+                &serde_json::json!({
+                    "composition_id": composition_id,
+                    "clips": clips.len(),
+                }),
+            ),
             OutputFormat::Text => {
                 println!("{composition_id} ({} clip(s) on the timeline)", clips.len());
                 eprintln!("edit in Studio: https://nolgia.ai/studio/{composition_id}");
@@ -381,17 +384,25 @@ pub(crate) async fn report_render(
     ctx: &CommandContext,
 ) -> Result<()> {
     match outcome {
-        RenderOutcome::Submitted { render_id } => match ctx.format() {
-            OutputFormat::Json => print_json(&serde_json::json!({
-                "composition_id": composition_id,
-                "render_id": render_id,
-                "status": "queued",
-            })),
-            OutputFormat::Text => {
-                println!("{render_id} queued");
-                Ok(())
-            }
-        },
+        RenderOutcome::Submitted { render_id } => {
+            crate::livejob::guard_render(render_id, async {
+                match ctx.format() {
+                    OutputFormat::Json => print_json(
+                        ctx.output(),
+                        &serde_json::json!({
+                            "composition_id": composition_id,
+                            "render_id": render_id,
+                            "status": "queued",
+                        }),
+                    ),
+                    OutputFormat::Text => {
+                        println!("{render_id} queued");
+                        Ok(())
+                    }
+                }
+            })
+            .await
+        }
         RenderOutcome::Finished(render) => {
             let asset_id = render
                 .asset_id
@@ -410,14 +421,17 @@ pub(crate) async fn report_render(
                 }
             }
             match ctx.format() {
-                OutputFormat::Json => print_json(&serde_json::json!({
-                    "composition_id": composition_id,
-                    "render_id": render.id,
-                    "asset_id": asset_id,
-                    "status": render.status.to_string(),
-                    "url": asset.signed_url,
-                    "warnings": render.warnings,
-                })),
+                OutputFormat::Json => print_json(
+                    ctx.output(),
+                    &serde_json::json!({
+                        "composition_id": composition_id,
+                        "render_id": render.id,
+                        "asset_id": asset_id,
+                        "status": render.status.to_string(),
+                        "url": asset.signed_url,
+                        "warnings": render.warnings,
+                    }),
+                ),
                 OutputFormat::Text => {
                     println!("{}", asset.signed_url);
                     Ok(())
@@ -437,7 +451,7 @@ async fn status(args: StatusArgs, ctx: &CommandContext) -> Result<()> {
         .context("fetching render status")?
         .into_inner();
     match ctx.format() {
-        OutputFormat::Json => print_json(&render),
+        OutputFormat::Json => print_json(ctx.output(), &render),
         OutputFormat::Text => {
             print!("{} {}", render.id, render.status);
             match (render.asset_id, render.error.as_deref()) {
@@ -461,7 +475,7 @@ async fn list(args: ListArgs, ctx: &CommandContext) -> Result<()> {
         .context("listing compositions")?
         .into_inner();
     match ctx.format() {
-        OutputFormat::Json => print_json(&list),
+        OutputFormat::Json => print_json(ctx.output(), &list),
         OutputFormat::Text => {
             for composition in list.compositions {
                 println!("{} {}", composition.id, composition.name.as_str());
@@ -481,10 +495,41 @@ async fn get(args: GetArgs, ctx: &CommandContext) -> Result<()> {
         .context("fetching composition")?
         .into_inner();
     match ctx.format() {
-        OutputFormat::Json => print_json(&composition),
+        OutputFormat::Json => print_json(ctx.output(), &composition),
         OutputFormat::Text => {
             println!("{} {}", composition.id, composition.name.as_str());
             Ok(())
+        }
+    }
+}
+
+#[cfg(test)]
+mod output_tests {
+    use super::*;
+    use crate::livejob::{LiveJob, RenderStop};
+    use crate::output::OutputContext;
+
+    #[tokio::test]
+    async fn submitted_render_keeps_handle_when_selection_fails() {
+        let client = nolgia_client::ClientBuilder::new("http://localhost")
+            .build()
+            .unwrap();
+        let output =
+            OutputContext::from(OutputFormat::Json).with_selection(vec!["missing".into()], None);
+        let ctx = CommandContext::new(client, output);
+        let render_id = Uuid::new_v4();
+        let error = report_render(Uuid::new_v4(), RenderOutcome::Submitted { render_id }, &ctx)
+            .await
+            .unwrap_err();
+        match error.downcast::<LiveJob>().unwrap() {
+            LiveJob::Render {
+                render_id: reported_id,
+                stop: RenderStop::Detached { cause },
+            } => {
+                assert_eq!(reported_id, render_id);
+                assert!(cause.contains("field \"missing\" not found"));
+            }
+            other => panic!("expected a detached render, got {other:?}"),
         }
     }
 }

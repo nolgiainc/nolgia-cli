@@ -8,6 +8,8 @@ use crate::output::{OutputFormat, print_json};
 
 #[derive(Subcommand, Debug)]
 pub enum JobsCommand {
+    /// Show current job status
+    Get(super::status::StatusArgs),
     /// List your generation jobs
     List(ListArgs),
 }
@@ -30,6 +32,7 @@ pub struct ListArgs {
 
 pub async fn run(command: JobsCommand, ctx: &CommandContext) -> Result<()> {
     match command {
+        JobsCommand::Get(args) => super::status::run(args, ctx).await,
         JobsCommand::List(args) => list(args, ctx).await,
     }
 }
@@ -53,7 +56,7 @@ async fn list(args: ListArgs, ctx: &CommandContext) -> Result<()> {
         Err(err) => return Err(super::api_error(err, "listing jobs").await),
     };
     match ctx.format() {
-        OutputFormat::Json => print_json(&page),
+        OutputFormat::Json => print_json(ctx.output(), &page),
         OutputFormat::Text => {
             if page.items.is_empty() {
                 println!("no jobs");

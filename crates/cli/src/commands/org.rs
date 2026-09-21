@@ -239,7 +239,7 @@ async fn list(ctx: &CommandContext) -> Result<()> {
         active_organization_id: active_id,
     };
     match ctx.format() {
-        OutputFormat::Json => print_json(&list),
+        OutputFormat::Json => print_json(ctx.output(), &list),
         OutputFormat::Text => {
             if list.items.is_empty() {
                 println!("no organizations; you are in your personal space");
@@ -357,11 +357,14 @@ async fn status(ctx: &CommandContext) -> Result<()> {
                 Plan::Known(sub) => Some(sub),
                 Plan::None | Plan::Unknown => None,
             };
-            print_json(&ContextReport {
-                context: context_name(org),
-                organization: org,
-                subscription: Some(subscription),
-            })
+            print_json(
+                ctx.output(),
+                &ContextReport {
+                    context: context_name(org),
+                    organization: org,
+                    subscription: Some(subscription),
+                },
+            )
         }
         OutputFormat::Text => {
             println!("Organization: {}", describe_context(org));
@@ -414,11 +417,14 @@ async fn switch(args: SwitchArgs, ctx: &CommandContext) -> Result<()> {
     };
     let org = updated.active_organization.as_ref();
     match ctx.format() {
-        OutputFormat::Json => print_json(&ContextReport {
-            context: context_name(org),
-            organization: org,
-            subscription: None,
-        }),
+        OutputFormat::Json => print_json(
+            ctx.output(),
+            &ContextReport {
+                context: context_name(org),
+                organization: org,
+                subscription: None,
+            },
+        ),
         OutputFormat::Text => {
             match org {
                 Some(org) => {
@@ -470,7 +476,7 @@ async fn create(args: CreateArgs, ctx: &CommandContext) -> Result<()> {
         Err(err) => return Err(super::api_error(err, "creating organization").await),
     };
     match ctx.format() {
-        OutputFormat::Json => print_json(&created),
+        OutputFormat::Json => print_json(ctx.output(), &created),
         OutputFormat::Text => {
             let org = &created.organization;
             println!(
@@ -508,7 +514,7 @@ async fn members(args: TargetArgs, ctx: &CommandContext) -> Result<()> {
         Err(err) => return Err(super::api_error(err, "listing organization members").await),
     };
     match ctx.format() {
-        OutputFormat::Json => print_json(&page),
+        OutputFormat::Json => print_json(ctx.output(), &page),
         OutputFormat::Text => {
             println!("organization: {} ({})", org.name, org.slug);
             let rows: Vec<[String; 6]> = page
@@ -583,7 +589,7 @@ async fn invite(args: InviteArgs, ctx: &CommandContext) -> Result<()> {
         invite_url: created.invite_url,
     };
     match ctx.format() {
-        OutputFormat::Json => print_json(&report),
+        OutputFormat::Json => print_json(ctx.output(), &report),
         OutputFormat::Text => {
             println!(
                 "invited {} to {} ({}) as {}; expires {}",
@@ -617,7 +623,7 @@ async fn credits(args: TargetArgs, ctx: &CommandContext) -> Result<()> {
         Err(err) => return Err(super::api_error(err, "fetching organization credits").await),
     };
     match ctx.format() {
-        OutputFormat::Json => print_json(&credits),
+        OutputFormat::Json => print_json(ctx.output(), &credits),
         OutputFormat::Text => {
             println!("organization: {} ({})", org.name, org.slug);
             println!(

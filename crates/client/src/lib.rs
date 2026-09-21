@@ -34,11 +34,73 @@ mod generated {
 
 use std::{fmt, result::Result as StdResult};
 
-use generated::ClientInfo;
 use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
 use uuid::Uuid;
 
-pub use generated::{Client, Error as ApiError, ResponseValue, types};
+pub use generated::{Client, ClientInfo, Error as ApiError, ResponseValue, types};
+
+/// The production API, and the default for [`ClientBuilder::from_env`].
+pub const DEFAULT_BASE_URL: &str = "https://api.nolgia.ai";
+
+// ONE COMMAND MUST BE ENOUGH (NOL-1066).
+//
+// This crate already compiles tokio, serde_json and reqwest, yet a caller who
+// ran `cargo add nolgia-client` and nothing else could not write the first
+// example: `#[tokio::main]` and `json!` need those crates in THEIR namespace,
+// so the docs had to say `cargo add nolgia-client tokio reqwest --features
+// tokio/full` — telling people to add crates we already carry. Re-exporting
+// them here is what makes `cargo add nolgia-client` the whole install.
+//
+// These are part of the public API and are covered by semver: a major bump of
+// tokio or serde_json is a breaking change for this crate too.
+pub use serde_json;
+pub use serde_json::{Value, json};
+pub use tokio;
+
+/// The async runtime, for callers who would rather not name tokio.
+///
+/// `#[nolgia_client::rt::main]` is tokio's `main` attribute, and
+/// [`block_on`](rt::block_on) runs one future from a synchronous `fn main`.
+pub mod rt {
+    pub use tokio::main;
+
+    /// Run `future` to completion on a fresh current-thread runtime.
+    ///
+    /// For a plain `fn main` that needs one async call. Do **not** call this
+    /// from inside an existing runtime (including from `#[tokio::main]`):
+    /// starting a runtime within a runtime panics.
+    pub fn block_on<F: std::future::Future>(future: F) -> F::Output {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("building a current-thread Tokio runtime")
+            .block_on(future)
+    }
+}
+
+/// A [`Client`] from the environment: `NOLGIA_TOKEN`, and `NOLGIA_API_URL`
+/// when it is set (otherwise [`DEFAULT_BASE_URL`]).
+///
+/// ```no_run
+/// use nolgia_client::tokio;
+///
+/// #[tokio::main]
+/// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+///     let nolgia = nolgia_client::client()?;
+///     let result = nolgia_client::subscribe(
+///         &nolgia,
+///         "/generate/image",
+///         nolgia_client::json!({"model": "flux-pro", "prompt": "a paper-cut mountain range"}),
+///         Default::default(),
+///     )
+///     .await?;
+///     println!("{}", result.url.unwrap_or_default());
+///     Ok(())
+/// }
+/// ```
+pub fn client() -> StdResult<Client, ClientBuilderError> {
+    ClientBuilder::from_env()?.build()
+}
 
 // Hand-written module; no codegen target writes to it.
 pub mod subscribe;
@@ -160,8 +222,8 @@ pub struct ClientBuilder {
     idempotency_key: Option<String>,
 }
 
-#[derive(Debug)]
 pub enum ClientBuilderError {
+    MissingToken,
     InvalidAuthorization(reqwest::header::InvalidHeaderValue),
     InvalidIdempotencyKey(String),
     Transport(reqwest::Error),
@@ -170,6 +232,12 @@ pub enum ClientBuilderError {
 impl fmt::Display for ClientBuilderError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::MissingToken => write!(
+                f,
+                "NOLGIA_TOKEN is not set — create a personal access token at \
+                 https://nolgia.com/settings/api-tokens, or build the client with \
+                 ClientBuilder::new(url).pat(token)"
+            ),
             Self::InvalidAuthorization(err) => write!(f, "invalid authorization header: {err}"),
             Self::InvalidIdempotencyKey(key) => write!(
                 f,
@@ -181,11 +249,21 @@ impl fmt::Display for ClientBuilderError {
     }
 }
 
+// Debug mirrors Display on purpose. `fn main() -> Result<_, Box<dyn Error>>`
+// — the shape of our own quickstart — prints the error with `{:?}`, so a
+// derived Debug would greet a new user with `MissingToken` and swallow the
+// sentence telling them how to fix it.
+impl fmt::Debug for ClientBuilderError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(self, f)
+    }
+}
+
 impl std::error::Error for ClientBuilderError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::InvalidAuthorization(err) => Some(err),
-            Self::InvalidIdempotencyKey(_) => None,
+            Self::MissingToken | Self::InvalidIdempotencyKey(_) => None,
             Self::Transport(err) => Some(err),
         }
     }
@@ -211,6 +289,26 @@ impl ClientBuilder {
             surface: None,
             idempotency_key: None,
         }
+    }
+
+    /// A builder configured from the environment: `NOLGIA_TOKEN` (a PAT
+    /// `nol_...` or a JWT), `NOLGIA_API_URL` when set, and `NOLGIA_SURFACE`
+    /// when set. No surface is invented when the variable is absent, because
+    /// server-side attribution keys on that header.
+    pub fn from_env() -> StdResult<Self, ClientBuilderError> {
+        let token = std::env::var("NOLGIA_TOKEN")
+            .ok()
+            .filter(|token| !token.trim().is_empty())
+            .ok_or(ClientBuilderError::MissingToken)?;
+        let base_url = std::env::var("NOLGIA_API_URL")
+            .ok()
+            .filter(|url| !url.trim().is_empty())
+            .unwrap_or_else(|| DEFAULT_BASE_URL.to_string());
+        let builder = Self::new(base_url).pat(token);
+        Ok(match std::env::var("NOLGIA_SURFACE") {
+            Ok(surface) if !surface.trim().is_empty() => builder.surface(surface),
+            _ => builder,
+        })
     }
 
     pub fn bearer_token(mut self, token: impl Into<String>) -> Self {
@@ -288,5 +386,48 @@ fn normalize_base_url(base_url: &str) -> String {
         trimmed.to_string()
     } else {
         format!("{trimmed}/v1")
+    }
+}
+
+#[cfg(test)]
+mod one_command_tests {
+    //! NOL-1066: `cargo add nolgia-client` must be the whole install. These
+    //! pin the surface the first example uses, so a refactor cannot quietly
+    //! send users back to `cargo add tokio serde_json`.
+
+    /// Environment variables are process-global and Cargo runs tests in
+    /// threads, so every env-mutating assertion lives in this ONE test.
+    #[test]
+    fn client_from_env_reads_the_token_and_names_what_is_missing() {
+        use super::ClientInfo as _;
+        let restore = std::env::var("NOLGIA_TOKEN").ok();
+        // SAFETY (edition 2024): no other test in this crate touches the
+        // environment, and this test restores what it found.
+        unsafe { std::env::remove_var("NOLGIA_TOKEN") };
+        let err = super::client().expect_err("no token must be an error, not a panic");
+        let message = err.to_string();
+        assert!(message.contains("NOLGIA_TOKEN is not set"), "{message}");
+        assert!(message.contains("settings/api-tokens"), "{message}");
+
+        unsafe { std::env::set_var("NOLGIA_TOKEN", "nol_test_token") };
+        let client = super::client().expect("a token is all the client needs");
+        assert!(client.baseurl().ends_with("/v1"), "{}", client.baseurl());
+
+        unsafe {
+            match restore {
+                Some(value) => std::env::set_var("NOLGIA_TOKEN", value),
+                None => std::env::remove_var("NOLGIA_TOKEN"),
+            }
+        }
+    }
+
+    #[test]
+    fn the_runtime_and_json_reach_callers_without_a_second_crate() {
+        // Exactly what the quickstart uses, through this crate alone.
+        let body = crate::json!({"model": "flux-pro", "prompt": "a paper-cut mountain range"});
+        assert_eq!(body["model"], "flux-pro");
+        let answer: u8 = crate::rt::block_on(async { 7 });
+        assert_eq!(answer, 7);
+        let _: crate::Value = body;
     }
 }

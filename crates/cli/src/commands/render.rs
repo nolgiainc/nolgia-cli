@@ -125,14 +125,17 @@ async fn blocks(args: BlocksArgs, ctx: &CommandContext) -> Result<()> {
             .await;
         }
         match ctx.format() {
-            OutputFormat::Json => print_json(&serde_json::json!({
-                "render_id": render_id,
-                "composition_id": render.composition_id,
-                "status": "queued",
-                "blocks": n,
-                "block_seconds": seconds,
-                "duration_seconds": duration,
-            })),
+            OutputFormat::Json => print_json(
+                ctx.output(),
+                &serde_json::json!({
+                    "render_id": render_id,
+                    "composition_id": render.composition_id,
+                    "status": "queued",
+                    "blocks": n,
+                    "block_seconds": seconds,
+                    "duration_seconds": duration,
+                }),
+            ),
             OutputFormat::Text => {
                 println!("{render_id} queued");
                 eprintln!("check it: nolgia compositions status {render_id}");

@@ -1,5 +1,6 @@
 pub mod ability;
 pub mod account;
+pub mod api;
 pub mod assets;
 pub mod billing;
 pub mod characters;
@@ -23,7 +24,7 @@ pub mod wait;
 
 use crate::agent_guard::AgentMarker;
 use crate::livejob::{self, LiveJob};
-use crate::output::OutputFormat;
+use crate::output::{OutputContext, OutputFormat};
 use nolgia_client::Client;
 use reqwest::StatusCode;
 use uuid::Uuid;
@@ -139,15 +140,15 @@ pub(crate) async fn wait_error(
 
 pub struct CommandContext {
     client: Client,
-    format: OutputFormat,
+    output: OutputContext,
     agent: Option<AgentMarker>,
 }
 
 impl CommandContext {
-    pub fn new(client: Client, format: OutputFormat) -> Self {
+    pub fn new(client: Client, output: impl Into<OutputContext>) -> Self {
         Self {
             client,
-            format,
+            output: output.into(),
             agent: None,
         }
     }
@@ -166,6 +167,10 @@ impl CommandContext {
     }
 
     pub fn format(&self) -> OutputFormat {
-        self.format
+        self.output.format()
+    }
+
+    pub fn output(&self) -> &OutputContext {
+        &self.output
     }
 }

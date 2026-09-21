@@ -17,9 +17,11 @@ nolgia --version
 curl -fsSL https://raw.githubusercontent.com/nolgiainc/nolgia-cli/main/install.sh | bash
 ```
 
+**Check your platform first — we know one case that fails.** The Linux release binaries need **glibc 2.38 or newer** and the `libdbus-1.so.3` library. If you are inside a slim container (`debian:bookworm-slim`, `ubuntu:22.04`, most CI base images), the download will succeed and the binary **will not start**. Run `ldd --version | head -1`: if it reports less than 2.38, skip to the Cargo fallback below instead, which builds against your own system. On such a machine the installer now fails loudly with the loader error rather than reporting a success you cannot use. This is tracked in NOL-1070; macOS is unaffected.
+
 The installer downloads the latest release binary for your platform, installs it to `~/.local/bin` by default with a `~/bin` fallback, and appends an export line to your shell profile when that directory is missing from PATH. It asks for no password. **Never run the installer with `sudo`.** You can pass `--prefix <dir>` for another user-writable directory or `--tag vX.Y.Z` to pin a release, using `bash -s --` in place of `bash` before those arguments. Use `--system` only when your operator deliberately wants `/usr/local/bin` and has made it writable; it is not needed here.
 
-**Check:** installation exits 0 and prints `installed nolgia <version> to <directory>/nolgia` (or says the requested version is already installed). In the verified clean-environment run this installed v0.2.28 into `$HOME/.local/bin` and created `$HOME/.zshrc`; the latest release can change. Do not assume a successful install has updated your running shell.
+**Check:** installation exits 0 and prints `installed nolgia <version> to <directory>/nolgia` (or says the requested version is already installed). For a downloaded binary, expect `verified <asset> sha256 <first 12 hex>… with <tool>` before the installed message; older releases without `SHA256SUMS` print a skip note, and a machine without a digest tool prints a warning instead. A checksum mismatch or a missing asset entry in a published sums file fails the install. A no-op re-run does not download or verify again. Every successful run ends stdout with exactly `export PATH="<directory>:$PATH"`, even when that directory is already on PATH. Do not assume a successful install has updated your running shell.
 
 When curl is unavailable, choose one available fallback, then verify with `command -v nolgia` and `nolgia --version`:
 
@@ -29,7 +31,15 @@ When curl is unavailable, choose one available fallback, then verify with `comma
 
 ### 2.1. Update PATH in your current process
 
-The installer edits your shell profile, but your already-running shell does not re-read it. Run this in the shell you will use for the remaining commands:
+The installer edits your shell profile, but your already-running shell does not re-read it. Your fastest correct move is to copy and run the installer's final `export PATH=…` line in the shell you will use for the remaining commands. You can also install (or safely re-run) and evaluate that last line directly:
+
+```sh
+eval "$(curl -fsSL https://raw.githubusercontent.com/nolgiainc/nolgia-cli/main/install.sh | bash | tail -n 1)"
+command -v nolgia
+nolgia --version
+```
+
+If you do not have the final line, use a manual export as the fallback:
 
 ```sh
 export PATH="$HOME/.local/bin:$PATH"
@@ -97,15 +107,34 @@ Replace `nol_...` with the actual token using a secret manager or a private shel
 ## 4. Install and verify the skills
 
 ```sh
-nolgia skills install --force
+nolgia skills install
 nolgia skills list
 ```
 
 The default target is `claude-user`, which writes `~/.claude/skills/<name>/SKILL.md`. The three bundled packs are `nolgia-platform`, `nolgia-video-prompting`, and `nolgia-ugc-ads`. These commands are local; `nolgia skills list` works even without a token.
 
-**Use `--force`, and do not treat that as a destructive choice.** Without it, `nolgia skills install` stops at the *first* pack that already exists, exits 1 with `... SKILL.md already exists — pass --force to overwrite`, and installs none of the remaining packs — so a machine holding one stale pack can never be brought up to date by the plain command, and a re-run of this runbook fails at this step. The packs are content shipped inside the binary, not your user's data, so overwriting them is how you refresh them to the version you just installed. The one thing `--force` does destroy is a hand-edited `SKILL.md` at those three paths: if your user has customised one, copy it aside first and ask them.
+**Re-running is safe from v0.2.29.** Missing packs are reported as `installed`,
+byte-identical packs are
+reported as `unchanged`, and differing copies are reported as `skipped` and left
+intact. Installation continues through all three packs and exits 0 unless a real
+filesystem error occurs. Review any skipped copy before deciding to replace it;
+it may contain your user's changes. Use `nolgia skills install <pack> --force`
+when a pack differs from the bundled copy and you intend to replace it; its
+status becomes `overwritten`. Identical packs remain `unchanged` even with
+`--force`.
 
-**Check:** installation exits 0 and prints `3 skill(s) installed. Agents pick them up on their next session.` The list contains all three names. Confirm their files exist:
+**Check:** installation exits 0 and reports all three packs, followed by counts
+for `installed`, `unchanged`, `skipped`, and `overwritten`. A clean installation
+reports:
+
+```text
+3 installed, 0 unchanged, 0 skipped, 0 overwritten. Agents pick them up on their next session.
+```
+
+An identical re-run reports `0 installed, 3 unchanged, 0 skipped, 0 overwritten`
+with the same next-session reminder. `--json` returns an
+array of `{ "name", "path", "status" }` objects. The list contains all three
+names. Confirm their files exist:
 
 ```sh
 for pack in nolgia-platform nolgia-video-prompting nolgia-ugc-ads; do
@@ -121,7 +150,7 @@ nolgia skills install --target hermes
 nolgia skills install --target dir --dir ./agent-skills
 ```
 
-These write to `./.claude/skills`, `${HERMES_HOME:-/opt/data}/skills`, or the directory supplied by `--target dir --dir <path>`, respectively. Add `--force` to each for the same reason as above, then verify the same three nonempty `SKILL.md` files beneath your chosen directory and run `nolgia skills list`.
+These write to `./.claude/skills`, `${HERMES_HOME:-/opt/data}/skills`, or the directory supplied by `--target dir --dir <path>`, respectively. Re-runs use the same skip-and-report behavior. Verify the same three nonempty `SKILL.md` files beneath your chosen directory and run `nolgia skills list`.
 
 A Claude Code session caches skills at session start. Use `/reload-skills` or start a new session before expecting freshly installed skills to be visible.
 
@@ -147,7 +176,7 @@ The command first prints `submitted job <uuid> — waiting up to 300s (Ctrl-C is
 
 Two exit codes are not plain failures:
 
-- **75:** the job is still running or needs to be followed. Never re-submit it: re-submitting can bill a second job. Set `JOB_ID` to the exact ID the CLI printed, then keep waiting with `nolgia wait "$JOB_ID" --timeout 300` (that is `nolgia wait <JOB_ID> --timeout 300`). Repeat the wait if it expires again. This command has no `--out` flag. After success, obtain `asset.id` from `nolgia --json status "$JOB_ID"` privately, set `ASSET_ID` to that ID, and download with `nolgia assets get "$ASSET_ID" --out nolgia-verify.png`. Job and asset JSON can contain signed URLs, so keep those outputs out of logs too.
+- **75:** the job is still running or needs to be followed. Never re-submit it: re-submitting can bill a second job. Set `JOB_ID` to the exact ID the CLI printed, then keep waiting with `nolgia wait "$JOB_ID" --timeout 300` (that is `nolgia wait <JOB_ID> --timeout 300`). Repeat the wait if it expires again. This command has no `--out` flag. After success, set `ASSET_ID=$(nolgia status "$JOB_ID" --field asset.id)` privately and download with `nolgia assets get "$ASSET_ID" --out nolgia-verify.png`. Job and asset JSON can contain signed URLs, so keep those outputs out of logs too.
 - **65:** the content filter refused the prompt. Change the prompt; the job is not broken. A changed prompt starts a new generation and spends credits, so tell your user before retrying.
 
 An identical prompt re-run within five minutes is refused with **409**, naming the existing job, and is not billed twice. That is the duplicate guard working: follow the named job instead of re-running. Pass a fresh `--idempotency-key` only when you genuinely want a second take and its additional charge.
@@ -166,13 +195,13 @@ test "$(od -An -tx1 -N8 nolgia-verify.png | tr -d ' \n')" = '89504e470d0a1a0a'
 
 | Symptom | What you do and how you check it |
 | --- | --- |
-| Binary is not on PATH | Run `export PATH="$HOME/.local/bin:$PATH"` (or prepend the actual install directory), then `command -v nolgia` and `nolgia --version`; both must work. |
+| Binary is not on PATH | Copy and run the installer's final export line, or use the `eval` command in step 2.1. If that line is unavailable, manually export the actual install directory. Then require `command -v nolgia` and `nolgia --version` to work; preserve PATH across fresh harness shells. |
 | 401 / not authenticated | Return to step 3. Replace an invalid `NOLGIA_TOKEN` securely or unset it before device login so it cannot override the stored login. Wait for approval, then require `nolgia auth status` to name a user. |
 | Out of credits | Run `nolgia billing credits`, tell your user which pool needs funding, and wait for them to resolve it. Re-check the balance before a new submission. |
 | Long-poll expires, exit 75 | Run `nolgia wait "$JOB_ID" --timeout 300` for the named job until terminal; never re-submit. Download the existing asset as described in step 5. |
 | Moderated prompt, exit 65 | Explain the filter refusal and change the prompt before a new generation; verify the replacement's result and PNG file. |
 | Duplicate guard, HTTP 409 | Follow the existing job named in the response. A fresh `--idempotency-key` is only for a deliberate, separately billed second take. |
-| `skills install` exits 1 with `already exists` | The packs are already on disk and the command stopped at the first one, installing none of the rest. Re-run `nolgia skills install --force`; check for `3 skill(s) installed`. |
+| `skills install` reports `skipped` | A local pack differs from the bundled copy and was preserved. Review the reported path; missing packs still install, identical packs report `unchanged`, and the command exits 0 with summary counts unless a filesystem error occurs. Use `nolgia skills install <pack> --force` only to replace a differing copy deliberately; it reports `overwritten`. |
 | No prebuilt binary for your platform | Run `cargo install nolgia-cli`, add `$HOME/.cargo/bin` to PATH if needed, then verify `command -v nolgia` and `nolgia --version`. |
 
 You are done when:

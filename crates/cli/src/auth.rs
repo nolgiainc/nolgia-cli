@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::time::Instant;
 
-use crate::output::{OutputFormat, print_json};
+use crate::output::{OutputContext, OutputFormat, print_json};
 
 pub const SERVICE_NAME: &str = "com.nolgiainc.nolgia";
 /// Pre-rename keyring service name. This is the ONLY remaining reference to
@@ -705,7 +705,7 @@ struct Problem {
 
 pub async fn run(
     command: AuthCommand,
-    format: OutputFormat,
+    output: &OutputContext,
     base_url: &str,
     token: Option<String>,
 ) -> Result<()> {
@@ -719,7 +719,7 @@ pub async fn run(
             Ok(())
         }
         AuthCommand::Login { no_browser } => {
-            let mut screen = LoginScreen::for_cli(format);
+            let mut screen = LoginScreen::for_cli(output.format());
             let options = LoginOptions {
                 open_browser: !no_browser,
                 // The clipboard is for a person at a terminal; a script or an
@@ -733,16 +733,16 @@ pub async fn run(
                     AuthError::Expired => anyhow::anyhow!(LOGIN_EXPIRED_MESSAGE),
                     other => other.into(),
                 })?;
-            emit_login(format, &outcome)
+            emit_login(output, &outcome)
         }
         AuthCommand::Logout => {
             manager.logout()?;
-            emit_message(format, "logged out")
+            emit_message(output, "logged out")
         }
         AuthCommand::Status | AuthCommand::Whoami => {
             match token.filter(|token| !token.is_empty()) {
-                Some(token) => emit_status(format, &manager.status_with_token(&token).await?),
-                None => emit_status(format, &manager.status().await?),
+                Some(token) => emit_status(output, &manager.status_with_token(&token).await?),
+                None => emit_status(output, &manager.status().await?),
             }
         }
     }
@@ -756,16 +756,16 @@ pub fn load_token() -> Option<String> {
         .map(|tokens| tokens.access_token)
 }
 
-fn emit_login(format: OutputFormat, outcome: &LoginOutcome) -> Result<()> {
-    match format {
-        OutputFormat::Json => print_json(outcome),
+fn emit_login(output: &OutputContext, outcome: &LoginOutcome) -> Result<()> {
+    match output.format() {
+        OutputFormat::Json => print_json(output, outcome),
         OutputFormat::Text => Ok(()),
     }
 }
 
-fn emit_status(format: OutputFormat, status: &AuthStatus) -> Result<()> {
-    match format {
-        OutputFormat::Json => print_json(status),
+fn emit_status(output: &OutputContext, status: &AuthStatus) -> Result<()> {
+    match output.format() {
+        OutputFormat::Json => print_json(output, status),
         OutputFormat::Text => {
             println!("{} ({})", status.email, status.tier);
             println!("{}", organization_line(status.organization.as_ref()));
@@ -788,9 +788,9 @@ struct Message<'a> {
     message: &'a str,
 }
 
-fn emit_message(format: OutputFormat, message: &'static str) -> Result<()> {
-    match format {
-        OutputFormat::Json => print_json(&Message { message }),
+fn emit_message(output: &OutputContext, message: &'static str) -> Result<()> {
+    match output.format() {
+        OutputFormat::Json => print_json(output, &Message { message }),
         OutputFormat::Text => {
             println!("{message}");
             Ok(())
@@ -1191,6 +1191,22 @@ mod tests {
         Mock, MockServer, ResponseTemplate,
         matchers::{body_json, header, method, path},
     };
+
+    #[test]
+    fn auth_output_uses_its_own_selection() {
+        let status = AuthStatus {
+            email: "user@example.com".into(),
+            tier: "pro".into(),
+            organization: None,
+        };
+        let missing =
+            OutputContext::from(OutputFormat::Text).with_selection(vec!["missing".into()], None);
+        let selected =
+            OutputContext::from(OutputFormat::Text).with_selection(vec!["email".into()], None);
+        assert!(emit_status(&missing, &status).is_err());
+        emit_status(&selected, &status).unwrap();
+        emit_status(&OutputFormat::Json.into(), &status).unwrap();
+    }
 
     #[derive(Clone, Default)]
     struct MemoryStore {

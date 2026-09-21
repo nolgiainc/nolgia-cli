@@ -126,7 +126,7 @@ async fn list(ctx: &CommandContext) -> Result<()> {
         .context("listing marketplace abilities")?
         .into_inner();
     match ctx.format() {
-        OutputFormat::Json => print_json(&abilities),
+        OutputFormat::Json => print_json(ctx.output(), &abilities),
         OutputFormat::Text => {
             for ability in &abilities {
                 print_ability_line(ability);
@@ -146,7 +146,7 @@ async fn show(args: SlugArgs, ctx: &CommandContext) -> Result<()> {
         .context("fetching ability")?
         .into_inner();
     match ctx.format() {
-        OutputFormat::Json => print_json(&ability),
+        OutputFormat::Json => print_json(ctx.output(), &ability),
         OutputFormat::Text => {
             println!(
                 "{} v{}  {}",
@@ -179,7 +179,7 @@ async fn installed(ctx: &CommandContext) -> Result<()> {
         .context("listing installed abilities")?
         .into_inner();
     match ctx.format() {
-        OutputFormat::Json => print_json(&abilities),
+        OutputFormat::Json => print_json(ctx.output(), &abilities),
         OutputFormat::Text => {
             for ability in &abilities {
                 println!(
@@ -207,7 +207,7 @@ async fn install(args: SlugArgs, ctx: &CommandContext) -> Result<()> {
         Err(err) => return Err(super::api_error(err, "installing ability").await),
     };
     match ctx.format() {
-        OutputFormat::Json => print_json(&ability),
+        OutputFormat::Json => print_json(ctx.output(), &ability),
         OutputFormat::Text => {
             println!(
                 "installed {} v{} — it lands on the agent pod on its next restart or `nolgia ability sync`",
@@ -226,7 +226,10 @@ async fn uninstall(args: SlugArgs, ctx: &CommandContext) -> Result<()> {
         .await
         .context("uninstalling ability")?;
     match ctx.format() {
-        OutputFormat::Json => print_json(&serde_json::json!({ "uninstalled": args.slug })),
+        OutputFormat::Json => print_json(
+            ctx.output(),
+            &serde_json::json!({ "uninstalled": args.slug }),
+        ),
         OutputFormat::Text => {
             println!("uninstalled {}", args.slug);
             Ok(())
@@ -321,7 +324,7 @@ async fn sync(args: SyncArgs, ctx: &CommandContext) -> Result<()> {
     }
 
     match ctx.format() {
-        OutputFormat::Json => print_json(&results),
+        OutputFormat::Json => print_json(ctx.output(), &results),
         OutputFormat::Text => {
             for r in &results {
                 println!("{:8} {} v{}", r.action, r.slug, r.version);
@@ -411,7 +414,7 @@ fn init(args: InitArgs, ctx: &CommandContext) -> Result<()> {
     let dir = args.dir.unwrap_or_else(|| PathBuf::from(&args.slug));
     let result = scaffold(&args.slug, &dir)?;
     match ctx.format() {
-        OutputFormat::Json => print_json(&result),
+        OutputFormat::Json => print_json(ctx.output(), &result),
         OutputFormat::Text => {
             println!("initialized {} at {}", result.slug, result.dir.display());
             println!(
@@ -528,7 +531,7 @@ struct PackResult {
 fn pack(args: PackArgs, ctx: &CommandContext) -> Result<()> {
     let result = assemble(&args.dir, args.out)?;
     match ctx.format() {
-        OutputFormat::Json => print_json(&result),
+        OutputFormat::Json => print_json(ctx.output(), &result),
         OutputFormat::Text => {
             println!(
                 "packed {} v{} -> {} ({} files, {} bytes)",
@@ -800,7 +803,7 @@ async fn publish(args: PublishArgs, ctx: &CommandContext) -> Result<()> {
         .context("publishing ability (admin only)")?
         .into_inner();
     match ctx.format() {
-        OutputFormat::Json => print_json(&ability),
+        OutputFormat::Json => print_json(ctx.output(), &ability),
         OutputFormat::Text => {
             println!(
                 "published {} v{} ({}, min_tier: {})",

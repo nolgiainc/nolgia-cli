@@ -80,7 +80,7 @@ async fn list(ctx: &CommandContext) -> Result<()> {
         .context("listing characters")?
         .into_inner();
     match ctx.format() {
-        OutputFormat::Json => print_json(&list),
+        OutputFormat::Json => print_json(ctx.output(), &list),
         OutputFormat::Text => {
             for character in list.characters {
                 print_character_line(&character);
@@ -100,7 +100,7 @@ async fn get(args: GetCharacterArgs, ctx: &CommandContext) -> Result<()> {
         .context("fetching character")?
         .into_inner();
     match ctx.format() {
-        OutputFormat::Json => print_json(&character),
+        OutputFormat::Json => print_json(ctx.output(), &character),
         OutputFormat::Text => {
             print_character_line(&character);
             Ok(())
@@ -133,7 +133,7 @@ async fn create(args: CreateCharacterArgs, ctx: &CommandContext) -> Result<()> {
         .context("creating character")?
         .into_inner();
     match ctx.format() {
-        OutputFormat::Json => print_json(&character),
+        OutputFormat::Json => print_json(ctx.output(), &character),
         OutputFormat::Text => {
             print_character_line(&character);
             Ok(())
@@ -185,7 +185,7 @@ async fn update(args: UpdateCharacterArgs, ctx: &CommandContext) -> Result<()> {
         .context("updating character")?
         .into_inner();
     match ctx.format() {
-        OutputFormat::Json => print_json(&character),
+        OutputFormat::Json => print_json(ctx.output(), &character),
         OutputFormat::Text => {
             print_character_line(&character);
             Ok(())
@@ -201,7 +201,10 @@ async fn delete(args: DeleteCharacterArgs, ctx: &CommandContext) -> Result<()> {
         .await
         .context("deleting character")?;
     match ctx.format() {
-        OutputFormat::Json => print_json(&serde_json::json!({ "deleted": args.character_id })),
+        OutputFormat::Json => print_json(
+            ctx.output(),
+            &serde_json::json!({ "deleted": args.character_id }),
+        ),
         OutputFormat::Text => {
             println!("deleted {}", args.character_id);
             Ok(())

@@ -75,7 +75,7 @@ async fn list(args: ListArgs, ctx: &CommandContext) -> Result<()> {
         }
     }
     match ctx.format() {
-        OutputFormat::Json => print_json(&voices),
+        OutputFormat::Json => print_json(ctx.output(), &voices),
         OutputFormat::Text => {
             if voices.is_empty() {
                 println!("no voices");

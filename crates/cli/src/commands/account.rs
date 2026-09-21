@@ -34,7 +34,7 @@ async fn me(ctx: &CommandContext) -> Result<()> {
         .context("fetching current user")?
         .into_inner();
     match ctx.format() {
-        OutputFormat::Json => print_json(&user),
+        OutputFormat::Json => print_json(ctx.output(), &user),
         OutputFormat::Text => {
             println!("{} {}", user.id, user.email);
             Ok(())
@@ -62,7 +62,7 @@ async fn usage(ctx: &CommandContext) -> Result<()> {
         assets_visible: assets.items.len(),
     };
     match ctx.format() {
-        OutputFormat::Json => print_json(&summary),
+        OutputFormat::Json => print_json(ctx.output(), &summary),
         OutputFormat::Text => {
             println!(
                 "jobs: {} assets: {}",
