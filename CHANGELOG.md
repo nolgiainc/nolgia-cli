@@ -5,6 +5,13 @@ the matching GitHub release.
 
 ## Unreleased
 
+## v0.2.32
+
+- **The Rust client matches today's API contract.** Its types are regenerated
+  from the current spec, so a model's published price now carries its display
+  name, its maker, a one-line summary and its capability blocks. Nothing you
+  already wrote changes: these are additions.
+
 ## v0.2.31
 
 - **`cargo add nolgia-client` now runs the whole quickstart, download and all.**
