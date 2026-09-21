@@ -5,6 +5,8 @@ the matching GitHub release.
 
 ## Unreleased
 
+## v0.2.30
+
 - **The Linux binaries now run everywhere.** They are statically linked musl
   builds that depend on no system library, so the CLI starts on Debian 12,
   Ubuntu 22.04, Alpine and slim container images — previously it installed and
