@@ -69,7 +69,7 @@ tags:
     description: |
       HyperFrames-style HTML video compositions: a bundle of files
       (index.html + compositions/*.html + assets/* + meta.json) authored by a
-      user's Hermes agent and rendered by the web UI as a scrubbable timeline.
+      user's NOLGIA Agent and rendered by the web UI as a scrubbable timeline.
       The API stores the files in GCS and serves them back via short-lived
       signed URLs; it never renders or executes composition content.
 
@@ -100,9 +100,9 @@ tags:
   - name: Sharing
     description: Durable, revocable public share links for finished media (assets and renders) and the public resolver behind them.
   - name: Agent
-    description: Per-customer Hermes agent provisioning, usage, and chat relay.
+    description: Per-customer NOLGIA Agent provisioning, usage, and chat relay.
   - name: Abilities
-    description: Marketplace of admin-published ability packages that customer Hermes agents install and run.
+    description: Marketplace of admin-published ability packages that customers' NOLGIA Agents install and run.
   - name: Presets
     description: |
       Customer-facing, outcome-named workflow wrappers ("Social media ad", "Short film")
@@ -6930,7 +6930,7 @@ paths:
     get:
       tags: [Agent]
       operationId: getAgent
-      summary: Get the current user's Hermes agent, if provisioned.
+      summary: Get the current user's NOLGIA Agent, if provisioned.
       responses:
         '200':
           description: The user's agent.
@@ -6947,7 +6947,7 @@ paths:
     post:
       tags: [Agent]
       operationId: provisionAgent
-      summary: Provision the current user's Hermes agent (one per account; requires an active subscription).
+      summary: Provision the current user's NOLGIA Agent (one per account; requires an active subscription).
       requestBody:
         required: false
         content:
@@ -6972,7 +6972,7 @@ paths:
     delete:
       tags: [Agent]
       operationId: deprovisionAgent
-      summary: Deprovision the current user's Hermes agent and revoke its access token.
+      summary: Deprovision the current user's NOLGIA Agent and revoke its access token.
       responses:
         '204':
           description: Agent deprovisioned.
@@ -7069,7 +7069,7 @@ paths:
     post:
       tags: [Agent]
       operationId: sendAgentChatMessage
-      summary: Relay a chat message to the user's deployed Hermes agent and return its reply.
+      summary: Relay a chat message to the user's deployed NOLGIA Agent and return its reply.
       requestBody:
         required: true
         content:
@@ -7097,7 +7097,7 @@ paths:
     post:
       tags: [Agent]
       operationId: submitAgentMessage
-      summary: Submit a chat message to the user's Hermes agent asynchronously.
+      summary: Submit a chat message to the user's NOLGIA Agent asynchronously.
       description: |
         The async counterpart to `POST /agent/chat`: the message is persisted
         to the transcript immediately (role `user`, status `complete`)
@@ -7651,7 +7651,7 @@ paths:
       operationId: listAgentSteps
       summary: Live terminal/tool/message steps of the agent's current session.
       description: |
-        Streams the fine-grained steps of the agent's current Hermes session —
+        Streams the fine-grained steps of the agent's current session —
         terminal commands (with their input command and captured output), other
         tool calls, file operations, and message events — as a sanitized,
         chronologically-ordered feed for the chat's expandable step chips.
@@ -7689,7 +7689,7 @@ paths:
           in: query
           required: false
           description: >
-            Chat session the caller is rendering. REQUIRED to receive live steps: the feed is scoped to the pod run backing THAT session's in-flight turn, and returns an empty list when the session has no turn in flight. A request WITHOUT session_id returns an empty list and never proxies the agent pod. The pod's Hermes conversation is global across the account's chat sessions, so an unscoped feed would serve whichever run touched the pod last, surfacing one session's steps, media (asset refs), and tool output inside another's. Always send it; an omitted session_id is treated as a stale or older client and served nothing rather than another session's content.
+            Chat session the caller is rendering. REQUIRED to receive live steps: the feed is scoped to the pod run backing THAT session's in-flight turn, and returns an empty list when the session has no turn in flight. A request WITHOUT session_id returns an empty list and never proxies the agent pod. The pod's agent conversation is global across the account's chat sessions, so an unscoped feed would serve whichever run touched the pod last, surfacing one session's steps, media (asset refs), and tool output inside another's. Always send it; an omitted session_id is treated as a stale or older client and served nothing rather than another session's content.
 
           schema:
             type: string
@@ -16463,7 +16463,7 @@ components:
       type: string
       enum: [pending_deploy, running, deprovisioned]
       x-enum-varnames: [AgentStatusPendingDeploy, AgentStatusRunning, AgentStatusDeprovisioned]
-      description: Lifecycle of a customer's Hermes agent deployment.
+      description: Lifecycle of a customer's NOLGIA Agent deployment.
     Agent:
       type: object
       additionalProperties: false
@@ -17669,7 +17669,7 @@ components:
         key:
           type: string
           pattern: '^[A-Z][A-Z0-9_]{0,63}$'
-          description: Environment variable name. Platform-managed names (NOLGIA_TOKEN, OPENAI_API_KEY, API_SERVER_KEY, GNOSIS_*, HERMES_*, ...) are rejected.
+          description: Environment variable name. Platform-managed names (NOLGIA_TOKEN, OPENAI_API_KEY, API_SERVER_KEY, GNOSIS_*, HERMES_*, ...) are rejected. `HERMES_*` is a legacy reserved prefix from the agent runtime's original internal name; it is matched literally and is not a product name.
         value:
           type: string
           maxLength: 4096
