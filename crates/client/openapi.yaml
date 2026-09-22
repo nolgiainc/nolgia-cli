@@ -10445,8 +10445,12 @@ components:
       nullable: true
       description: |
         What the reference video is FOR, on models that publish
-        `references.video_tasks` on `GET /models` (Seedance 2.5). Omit it to
-        let the provider classify the task from the prompt.
+        `references.video_tasks` on `GET /models` (Seedance 2.5). Omit it and
+        a request that carries a reference video runs as `reference`, the
+        task its `duration_seconds`, `aspect_ratio` and `quality` describe;
+        the provider is not left to classify the task from the prompt, which
+        failed any prompt it read as an edit. Name `edit` to change the clip
+        itself.
 
         * `reference` - the clip drives the render (motion, choreography,
           timing, camera) and the element images recast the performer and
