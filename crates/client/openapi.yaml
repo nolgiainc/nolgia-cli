@@ -11361,8 +11361,8 @@ components:
         - `topaz-rhea` — texture-heavy upscales
         - `topaz-theia` — fine-tuned detail
         - `topaz-theia-fidelity` — detail that stays stable frame to frame
-        - `topaz-gaia` — CG and animation
-        - `topaz-gaia-cg` — animation and 3D renders that are already clean
+        - `topaz-gaia` — live action, a high-quality general pass
+        - `topaz-gaia-cg` — CG and animation: 3D renders and animation that are already clean
 
         Faces:
 
