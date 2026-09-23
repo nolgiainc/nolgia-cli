@@ -379,6 +379,53 @@ paths:
           $ref: '#/components/responses/ProblemResponse'
         default:
           $ref: '#/components/responses/ProblemResponse'
+  /me/deletion:
+    get:
+      tags: [Auth]
+      operationId: getAccountDeletionPreflight
+      summary: Preview what deleting the current account will do.
+      description: >
+        Browser (JWT) sessions only; PATs are rejected. Lists the organizations that block the deletion (ones the caller owns that still have other members: transfer ownership or delete the organization first), the organizations that will be deleted with the account (owned, no other members), the organizations the caller will leave, and the grace period before the purge starts.
+
+      responses:
+        '200':
+          description: What a deletion requested now would do.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountDeletionPreflight'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+    post:
+      tags: [Auth]
+      operationId: requestAccountDeletion
+      summary: Delete the current account.
+      description: >
+        Browser (JWT) sessions only; PATs are rejected, so a leaked token can never delete an account. `confirmation` must equal the account's email address (case-insensitive). On success the account is locked at once: every session, personal access token, API key and OAuth grant stops working, share links are revoked, Arena entries are withdrawn, paid subscriptions are cancelled at Stripe (immediately, without proration), and the NOLGIA Agent is stopped. The purge that deletes the account's content and anonymizes its billing records starts when `purge_after` passes (the grace period, 7 days) and normally finishes within the hour. `409` when the caller owns an organization that still has other members.
+
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AccountDeletionRequest'
+      responses:
+        '202':
+          description: Deletion scheduled; the account is locked.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountDeletion'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
   /organizations:
     get:
       tags: [Organizations]
@@ -16442,6 +16489,117 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/OrganizationUsageItem'
+    AccountDeletionRequest:
+      type: object
+      additionalProperties: false
+      required: [confirmation]
+      properties:
+        confirmation:
+          type: string
+          description: The account's email address, typed by the user. Compared case-insensitively.
+    AccountDeletion:
+      type: object
+      additionalProperties: false
+      required: [id, user_id, status, requested_via, requested_at, purge_after, steps_done, counts]
+      description: >
+        One account deletion: the work item and its audit record. It carries the opaque account id and progress only; no email, name or other personal data.
+
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+          description: The deleted account's opaque id.
+        status:
+          type: string
+          enum: [scheduled, purging, completed, cancelled]
+          x-enum-varnames: [AccountDeletionStatusScheduled, AccountDeletionStatusPurging, AccountDeletionStatusCompleted, AccountDeletionStatusCancelled]
+        requested_via:
+          type: string
+          enum: [self, admin]
+          x-enum-varnames: [AccountDeletionViaSelf, AccountDeletionViaAdmin]
+        requested_at:
+          type: string
+          format: date-time
+        purge_after:
+          type: string
+          format: date-time
+          description: When the grace period ends and the purge starts.
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+        cancelled_at:
+          type: string
+          format: date-time
+          nullable: true
+        steps_done:
+          type: array
+          items:
+            type: string
+        counts:
+          type: object
+          additionalProperties:
+            type: integer
+            format: int64
+        failures:
+          type: integer
+        last_error:
+          type: string
+          nullable: true
+        waiting_on:
+          type: string
+          nullable: true
+    AccountDeletionOrganization:
+      type: object
+      additionalProperties: false
+      required: [id, name, other_members]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        other_members:
+          type: integer
+          description: Members other than the caller.
+    AccountDeletionPreflight:
+      type: object
+      additionalProperties: false
+      required: [email, grace_days, blocking_organizations, organizations_to_delete, organizations_to_leave, active_subscriptions, has_agent]
+      properties:
+        email:
+          type: string
+          description: The address the confirmation must match.
+        grace_days:
+          type: integer
+          description: Days between the request and the start of the purge.
+        blocking_organizations:
+          type: array
+          description: Organizations the caller owns that still have other members. Deletion is refused until each is transferred or deleted.
+          items:
+            $ref: '#/components/schemas/AccountDeletionOrganization'
+        organizations_to_delete:
+          type: array
+          description: Organizations the caller owns alone. They are deleted with the account.
+          items:
+            $ref: '#/components/schemas/AccountDeletionOrganization'
+        organizations_to_leave:
+          type: array
+          description: Organizations the caller belongs to but does not own. Items the caller made there stay with the organization.
+          items:
+            $ref: '#/components/schemas/AccountDeletionOrganization'
+        active_subscriptions:
+          type: integer
+          description: Paid subscriptions that will be cancelled at once, without a prorated refund.
+        has_agent:
+          type: boolean
     UserSettings:
       type: object
       additionalProperties: false
@@ -16565,9 +16723,11 @@ components:
           examples: ['nol_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6']
     AgentStatus:
       type: string
-      enum: [pending_deploy, running, deprovisioned]
-      x-enum-varnames: [AgentStatusPendingDeploy, AgentStatusRunning, AgentStatusDeprovisioned]
-      description: Lifecycle of a customer's NOLGIA Agent deployment.
+      enum: [pending_deploy, running, deprovisioned, pending_stop, stopped, pending_teardown, torn_down]
+      x-enum-varnames: [AgentStatusPendingDeploy, AgentStatusRunning, AgentStatusDeprovisioned, AgentStatusPendingStop, AgentStatusStopped, AgentStatusPendingTeardown, AgentStatusTornDown]
+      description: >
+        Lifecycle of a customer's NOLGIA Agent deployment. The last four belong to account deletion: `pending_stop` (the account was deleted; the provisioner scales the agent to zero) then `stopped`, and at the purge `pending_teardown` (the provisioner deletes the namespace, disk, secrets, proxy key and memory) then `torn_down`.
+
     Agent:
       type: object
       additionalProperties: false
