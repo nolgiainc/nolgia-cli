@@ -6795,6 +6795,11 @@ paths:
       tags: [Billing]
       operationId: getAutoRefresh
       summary: Get the current user's auto-refresh settings.
+      description: |-
+        Returns the stored auto-refresh (auto top-up) preference. It is a stored
+        preference only: nothing reads it, so no top-up is ever bought
+        automatically and no card is charged, whatever `enabled` says. Top up
+        from the billing page when the balance runs low.
       responses:
         '200':
           description: Auto-refresh settings.
@@ -6810,6 +6815,10 @@ paths:
       tags: [Billing]
       operationId: putAutoRefresh
       summary: Update the current user's auto-refresh settings.
+      description: |-
+        Stores the auto-refresh (auto top-up) preference and nothing else.
+        Automatic top-ups are not available: no job reads this setting, so
+        saving `enabled: true` never buys credits and never charges a card.
       requestBody:
         required: true
         content:
