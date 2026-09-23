@@ -2678,6 +2678,15 @@ paths:
           schema:
             type: string
             enum: [attachment]
+        - name: variant
+          in: query
+          required: false
+          description: >
+            `original` returns the asset's `original` (see `Asset.original`) instead of its playback file: `signed_url`, `mime_type` and `size_bytes` then describe the provider's own file. Combine with `disposition=attachment` to download it. 404 when the asset has no separate original. Omit for the playback file every browser plays.
+
+          schema:
+            type: string
+            enum: [original]
       responses:
         '200':
           description: Asset found.
@@ -12679,6 +12688,28 @@ components:
         total:
           type: integer
           description: Total number of jobs matching the status/modality filter, ignoring pagination.
+    AssetOriginal:
+      type: object
+      additionalProperties: false
+      required: [mime_type, size_bytes]
+      description: >
+        The provider's own file for a video the platform re-encoded for playback. Some models deliver video that browsers cannot all decode (HEVC 10-bit from Seedance 2.5 at 1080p, Seedance 2.0 Pro at 4K and the Topaz restore models; VP9 in an MP4). For those the asset's `signed_url` is an 8-bit H.264 MP4 that every browser and editor plays, and this is the full-quality original. Fetch it with `GET /assets/{id}?variant=original`. Absent for every other asset.
+
+      properties:
+        mime_type:
+          type: string
+          examples: ['video/mp4']
+        size_bytes:
+          type: integer
+          format: int64
+        video_codec:
+          type: string
+          description: The original's video codec as ffmpeg names it.
+          examples: ['hevc']
+        pix_fmt:
+          type: string
+          description: The original's pixel format; `yuv420p10le` is 10-bit.
+          examples: ['yuv420p10le']
     Asset:
       type: object
       additionalProperties: false
@@ -12765,6 +12796,8 @@ components:
           description: >
             Whether the asset's media carries an audio stream. `true` for audio assets and for video/audio media with an audio track; `false` for images and for video definitively without audio; `null`/absent when not yet probed (legacy/uploaded media awaiting the async media sweep) or not applicable. Recorded at creation for audio (`true`) and image (`false`) assets; video is determined by the sweep (ffprobe).
 
+        original:
+          $ref: '#/components/schemas/AssetOriginal'
         waveform_peaks:
           type: array
           nullable: true
