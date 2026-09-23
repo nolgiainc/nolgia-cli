@@ -34,19 +34,30 @@ use uuid::Uuid;
 struct Problem {
     title: Option<String>,
     detail: Option<String>,
+    /// Machine-readable refusal code (`job_not_cancellable`, ...), when the
+    /// route sets one.
+    code: Option<String>,
 }
 
 /// The server's RFC 7807 `detail` (falling back to `title`, then to the raw
 /// body), or `None` when there is nothing readable to show.
 async fn problem_message(response: reqwest::Response) -> Option<String> {
-    let body = response.text().await.ok()?;
-    serde_json::from_str::<Problem>(&body)
-        .ok()
-        .and_then(|p| p.detail.or(p.title))
-        .or_else(|| {
-            let trimmed = body.trim();
-            (!trimmed.is_empty()).then(|| trimmed.to_string())
-        })
+    problem_parts(response).await.0
+}
+
+/// [`problem_message`] plus the problem's `code`, for callers that branch on
+/// the refusal rather than on the status alone.
+async fn problem_parts(response: reqwest::Response) -> (Option<String>, Option<String>) {
+    let Ok(body) = response.text().await else {
+        return (None, None);
+    };
+    let problem = serde_json::from_str::<Problem>(&body).ok();
+    let code = problem.as_ref().and_then(|p| p.code.clone());
+    let message = problem.and_then(|p| p.detail.or(p.title)).or_else(|| {
+        let trimmed = body.trim();
+        (!trimmed.is_empty()).then(|| trimmed.to_string())
+    });
+    (message, code)
 }
 
 fn describe(action: &str, status: StatusCode, message: Option<String>) -> anyhow::Error {
@@ -136,6 +147,44 @@ pub(crate) async fn wait_error(
         return describe(action, status, message);
     }
     anyhow::Error::new(err).context(action.to_string())
+}
+
+/// [`api_error`] for `POST /jobs/{id}/cancel`, with the three refusals a
+/// person can act on spelled out after the server's own `detail`.
+///
+/// Exit status stays the ordinary `1`: the cancel did not happen, and none of
+/// these is a live job the caller must follow (`409` means the job is already
+/// finishing on its own) or a content-filter block.
+pub(crate) async fn cancel_error(err: nolgia_client::ApiError<()>, job_id: Uuid) -> anyhow::Error {
+    let action = format!("canceling job {job_id}");
+    if let nolgia_client::ApiError::UnexpectedResponse(response) = err {
+        let status = response.status();
+        let (message, code) = problem_parts(response).await;
+        let hint = match status {
+            StatusCode::CONFLICT if code.as_deref() == Some("job_not_cancellable") => {
+                Some(format!(
+                    "It already finished, or its finished result is being delivered, so it can no \
+                 longer be canceled. Nothing was changed. Check it with: nolgia jobs get {job_id}"
+                ))
+            }
+            StatusCode::NOT_FOUND => Some(format!(
+                "There is no job {job_id} in your library in the active workspace. Check the id \
+                 with `nolgia jobs list` and the workspace with `nolgia org status`."
+            )),
+            StatusCode::FORBIDDEN => Some(
+                "Your role cannot cancel this job. In an organization, members cancel only their \
+                 own jobs, owners and admins any job, and viewers and billing contacts none."
+                    .to_string(),
+            ),
+            _ => None,
+        };
+        let described = describe(&action, status, message);
+        return match hint {
+            Some(hint) => anyhow::anyhow!("{described}\n  {hint}"),
+            None => described,
+        };
+    }
+    anyhow::Error::new(err).context(action)
 }
 
 pub struct CommandContext {

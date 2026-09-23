@@ -172,7 +172,7 @@ nolgia gen image --prompt "a paper-cut mountain range at dawn" --out nolgia-veri
 
 Keep the command's stdout out of CI logs. On success it prints the signed asset URL, a short-lived bearer capability. Show the local file to your user; do not paste the URL into a commit, issue, or CI log.
 
-The command first prints `submitted job <uuid> — waiting up to 300s (Ctrl-C is safe: it does not cancel the job)`. Keep the job ID for recovery. **Check:** exit 0 means the asset was downloaded. The verified clean-environment run took 6.8 seconds and produced a 512 × 512 PNG; that is an observation, not a timing guarantee.
+The command first prints ``submitted job <uuid> — waiting up to 300s (Ctrl-C is safe: it does not cancel the job; `nolgia jobs cancel <uuid>` does)``. Keep the job ID for recovery. **Check:** exit 0 means the asset was downloaded. The verified clean-environment run took 6.8 seconds and produced a 512 × 512 PNG; that is an observation, not a timing guarantee.
 
 Two exit codes are not plain failures:
 

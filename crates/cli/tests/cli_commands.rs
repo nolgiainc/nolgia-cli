@@ -5459,6 +5459,305 @@ async fn jobs_list_surfaces_problem_detail() {
         .stderr(predicate::str::contains("invalid cursor"));
 }
 
+// --- jobs cancel (NOL-1025) ---------------------------------------------------
+
+/// A `canceled` Job as `POST /jobs/{id}/cancel` returns it.
+fn canceled_job_json(
+    settlement: &str,
+    refunded: Option<u64>,
+    charged: Option<u64>,
+    message: &str,
+) -> serde_json::Value {
+    let mut job = job_json("canceled", None);
+    job["status_message"] = json!(message);
+    job["cancellation"] = json!({
+        "canceled_at": "2026-06-13T00:00:05Z",
+        "stage": if settlement == "pending" { "in_progress" } else { "before_submit" },
+        "provider_cancel": if settlement == "pending" { "requested" } else { "not_needed" },
+        "settlement": settlement,
+        "credits_refunded": refunded,
+        "credits_charged": charged,
+        "message": message
+    });
+    job
+}
+
+/// Only a cancel that carries `Content-Length: 0` matches: a bodyless POST
+/// without it is refused with `411` by the production load balancer before
+/// the API sees it (NOL-542), and the generated builder sends exactly that.
+async fn mock_cancel(response: ResponseTemplate) -> MockServer {
+    let api = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path(format!("/v1/jobs/{JOB_ID}/cancel")))
+        .and(header("content-length", "0"))
+        .respond_with(response)
+        .mount(&api)
+        .await;
+    api
+}
+
+const REFUNDED_MESSAGE: &str =
+    "Canceled before it reached the model provider. All 30 credits were refunded.";
+const PENDING_MESSAGE: &str = "Canceled. The provider was asked to stop the render; the 30 credits \
+     are held until it answers, then refunded if it does not bill for the render.";
+
+#[tokio::test]
+async fn jobs_cancel_prints_the_server_sentence_and_the_refund() {
+    let api = mock_cancel(ResponseTemplate::new(200).set_body_json(canceled_job_json(
+        "refunded",
+        Some(30),
+        None,
+        REFUNDED_MESSAGE,
+    )))
+    .await;
+    run_ok(&api, &["jobs", "cancel", JOB_ID])
+        .stdout(format!(
+            "{JOB_ID} video canceled\n{REFUNDED_MESSAGE}\nCredits: 30 refunded.\n"
+        ))
+        .stderr(predicate::str::contains("Error").not());
+}
+
+#[tokio::test]
+async fn jobs_cancel_with_a_pending_settlement_says_so_and_how_to_see_it_land() {
+    let api = mock_cancel(ResponseTemplate::new(200).set_body_json(canceled_job_json(
+        "pending",
+        None,
+        None,
+        PENDING_MESSAGE,
+    )))
+    .await;
+    run_ok(&api, &["jobs", "cancel", JOB_ID])
+        .stdout(predicate::str::starts_with(format!(
+            "{JOB_ID} video canceled\n{PENDING_MESSAGE}\nCredits: pending."
+        )))
+        .stdout(predicate::str::contains(
+            "nothing is refunded or charged so far",
+        ))
+        .stdout(predicate::str::contains(format!(
+            "nolgia jobs get {JOB_ID}"
+        )))
+        // Nothing has been refunded yet, so no figure may be printed.
+        .stdout(predicate::str::contains("refunded.").not());
+}
+
+#[tokio::test]
+async fn jobs_cancel_json_prints_the_whole_canceled_job() {
+    let body = canceled_job_json(
+        "partially_refunded",
+        Some(20),
+        Some(10),
+        "Stopped part way.",
+    );
+    let api = mock_cancel(ResponseTemplate::new(200).set_body_json(&body)).await;
+    let output = run_ok(&api, &["jobs", "cancel", JOB_ID, "--json"]);
+    let value: serde_json::Value = serde_json::from_slice(&output.get_output().stdout).unwrap();
+    assert_eq!(value["id"], JOB_ID);
+    assert_eq!(value["status"], "canceled");
+    assert_eq!(value["cancellation"], body["cancellation"]);
+    // Field selection works like every other JSON-producing command.
+    run_ok(
+        &api,
+        &[
+            "jobs",
+            "cancel",
+            JOB_ID,
+            "--field",
+            "cancellation.settlement",
+        ],
+    )
+    .stdout("partially_refunded\n");
+}
+
+#[tokio::test]
+async fn jobs_cancel_of_a_finished_job_explains_nothing_changed_and_exits_1() {
+    let api = mock_cancel(ResponseTemplate::new(409).set_body_json(json!({
+        "type": "about:blank", "title": "Conflict", "status": 409,
+        "code": "job_not_cancellable", "detail": "This job already finished."
+    })))
+    .await;
+    for json_mode in [false, true] {
+        let mut command = cmd();
+        command.arg("--api-url").arg(api.uri());
+        if json_mode {
+            command.arg("--json");
+        }
+        command
+            .args(["jobs", "cancel", JOB_ID])
+            .assert()
+            .code(1)
+            .stdout("")
+            .stderr(predicate::str::contains(format!("canceling job {JOB_ID}")))
+            .stderr(predicate::str::contains("409 Conflict"))
+            .stderr(predicate::str::contains("This job already finished."))
+            .stderr(predicate::str::contains("Nothing was changed."))
+            .stderr(predicate::str::contains(format!(
+                "nolgia jobs get {JOB_ID}"
+            )))
+            .stderr(predicate::str::contains("Unexpected Response").not());
+    }
+}
+
+#[tokio::test]
+async fn jobs_cancel_of_someone_elses_job_says_it_is_not_in_your_library() {
+    let api = mock_cancel(ResponseTemplate::new(404).set_body_json(json!({
+        "type": "about:blank", "title": "Not Found", "status": 404, "detail": "job not found"
+    })))
+    .await;
+    cmd()
+        .arg("--api-url")
+        .arg(api.uri())
+        .args(["jobs", "cancel", JOB_ID])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("404 Not Found: job not found"))
+        .stderr(predicate::str::contains(
+            "in your library in the active workspace",
+        ))
+        .stderr(predicate::str::contains("nolgia jobs list"));
+}
+
+#[tokio::test]
+async fn jobs_cancel_without_the_role_names_who_may_cancel() {
+    let api = mock_cancel(ResponseTemplate::new(403).set_body_json(json!({
+        "type": "about:blank", "title": "Forbidden", "status": 403,
+        "detail": "members may cancel only their own jobs"
+    })))
+    .await;
+    cmd()
+        .arg("--api-url")
+        .arg(api.uri())
+        .args(["jobs", "cancel", JOB_ID])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains(
+            "403 Forbidden: members may cancel only their own jobs",
+        ))
+        .stderr(predicate::str::contains("owners and admins any job"));
+}
+
+#[tokio::test]
+async fn jobs_cancel_rejects_a_malformed_id_before_any_request() {
+    let api = MockServer::start().await;
+    cmd()
+        .arg("--api-url")
+        .arg(api.uri())
+        .args(["jobs", "cancel", "not-a-uuid"])
+        .assert()
+        .code(2);
+    assert!(api.received_requests().await.unwrap().is_empty());
+}
+
+/// A canceled job read back through `status`, `jobs get` or `wait` is a
+/// terminal job like any other (exit 0), and the reader is told what the
+/// cancel did rather than being left with a bare status word.
+#[tokio::test]
+async fn read_commands_show_a_canceled_job_as_its_own_terminal_state() {
+    let api = MockServer::start().await;
+    let job = canceled_job_json("refunded", Some(30), None, REFUNDED_MESSAGE);
+    for endpoint in [
+        format!("/v1/jobs/{JOB_ID}"),
+        format!("/v1/jobs/{JOB_ID}/wait"),
+    ] {
+        Mock::given(method("GET"))
+            .and(path(endpoint))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&job))
+            .mount(&api)
+            .await;
+    }
+    for command in [vec!["status"], vec!["jobs", "get"], vec!["wait"]] {
+        let args: Vec<&str> = command.iter().copied().chain([JOB_ID]).collect();
+        run_ok(&api, &args)
+            .stdout(format!("{JOB_ID} video canceled\n"))
+            .stderr(predicate::str::contains(REFUNDED_MESSAGE))
+            .stderr(predicate::str::contains("Credits: 30 refunded."))
+            .stderr(predicate::str::contains("fail").not())
+            .stderr(predicate::str::contains("Blocked by the content filter").not());
+    }
+}
+
+/// A job canceled (from another terminal, or the web) while `gen` waits for
+/// it is finished: no asset will come. It must not be reported as a live job
+/// that "will be billed once", and not as a bare `Error:` either.
+#[tokio::test]
+async fn gen_wait_on_a_canceled_job_reports_the_cancel_not_a_live_job() {
+    let api = MockServer::start().await;
+    let job = canceled_job_json("refunded", Some(30), None, REFUNDED_MESSAGE);
+    Mock::given(method("POST"))
+        .and(path("/v1/generate/image"))
+        .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
+        .mount(&api)
+        .await;
+    Mock::given(method("GET"))
+        .and(path(format!("/v1/jobs/{JOB_ID}/wait")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&job))
+        .mount(&api)
+        .await;
+    for json_mode in [false, true] {
+        let mut command = cmd();
+        command.arg("--api-url").arg(api.uri());
+        if json_mode {
+            command.arg("--json");
+        }
+        let result = command
+            .args(["gen", "image", "--prompt", "a cat"])
+            .assert()
+            .code(1)
+            .stderr(predicate::str::contains(format!(
+                "canceled: job {JOB_ID} was canceled, so there is no result to download."
+            )))
+            .stderr(predicate::str::contains(REFUNDED_MESSAGE))
+            .stderr(predicate::str::contains("Credits: 30 refunded."))
+            .stderr(predicate::str::contains("Error:").not())
+            .stderr(predicate::str::contains("still being worked on").not())
+            .stderr(predicate::str::contains("billed once").not());
+        let stdout = &result.get_output().stdout;
+        if json_mode {
+            let value: serde_json::Value = serde_json::from_slice(stdout).unwrap();
+            assert_eq!(value["status"], "canceled");
+            assert_eq!(value["cancellation"]["settlement"], "refunded");
+            assert_eq!(value["cancellation"]["credits_refunded"], 30);
+            assert_eq!(value["cancellation"]["message"], REFUNDED_MESSAGE);
+        } else {
+            assert!(stdout.is_empty());
+        }
+    }
+}
+
+/// The announcement printed at submit time still says Ctrl-C only stops the
+/// watching, and now names the command that stops the job.
+#[tokio::test]
+async fn gen_announcement_names_the_real_cancel() {
+    let api = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/generate/image"))
+        .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
+        .mount(&api)
+        .await;
+    Mock::given(method("GET"))
+        .and(path(format!("/v1/jobs/{JOB_ID}/wait")))
+        .respond_with(ResponseTemplate::new(408).set_body_json(wait_timeout_problem()))
+        .mount(&api)
+        .await;
+    cmd()
+        .arg("--api-url")
+        .arg(api.uri())
+        .args(["gen", "image", "--prompt", "a cat"])
+        .assert()
+        .code(EXIT_LIVE_JOB)
+        .stderr(predicate::str::contains(
+            "Ctrl-C is safe: it does not cancel the job",
+        ))
+        .stderr(predicate::str::contains(format!(
+            "`nolgia jobs cancel {JOB_ID}` does"
+        )))
+        // ...and the timeout report keeps saying the job was not cancelled
+        // while offering the cancel as the last follow-up.
+        .stderr(predicate::str::contains("the job was not cancelled"))
+        .stderr(predicate::str::contains(format!(
+            "nolgia jobs cancel {JOB_ID}"
+        )));
+}
+
 async fn mount_voice_models(api: &MockServer) {
     Mock::given(method("GET")).and(path("/v1/models"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({"models": [

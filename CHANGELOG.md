@@ -5,6 +5,35 @@ the matching GitHub release.
 
 ## Unreleased
 
+- **`nolgia jobs cancel <JOB_ID>` really stops a job.** Until now nothing in
+  the CLI could: Ctrl-C and a wait timeout stop only the watching, while the
+  provider keeps rendering and the credits are spent. The command cancels the
+  job on the server, which stops it at the model provider where the provider
+  allows it and never delivers it, then prints what happened to the credits in
+  the server's own words: refunded, partly refunded, charged, or `pending`
+  until the provider answers (`nolgia jobs get <JOB_ID>` shows how it
+  settled). `--json` prints the canceled job. A finished job, a job outside
+  your library and a role that may not cancel each exit `1` with what to do
+  next. Every "the job is still running" report (exit 75) and the
+  submit-time line now name the command.
+- **`canceled` reads as its own ending, not a failure.** `status`, `jobs get`
+  and `wait` print the cancel sentence and credits for a canceled job. A `gen`
+  or `restore` wait whose job is canceled no longer claims the job is still
+  running and "will be billed once": it says the job was canceled, exits `1`,
+  and under `--json` prints the canceled job.
+- **Rust client: `JobHandle::cancel_job()` cancels the job on the server.** It
+  returns the canceled job (its `cancellation` says what the provider did and
+  what was refunded) and ends a pending `result()` with the new
+  `ErrorCode::Canceled`, carrying the server's sentence; a finished job is
+  refused with `ErrorCode::JobNotCancellable` and the wait carries on.
+  `ClientExt::cancel_job_with_body(id)` does the same without a handle (the
+  generated `cancel_job` builder sends a POST the production load balancer
+  refuses with `411`). A wait on a job canceled anywhere else now fails with
+  `Canceled` instead of `JobFailed`.
+- **Deprecated: `JobHandle::cancel()`.** It never canceled anything: it stops
+  only the local wait while the job keeps running and is billed. It still
+  behaves exactly as before, with a warning pointing at `cancel_job()`.
+
 ## v0.2.32
 
 - **The Rust client matches today's API contract.** Its types are regenerated

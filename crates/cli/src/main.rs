@@ -1,5 +1,6 @@
 mod agent_guard;
 mod auth;
+mod canceled;
 mod cli_parse;
 mod commands;
 mod help_json;
@@ -113,7 +114,7 @@ pub enum Commands {
     Restore(restore::RestoreCommand),
     #[command(about = "Show current job status")]
     Status(status::StatusArgs),
-    #[command(subcommand, about = "List your generation jobs")]
+    #[command(subcommand, about = "List, inspect and cancel your generation jobs")]
     Jobs(jobs::JobsCommand),
     #[command(about = "Wait for a job to finish")]
     Wait(wait::WaitArgs),
@@ -231,8 +232,11 @@ async fn main() -> ExitCode {
 /// twice, so it gets its own presentation and its own exit code
 /// ([`livejob::EXIT_LIVE_JOB`]). A finished content-filter block uses
 /// [`moderation::EXIT_MODERATED`]. An [`agent_guard::AgentRefused`] uses
-/// [`agent_guard::EXIT_AGENT_REFUSED`]. Everything else keeps the previous behavior:
-/// `Error:` plus anyhow's `Caused by:` chain, exit 1.
+/// [`agent_guard::EXIT_AGENT_REFUSED`]. A job canceled while `gen`/`restore`
+/// waited for it ([`canceled::Canceled`]) keeps exit 1, since there is no
+/// result, but is reported as the finished job it is rather than as `Error:`.
+/// Everything else keeps the previous behavior: `Error:` plus anyhow's
+/// `Caused by:` chain, exit 1.
 fn report(result: Result<()>, format: OutputFormat) -> ExitCode {
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -251,10 +255,16 @@ fn report(result: Result<()>, format: OutputFormat) -> ExitCode {
                         refused.report(format);
                         ExitCode::from(agent_guard::EXIT_AGENT_REFUSED)
                     }
-                    Err(err) => {
-                        eprintln!("Error: {err:?}");
-                        ExitCode::FAILURE
-                    }
+                    Err(err) => match err.downcast::<canceled::Canceled>() {
+                        Ok(canceled) => {
+                            canceled.report(format);
+                            ExitCode::FAILURE
+                        }
+                        Err(err) => {
+                            eprintln!("Error: {err:?}");
+                            ExitCode::FAILURE
+                        }
+                    },
                 },
             },
         },

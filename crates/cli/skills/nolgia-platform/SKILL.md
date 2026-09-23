@@ -128,6 +128,7 @@ nolgia wait <job_id> --timeout 600 --json          # blocks to terminal state
 nolgia status <job_id>                             # snapshot of one job
 nolgia jobs list --status running                  # every job in flight
 nolgia jobs list --status failed --limit 10        # what went wrong lately
+nolgia jobs cancel <job_id>                        # stop a job; prints the refund
 nolgia assets list --modality video --limit 5      # id, modality, signed URL
 nolgia billing credits                             # both pools
 ```
@@ -135,6 +136,11 @@ nolgia billing credits                             # both pools
 Video jobs take minutes. A job the server accepted is never lost: if the
 wait times out, the CLI names the job id and exits 75; follow it with
 `nolgia wait <job_id>` instead of submitting again (a re-run bills again).
+Ctrl-C or a timeout only stops the watching; `nolgia jobs cancel <job_id>`
+stops the job itself. Unstarted work is refunded in full; a render the
+provider already started is refunded only if the provider stops it without
+billing, and credits can read `pending` until it answers (check again with
+`nolgia jobs get <job_id>`). A finished job cannot be canceled.
 Asset signed URLs **expire in 15 minutes**: download promptly (`--out`
 handles this). PAT requests spend the `shared_topup` (API) pool only; `402`
 means top up.

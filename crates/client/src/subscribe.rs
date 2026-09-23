@@ -74,19 +74,31 @@ pub async fn submit(
         id,
         job,
         options: Arc::new(options),
-        cancelled: watch::channel(false).0,
+        stop: watch::channel(Stop::Waiting).0,
     })
 }
 
+/// Why a `result()` wait ended early, shared by every clone of a handle.
+#[derive(Clone)]
+enum Stop {
+    Waiting,
+    /// The deprecated local-only [`JobHandle::cancel`].
+    Local,
+    /// [`JobHandle::cancel_job`] canceled the job on the server; this is the
+    /// canceled job it returned.
+    Server(Value),
+}
+
 /// A submitted job. Clone the handle before consuming it with `result()` to
-/// retain access to `cancel()`; cancellation is shared by all clones.
+/// retain access to [`cancel_job`](Self::cancel_job) while waiting; a cancel
+/// is shared by all clones.
 #[derive(Clone)]
 pub struct JobHandle {
     client: Client,
     id: String,
     job: Value,
     options: Arc<SubscribeOptions>,
-    cancelled: watch::Sender<bool>,
+    stop: watch::Sender<Stop>,
 }
 impl JobHandle {
     pub fn job_id(&self) -> &str {
@@ -107,24 +119,65 @@ impl JobHandle {
             .await
             .map_err(|err| err.with_job(&self.job))
     }
+    /// Cancel the job on the server (`POST /jobs/{id}/cancel`) and stop
+    /// waiting for it.
+    ///
+    /// Returns the canceled job, raw like [`status`](Self::status): its
+    /// `cancellation` says what the model provider did and whether the credits
+    /// were refunded. A job that had not reached the provider is refunded in
+    /// full; a started render is refunded only when the provider stops it
+    /// without billing, so `cancellation.settlement` can read `pending` until
+    /// the provider answers (fetch the job again later to see how it settled).
+    /// A canceled job is never added to the library. A pending or later
+    /// [`result`](Self::result) on this handle or any clone then fails with
+    /// [`ErrorCode::Canceled`], whose message is the server's
+    /// `cancellation.message`.
+    ///
+    /// A job that already finished, or whose result is being delivered, is
+    /// refused with [`ErrorCode::JobNotCancellable`] (HTTP `409`); nothing is
+    /// changed and a pending `result()` keeps waiting for its own outcome.
+    pub async fn cancel_job(&self) -> Result<Value, GenerationError> {
+        let canceled = request_json(crate::cancel_job_request(&self.client, &self.id))
+            .await
+            .map_err(|err| err.with_job(&self.job))?;
+        self.stop.send_replace(Stop::Server(canceled.clone()));
+        Ok(canceled)
+    }
     /// Stop this client waiting, including pending `result()` calls on clones.
-    /// The Nolgia API has no job-cancel route today. This sends no server call,
-    /// does not cancel server generation or refund credits; the job keeps
-    /// running and its asset still lands in the library.
+    /// This sends no server call: it does not cancel the generation or refund
+    /// credits, and the job keeps running, is billed, and its asset still
+    /// lands in the library. Use [`cancel_job`](Self::cancel_job) to cancel
+    /// the job on the server.
+    #[deprecated(
+        note = "stops only the local wait; the job keeps running and is billed. Use cancel_job() to cancel it on the server"
+    )]
     pub fn cancel(&self) {
-        self.cancelled.send_replace(true);
+        self.stop.send_replace(Stop::Local);
     }
     /// Wait for completion. The budget starts here and also bounds in-flight
-    /// requests. Timeout does not cancel generation or refund credits.
+    /// requests. Timeout does not cancel generation or refund credits; use
+    /// [`cancel_job`](Self::cancel_job) for that.
     pub async fn result(self) -> Result<GenerationResult, GenerationError> {
-        let mut cancelled = self.cancelled.subscribe();
+        let mut stopped = self.stop.subscribe();
         let mut job = self.job.clone();
         let outcome = tokio::select! {
             biased;
-            _ = cancelled.wait_for(|value| *value) => Err(GenerationError::local(ErrorCode::JobFailed, "wait was cancelled locally; generation continues on the server")),
-            outcome = timeout(self.options.max_poll_time, self.poll(&mut job)) => outcome.unwrap_or_else(|_| Err(GenerationError::local(ErrorCode::Timeout, "wait timed out; generation continues on the server and credits are still spent"))),
+            stop = stopped.wait_for(|stop| !matches!(stop, Stop::Waiting)) => Err(stop.map_or(Stop::Local, |stop| stop.clone())),
+            outcome = timeout(self.options.max_poll_time, self.poll(&mut job)) => Ok(outcome.unwrap_or_else(|_| Err(GenerationError::local(ErrorCode::Timeout, "wait timed out; generation continues on the server and credits are still spent")))),
         };
-        outcome.map_err(|err| err.with_job(&job))
+        match outcome {
+            Ok(outcome) => outcome.map_err(|err| err.with_job(&job)),
+            // The server's canceled job, not the last one polled: it carries
+            // the cancellation the error's message comes from.
+            Err(Stop::Server(canceled)) => {
+                Err(GenerationError::from_body(&canceled, None).with_job(&canceled))
+            }
+            Err(Stop::Local | Stop::Waiting) => Err(GenerationError::local(
+                ErrorCode::JobFailed,
+                "wait was cancelled locally; generation continues on the server",
+            )
+            .with_job(&job)),
+        }
     }
     async fn poll(&self, job: &mut Value) -> Result<GenerationResult, GenerationError> {
         let mut failures = 0;

@@ -1056,7 +1056,8 @@ pub(crate) async fn wait_for_asset(
         .send()
         .await
     {
-        Ok(response) => crate::moderation::ensure_not_moderated(response.into_inner()),
+        Ok(response) => crate::moderation::ensure_not_moderated(response.into_inner())
+            .and_then(crate::canceled::ensure_not_canceled),
         Err(err) => {
             Err(super::wait_error(err, "waiting for generation job", job_id, timeout_seconds).await)
         }
