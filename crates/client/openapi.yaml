@@ -3158,6 +3158,8 @@ paths:
       description: >
         Verifies that the object was uploaded to storage and that its size matches the declared `size_bytes`, then flips the asset to `ready` and applies tag-based project auto-association. Completing an upload whose object is missing (or whose size does not match the declaration) returns 409 with details. Completing an already-completed upload is idempotent and returns the asset with 200.
 
+        For a `video/mp4` or `video/quicktime` upload the server also reads the clip's duration from the uploaded file's movie header and returns it as `duration_seconds`, so a model that bills the source clip's length can take the asset at once. The read is best effort: when the file carries no usable movie header (a fragmented MP4, for one) the upload still completes and `duration_seconds` stays null until the asynchronous backfill measures it.
+
       parameters:
         - name: id
           in: path
@@ -12882,7 +12884,7 @@ components:
           nullable: true
           minimum: 0
           description: >
-            Media duration in seconds for video/audio assets. Recorded at creation time for generated videos and backfilled asynchronously (ffprobe) for uploaded/legacy assets; null until known.
+            Media duration in seconds for video/audio assets. Recorded at creation time for generated videos, read from the file's own movie header when an MP4 or MOV signed upload completes, and otherwise backfilled asynchronously (ffprobe) for uploaded/legacy assets; null until known.
 
         has_audio:
           type: boolean
