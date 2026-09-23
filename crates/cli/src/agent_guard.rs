@@ -42,6 +42,9 @@ pub fn detect(token: &str, env: impl Fn(&str) -> Option<OsString>) -> Option<Age
 pub enum AgentRefused {
     Switch,
     Create,
+    /// Consent to the face identity check on a character's photos
+    /// (NOL-1150): only the person using NOLGIA can give it.
+    FaceCheckConsent,
 }
 
 impl AgentRefused {
@@ -49,6 +52,7 @@ impl AgentRefused {
         match self {
             Self::Switch => "org switch",
             Self::Create => "org create",
+            Self::FaceCheckConsent => "characters --face-check-consent",
         }
     }
 
@@ -56,6 +60,9 @@ impl AgentRefused {
         match self {
             Self::Switch => "Refused: an agent cannot switch the owner's workspace.",
             Self::Create => "Refused: an agent cannot create an organization for the owner.",
+            Self::FaceCheckConsent => {
+                "Refused: an agent cannot consent to the face check for the owner."
+            }
         }
     }
 
@@ -67,6 +74,9 @@ impl AgentRefused {
             Self::Create => {
                 "A new organization becomes the owner's active workspace everywhere at once."
             }
+            Self::FaceCheckConsent => {
+                "Consent to comparing faces with a person's photos must come from the person using NOLGIA. The photos are still used as references without it."
+            }
         }
     }
 
@@ -76,6 +86,9 @@ impl AgentRefused {
                 "The owner switches from the workspace switcher in the account menu on nolgia.ai."
             }
             Self::Create => "The owner creates one from the account menu on nolgia.ai.",
+            Self::FaceCheckConsent => {
+                "The owner turns the face check on for the character on the Characters page at nolgia.ai, or runs this command themselves."
+            }
         }
     }
 

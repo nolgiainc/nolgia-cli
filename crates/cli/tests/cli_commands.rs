@@ -2470,6 +2470,136 @@ async fn characters_update_sends_only_provided_fields() {
     .stdout(predicate::str::contains(CHARACTER_ID));
 }
 
+// NOL-1150: consent to the face identity check rides the create/update body
+// only after the explicit agreement, never from an agent, and never assumed
+// in a non-interactive run.
+#[tokio::test]
+async fn characters_create_sends_face_check_consent_after_agreement() {
+    let api = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/characters"))
+        .and(body_json(json!({
+            "name": "Captain Nova",
+            "reference_asset_ids": [ASSET_ID],
+            "face_check_consent": true
+        })))
+        .respond_with(ResponseTemplate::new(201).set_body_json(character_json()))
+        .expect(1)
+        .mount(&api)
+        .await;
+    run_ok(
+        &api,
+        &[
+            "characters",
+            "create",
+            "--name",
+            "Captain Nova",
+            "--reference-asset-id",
+            ASSET_ID,
+            "--face-check-consent",
+            "--yes",
+        ],
+    )
+    .stderr(predicate::str::contains(
+        "I am the person in these photos, or I have their permission to use them.",
+    ))
+    .stderr(predicate::str::contains(
+        "https://nolgia.ai/privacy#face-check",
+    ))
+    .stdout(predicate::str::contains(CHARACTER_ID));
+}
+
+#[tokio::test]
+async fn characters_face_check_consent_is_never_assumed_without_a_terminal() {
+    let api = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/characters"))
+        .respond_with(ResponseTemplate::new(201).set_body_json(character_json()))
+        .expect(0)
+        .mount(&api)
+        .await;
+    cmd()
+        .arg("--api-url")
+        .arg(api.uri())
+        .args([
+            "characters",
+            "create",
+            "--name",
+            "Captain Nova",
+            "--reference-asset-id",
+            ASSET_ID,
+            "--face-check-consent",
+        ])
+        .write_stdin("yes\n")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("add --yes"));
+}
+
+#[tokio::test]
+async fn characters_face_check_consent_refused_for_the_agent() {
+    let api = MockServer::start().await;
+    Mock::given(method("PATCH"))
+        .and(path(format!("/v1/characters/{CHARACTER_ID}")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(character_json()))
+        .expect(0)
+        .mount(&api)
+        .await;
+    cmd()
+        .env("NOLGIA_SURFACE", "hermes")
+        .arg("--api-url")
+        .arg(api.uri())
+        .args([
+            "characters",
+            "update",
+            CHARACTER_ID,
+            "--face-check-consent",
+            "--yes",
+        ])
+        .assert()
+        .code(77)
+        .stderr(predicate::str::contains(
+            "an agent cannot consent to the face check",
+        ));
+}
+
+#[tokio::test]
+async fn characters_update_withdraws_face_check_consent() {
+    let api = MockServer::start().await;
+    Mock::given(method("PATCH"))
+        .and(path(format!("/v1/characters/{CHARACTER_ID}")))
+        .and(body_json(json!({"face_check_consent": false})))
+        .respond_with(ResponseTemplate::new(200).set_body_json(character_json()))
+        .expect(1)
+        .mount(&api)
+        .await;
+    run_ok(
+        &api,
+        &[
+            "characters",
+            "update",
+            CHARACTER_ID,
+            "--withdraw-face-check-consent",
+        ],
+    )
+    .stdout(predicate::str::contains(CHARACTER_ID));
+}
+
+#[tokio::test]
+async fn characters_list_says_when_the_face_check_needs_consent() {
+    let api = MockServer::start().await;
+    let mut character = character_json();
+    character["face_check"] =
+        json!({"enabled": false, "needs_consent": true, "consented_asset_ids": []});
+    Mock::given(method("GET"))
+        .and(path("/v1/characters"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"characters": [character]})))
+        .mount(&api)
+        .await;
+    run_ok(&api, &["characters", "list"])
+        .stdout(predicate::str::contains("face check off, needs consent"));
+}
+
 #[tokio::test]
 async fn characters_delete_removes_character() {
     let api = MockServer::start().await;
