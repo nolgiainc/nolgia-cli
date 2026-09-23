@@ -5,6 +5,8 @@ the matching GitHub release.
 
 ## Unreleased
 
+## v0.2.33
+
 - **`nolgia jobs cancel <JOB_ID>` really stops a job.** Until now nothing in
   the CLI could: Ctrl-C and a wait timeout stop only the watching, while the
   provider keeps rendering and the credits are spent. The command cancels the
@@ -33,6 +35,25 @@ the matching GitHub release.
 - **Deprecated: `JobHandle::cancel()`.** It never canceled anything: it stops
   only the local wait while the job keeps running and is billed. It still
   behaves exactly as before, with a warning pointing at `cancel_job()`.
+- **Face check consent for a character's photos.** NOLGIA now compares the
+  faces in a character's photos with the images and videos you make only when
+  the person in the photos has agreed to it. `nolgia characters create` and
+  `nolgia characters update` take `--face-check-consent`: it prints the consent
+  wording and a link to the Privacy Policy, then asks you to type `yes`. A run
+  without a terminal never assumes the answer: it needs `--yes`, which still
+  prints the wording. On `create` the consent needs at least one
+  `--reference-asset-id`.
+  `nolgia characters update <ID> --withdraw-face-check-consent` turns the
+  check off again; the photos stay as references either way. An agent cannot
+  give this consent for you (exit `77`). `characters list`, `get`, `create`
+  and `update` now say after each character whether the face check is on,
+  off, or off and waiting for consent.
+- **The Rust client matches today's API contract.** Its types are regenerated
+  from the current spec. Besides job cancel and a character's face check, it
+  gains the account deletion preview and request, and a video asset's
+  `original`: the provider's full-quality file, where the platform re-encoded
+  the video so every browser can play it. Nothing you already wrote changes:
+  these are additions.
 
 ## v0.2.32
 
