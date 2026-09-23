@@ -10863,7 +10863,7 @@ components:
     AudioCapabilities:
       type: object
       additionalProperties: false
-      description: Per-model voice catalog and speaking-rate range for audio (text-to-speech) models.
+      description: Per-model voice catalog, speaking-rate range, and prompt ceiling for audio models.
       properties:
         voices:
           type: array
@@ -10874,6 +10874,18 @@ components:
           allOf:
             - $ref: '#/components/schemas/SpeedRange'
           description: Accepted speaking-rate range for `speed` on POST /generate/audio. Absent when the model ignores speed.
+        max_prompt_chars:
+          type: integer
+          examples: [2000]
+          description: |
+            The longest `prompt`, in characters (Unicode code points), this
+            model's provider accepts on POST /generate/audio. Absent when the
+            provider publishes no limit of its own below the 4000 every audio
+            request is held to.
+
+            A request above it is rejected with a 400 that names the limit
+            and your length, before any credit hold is taken. Your prompt is
+            never shortened.
     SpeedRange:
       type: object
       additionalProperties: false
@@ -11927,6 +11939,11 @@ components:
             For TTS this is the text to speak; for music/SFX it is the
             description. On a text-to-speech model it is also what the request
             is BILLED BY: see the endpoint description.
+
+            4000 characters is the most any audio model takes; some take
+            fewer, and publish their own ceiling as `audio.max_prompt_chars`
+            on GET /models (minimax-music-v2.6 takes 2000). A prompt above the
+            model's ceiling is a 400 naming it, before any credit hold.
         voice:
           type: string
           nullable: true
