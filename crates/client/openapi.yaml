@@ -10432,6 +10432,98 @@ components:
             cannot render without one (`video_edit` models rewrite footage the
             caller supplies, so the source clip is the request). Absent means
             reference videos are optional.
+        video_refs_min_seconds:
+          type: integer
+          minimum: 1
+          description: |
+            Shortest reference video the model accepts, in seconds, PER CLIP:
+            every reference video must be at least this long, even when the
+            clips together clear `video_refs_total_min_seconds` (Seedance 2.5
+            refuses any clip under 2 seconds). The API refuses a stored asset
+            shorter than this with a 400 naming the limit; a raw `video_urls`
+            entry carries no stored metadata and is left to the provider.
+            Absent when the model publishes no such bound.
+        video_refs_total_min_seconds:
+          type: integer
+          minimum: 1
+          description: |
+            Minimum combined length of the reference videos on one request, in
+            seconds. On a model that takes a single reference video this is
+            that clip's minimum length. The API refuses a set of stored assets
+            whose total is shorter with a 400 naming the limit; the total is
+            only known when every reference video is a stored asset, so a
+            request carrying a raw `video_urls` entry (no stored metadata) is
+            left to the provider. Absent when the model publishes no such
+            bound.
+        video_refs_total_max_seconds:
+          type: integer
+          minimum: 1
+          description: |
+            Longest reference footage the model accepts, in seconds: each
+            reference video, and the reference videos' combined length, must
+            be at most this. The API refuses a stored asset, or a set of stored
+            assets, over it with a 400 naming the limit; a raw `video_urls`
+            entry carries no stored metadata and is left to the provider.
+            Absent when the model publishes no such bound.
+        video_refs_total_max_bytes:
+          type: integer
+          format: int64
+          minimum: 1
+          description: |
+            Largest reference footage the model accepts, in bytes: each
+            reference video, and the reference videos' combined size, must be
+            at most this (compare the asset's `size_bytes`). The API refuses a
+            stored asset, or a set of stored assets, over it with a 400 naming
+            the limit; a raw `video_urls` entry carries no stored metadata and
+            is left to the provider. Absent when the model publishes no such
+            bound.
+        video_refs_min_short_edge:
+          type: integer
+          minimum: 1
+          description: |
+            Smallest shorter edge, in pixels, of each reference video (the
+            Seedance 2.0 reference-to-video route takes 480p to 720p input).
+            Published together with `video_refs_max_short_edge`. The API
+            refuses a stored asset whose recorded width and height put its
+            shorter edge outside the pair with a 400 naming the limit; a raw
+            `video_urls` entry carries no stored metadata and is left to the
+            provider. Absent when the model publishes no such bound.
+        video_refs_max_short_edge:
+          type: integer
+          minimum: 1
+          description: |
+            Largest shorter edge, in pixels, of each reference video.
+            Published together with `video_refs_min_short_edge`; the same
+            400 and the same raw `video_urls` exemption apply. Absent when
+            the model publishes no such bound.
+        output_follows_source_video:
+          type: boolean
+          description: |
+            True when the render keeps the source clip's length rather than
+            anything the request asks for: the edit is as long as the footage
+            (Kling v3 Motion Control, Gemini Omni 1.1 Video Edit).
+            `duration_seconds` must be omitted or equal the stored source
+            length rounded up, and the job bills that length. The source must
+            be a stored video asset with a known duration: a raw `video_urls`
+            entry carries no stored metadata, cannot establish the billed
+            length, and is refused with a 400. Clients should take the
+            duration from the attached clip rather than offer a duration
+            picker. Absent when the render length follows `duration_seconds`
+            as usual; never published as false.
+        subject_video_reference:
+          type: boolean
+          description: |
+            True when the reference video conditions the render on the
+            performance in the clip (the performer, their body and the way
+            they move, plus timing and camera), so the clip DRIVES a new
+            render: motion transfer on Kling v3 Motion Control, reference
+            runs on Seedance 2.5 and the Seedance 2.0 reference-to-video
+            route. On a model that also publishes `video_tasks` this
+            describes the default `reference` task; `edit` and `extend` treat
+            the clip as footage. Absent when the clip is footage the model
+            edits (every `video_edit` model) or continues (FLUX 3 Video maps
+            its one video slot to a continuation source), and on models that
+            take no reference video; never published as false.
         element_refs_min:
           type: integer
           minimum: 1
