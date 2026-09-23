@@ -100,6 +100,8 @@ async fn submit_is_lazy_and_status_performs_exactly_one_get() {
 }
 
 #[tokio::test]
+// The deprecated local-only `cancel()` keeps its behavior; this pins it.
+#[allow(deprecated)]
 async fn cancelling_a_pending_result_only_stops_local_waiting() {
     let server = MockServer::start().await;
     mount_submit(&server, job("queued")).await;
@@ -190,6 +192,8 @@ async fn deadline_interrupts_an_in_flight_job_request() {
 }
 
 #[tokio::test]
+// The deprecated local-only `cancel()` keeps its behavior; this pins it.
+#[allow(deprecated)]
 async fn cancellation_interrupts_an_in_flight_job_request() {
     let server = MockServer::start().await;
     mount_submit(&server, job("queued")).await;
@@ -234,6 +238,8 @@ fn defaults_use_half_second_ticks_and_thirty_minute_budget() {
 }
 
 #[tokio::test]
+// The deprecated local-only `cancel()` keeps its behavior; this pins it.
+#[allow(deprecated)]
 async fn cancellation_before_result_is_retained_without_a_waiter() {
     let server = MockServer::start().await;
     mount_submit(&server, job("queued")).await;
@@ -246,4 +252,132 @@ async fn cancellation_before_result_is_retained_without_a_waiter() {
     assert_eq!(error.job_id.as_deref(), Some("job-1"));
     assert!(error.message.contains("locally"));
     assert_eq!(server.received_requests().await.unwrap().len(), 1);
+}
+
+fn canceled_job() -> Value {
+    json!({
+        "id": "job-1", "status": "canceled",
+        "status_message": "Canceled before it reached the model provider. All 30 credits were refunded.",
+        "cancellation": {
+            "canceled_at": "2026-09-18T10:00:01Z", "stage": "before_submit",
+            "provider_cancel": "not_needed", "settlement": "refunded", "credits_refunded": 30,
+            "message": "Canceled before it reached the model provider. All 30 credits were refunded."
+        },
+        "future_field": {"preserve": true}
+    })
+}
+
+/// NOL-1025. Only a cancel carrying `Content-Length: 0` matches: the
+/// production load balancer refuses a bodyless POST without it (`411`).
+async fn mount_cancel(server: &MockServer, reply: ResponseTemplate) {
+    Mock::given(method("POST"))
+        .and(path("/v1/jobs/job-1/cancel"))
+        .and(header("authorization", "Bearer nol_test_token"))
+        .and(header("content-length", "0"))
+        .respond_with(reply)
+        .expect(1)
+        .mount(server)
+        .await;
+}
+
+#[tokio::test]
+async fn cancel_job_cancels_on_the_server_and_returns_the_raw_canceled_job() {
+    let server = MockServer::start().await;
+    mount_submit(&server, job("queued")).await;
+    mount_cancel(&server, response(canceled_job())).await;
+    let handle = submit(&client(&server), "/generate/image", arguments(), options())
+        .await
+        .unwrap();
+    let canceled = handle.cancel_job().await.unwrap();
+    // Raw, like `status()`: unknown fields survive.
+    assert_eq!(canceled, canceled_job());
+    // A result() started afterwards ends at once, with no polling.
+    let error = handle.result().await.err().unwrap();
+    assert_eq!(error.code, ErrorCode::Canceled);
+    assert_eq!(
+        error.message,
+        "Canceled before it reached the model provider. All 30 credits were refunded."
+    );
+    assert_eq!(error.http_status, None);
+    assert_eq!(error.job_id.as_deref(), Some("job-1"));
+    assert_eq!(error.job, Some(canceled_job()));
+    assert!(
+        server
+            .received_requests()
+            .await
+            .unwrap()
+            .iter()
+            .all(|request| request.url.path() != "/v1/jobs/job-1")
+    );
+}
+
+#[tokio::test]
+async fn cancel_job_ends_a_pending_result_with_the_servers_cancellation() {
+    let server = MockServer::start().await;
+    mount_submit(&server, job("queued")).await;
+    mount_cancel(&server, response(canceled_job())).await;
+    let polls = Arc::new(AtomicUsize::new(0));
+    let received = Arc::clone(&polls);
+    Mock::given(method("GET"))
+        .and(path("/v1/jobs/job-1"))
+        .respond_with(move |_: &Request| {
+            received.fetch_add(1, Ordering::SeqCst);
+            response(job("running"))
+        })
+        .mount(&server)
+        .await;
+    let handle = submit(&client(&server), "/generate/image", arguments(), options())
+        .await
+        .unwrap();
+    let cancel_handle = handle.clone();
+    let (result, canceled) = tokio::time::timeout(Duration::from_secs(1), async {
+        tokio::join!(handle.result(), async {
+            while polls.load(Ordering::SeqCst) == 0 {
+                tokio::task::yield_now().await;
+            }
+            cancel_handle.cancel_job().await
+        })
+    })
+    .await
+    .expect("a server cancel resolves the pending wait");
+    assert_eq!(canceled.unwrap()["status"], "canceled");
+    let error = result.err().unwrap();
+    assert_eq!(error.code, ErrorCode::Canceled);
+    assert!(error.message.contains("All 30 credits were refunded."));
+    assert_eq!(error.job_id.as_deref(), Some("job-1"));
+    // The error carries the canceled job, not the last `running` poll.
+    let job = error.job.unwrap();
+    assert_eq!(job["status"], "canceled");
+    assert_eq!(job["cancellation"]["settlement"], "refunded");
+}
+
+#[tokio::test]
+async fn cancel_job_on_a_finished_job_is_refused_and_the_wait_keeps_going() {
+    let server = MockServer::start().await;
+    mount_submit(&server, job("queued")).await;
+    mount_cancel(
+        &server,
+        ResponseTemplate::new(409).set_body_json(json!({
+            "type": "about:blank", "title": "Conflict", "status": 409,
+            "code": "job_not_cancellable", "detail": "This job already finished."
+        })),
+    )
+    .await;
+    mount_jobs(
+        &server,
+        vec![response(job("running")), response(job("succeeded"))],
+    )
+    .await;
+    mount_assets(&server, response(json!({"items": [asset("done")]}))).await;
+    let handle = submit(&client(&server), "/generate/image", arguments(), options())
+        .await
+        .unwrap();
+    let error = handle.cancel_job().await.err().unwrap();
+    assert_eq!(error.code, ErrorCode::JobNotCancellable);
+    assert_eq!(error.http_status, Some(409));
+    assert_eq!(error.message, "This job already finished.");
+    assert_eq!(error.job_id.as_deref(), Some("job-1"));
+    // Nothing was changed: the wait reaches the job's own result.
+    let result = handle.result().await.unwrap();
+    assert_eq!(result.url.as_deref(), Some("https://media.example/done"));
 }

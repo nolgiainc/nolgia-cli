@@ -365,23 +365,31 @@ impl ClientExt for Client {
     }
 
     async fn cancel_job_with_body(&self, id: Uuid) -> StdResult<types::Job, ApiError<()>> {
-        let url = format!("{}/jobs/{}/cancel", self.baseurl(), id);
-        let response = self
-            .client()
-            .post(url)
-            .header(reqwest::header::ACCEPT, "application/json")
-            // reqwest omits `Content-Length` for a bodyless (or empty-body)
-            // POST, which the production LB rejects with 411. Set it
-            // explicitly so the request carries `Content-Length: 0`.
-            .header(reqwest::header::CONTENT_LENGTH, "0")
-            .body(Vec::<u8>::new())
-            .send()
-            .await?;
+        let response = cancel_job_request(self, &id.to_string()).send().await?;
         if !response.status().is_success() {
             return Err(ApiError::UnexpectedResponse(response));
         }
         Ok(response.json::<types::Job>().await?)
     }
+}
+
+/// The one `POST /jobs/{id}/cancel` request this crate sends, shared by
+/// [`ClientExt::cancel_job_with_body`] and [`JobHandle::cancel_job`] so the
+/// `411` fix below cannot drift between them.
+pub(crate) fn cancel_job_request(client: &Client, id: &str) -> reqwest::RequestBuilder {
+    client
+        .client()
+        .post(format!(
+            "{}/jobs/{}/cancel",
+            client.baseurl(),
+            progenitor_client::encode_path(id)
+        ))
+        .header(reqwest::header::ACCEPT, "application/json")
+        // reqwest omits `Content-Length` for a bodyless (or empty-body)
+        // POST, which the production LB rejects with 411 (NOL-542). Set it
+        // explicitly so the request carries `Content-Length: 0`.
+        .header(reqwest::header::CONTENT_LENGTH, "0")
+        .body(Vec::<u8>::new())
 }
 
 #[derive(Debug, Clone)]

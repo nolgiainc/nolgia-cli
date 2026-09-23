@@ -200,7 +200,7 @@ impl GenerationError {
 /// The wait budget starts at `result()`. Timing out only stops waiting:
 /// it does not cancel generation, and credits are still spent. To stop the
 /// job itself, cancel it on the server with
-/// [`ClientExt::cancel_job_with_body`](crate::ClientExt::cancel_job_with_body).
+/// [`JobHandle::cancel_job`](crate::JobHandle::cancel_job).
 pub struct SubscribeOptions {
     pub poll_interval: Duration,
     pub max_poll_time: Duration,

@@ -497,24 +497,30 @@ signed URLs as short-lived bearer capabilities.
 
 Use `submit` for a `JobHandle`: `job_id()` and `job()` inspect the submission,
 `status().await` fetches once, and `result().await` starts polling. Clone the
-handle before consuming it with `result()` if you need to call `cancel()` while
-waiting. Options control polling (500 ms by default), the wait budget (30 minutes
+handle before consuming it with `result()` if you need to call `cancel_job()`
+while waiting. Options control polling (500 ms by default), the wait budget (30 minutes
 from `result()`), change-only status callbacks, and submission headers such as
 `Idempotency-Key`. Server error codes, including unknown codes, and raw terminal
 job fields survive in `GenerationError`.
 
-`JobHandle::cancel()` stops this client waiting and nothing else. It does not
-cancel generation on the server and does not refund credits; the job keeps
-running and its asset still lands in the library. A wait timeout likewise
-stops only the client waiting; credits are still spent. To stop the job itself,
-call `client.cancel_job_with_body(job_id)` (from `ClientExt`, which sends
-`POST /jobs/{id}/cancel`): it returns the canceled job, whose `cancellation`
-says what the model provider did and whether the credits were refunded
-(`settlement` can read `pending` until the provider answers), and a `result()`
-still polling that job then fails with `ErrorCode::Canceled` and the server's
-sentence as its message. A job that already finished answers `409` with code
-`job_not_cancellable`. Keep the job ID to inspect the existing job instead of
-submitting another paid generation.
+`handle.cancel_job().await` cancels the job on the server
+(`POST /jobs/{id}/cancel`) and stops the wait. It returns the canceled job, raw
+like `status()`, whose `cancellation` says what the model provider did and
+whether the credits were refunded: a job that had not reached the provider is
+refunded in full, and a started render is refunded only when the provider
+stops it without billing (`settlement` can read `pending` until the provider
+answers). A canceled job is never added to your library. A pending or later
+`result()` on the handle or any clone then fails with `ErrorCode::Canceled`,
+whose message is the server's cancellation sentence. A job that already
+finished is refused with `ErrorCode::JobNotCancellable` (HTTP `409`); nothing
+is changed and the wait carries on to the job's own result. Without a handle,
+`client.cancel_job_with_body(job_id)` (from `ClientExt`) sends the same request
+and returns the typed `Job`.
+
+A wait timeout stops only the client waiting; the job keeps running and credits
+are still spent. `JobHandle::cancel()` is deprecated for the same reason: it
+stops only the local wait, and the job keeps running and is billed. Keep the job
+ID to inspect the existing job instead of submitting another paid generation.
 
 Supported endpoints are `/generate/image`, `/generate/audio`, `/generate/video`,
 `/generate/3d`, and `/restore/video`. `/generate/set` returns an `OutputSet` and

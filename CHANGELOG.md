@@ -21,12 +21,18 @@ the matching GitHub release.
   or `restore` wait whose job is canceled no longer claims the job is still
   running and "will be billed once": it says the job was canceled, exits `1`,
   and under `--json` prints the canceled job.
-- **Rust client:** `ClientExt::cancel_job_with_body(id)` cancels a job on the
-  server (the generated `cancel_job` builder sends a POST the production load
-  balancer refuses with `411`). `ErrorCode` gains `Canceled` and
-  `JobNotCancellable`, and a wait on a canceled job now fails with `Canceled`
-  and the server's sentence instead of `JobFailed`. `JobHandle::cancel()` is
-  unchanged: it still stops only the local wait.
+- **Rust client: `JobHandle::cancel_job()` cancels the job on the server.** It
+  returns the canceled job (its `cancellation` says what the provider did and
+  what was refunded) and ends a pending `result()` with the new
+  `ErrorCode::Canceled`, carrying the server's sentence; a finished job is
+  refused with `ErrorCode::JobNotCancellable` and the wait carries on.
+  `ClientExt::cancel_job_with_body(id)` does the same without a handle (the
+  generated `cancel_job` builder sends a POST the production load balancer
+  refuses with `411`). A wait on a job canceled anywhere else now fails with
+  `Canceled` instead of `JobFailed`.
+- **Deprecated: `JobHandle::cancel()`.** It never canceled anything: it stops
+  only the local wait while the job keeps running and is billed. It still
+  behaves exactly as before, with a warning pointing at `cancel_job()`.
 
 ## v0.2.32
 
