@@ -108,9 +108,12 @@ impl JobHandle {
             .map_err(|err| err.with_job(&self.job))
     }
     /// Stop this client waiting, including pending `result()` calls on clones.
-    /// The Nolgia API has no job-cancel route today. This sends no server call,
-    /// does not cancel server generation or refund credits; the job keeps
-    /// running and its asset still lands in the library.
+    /// This sends no server call: it does not cancel the generation or refund
+    /// credits, and the job keeps running and its asset still lands in the
+    /// library. To stop the job itself, cancel it on the server with
+    /// [`ClientExt::cancel_job_with_body`](crate::ClientExt::cancel_job_with_body)
+    /// (`POST /jobs/{id}/cancel`); a `result()` still polling then fails with
+    /// [`ErrorCode::Canceled`].
     pub fn cancel(&self) {
         self.cancelled.send_replace(true);
     }

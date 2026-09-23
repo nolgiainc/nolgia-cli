@@ -13,6 +13,13 @@ pub enum ErrorCode {
     Timeout,
     Validation,
     ConfirmationRejected,
+    /// The job was canceled by its owner (`POST /jobs/{id}/cancel`), not
+    /// broken. `job["cancellation"]` says what the provider did and what was
+    /// refunded.
+    Canceled,
+    /// `POST /jobs/{id}/cancel` refused (`409`): the job already finished, or
+    /// its finished result is being delivered. Nothing was changed.
+    JobNotCancellable,
     /// A code the server returned that this build does not know. The set is
     /// OPEN — pass it through, never coerce it.
     Other(String),
@@ -29,6 +36,8 @@ impl ErrorCode {
             "timeout" => Self::Timeout,
             "validation" => Self::Validation,
             "confirmation_rejected" => Self::ConfirmationRejected,
+            "canceled" => Self::Canceled,
+            "job_not_cancellable" => Self::JobNotCancellable,
             other => Self::Other(other.to_owned()),
         }
     }
@@ -43,6 +52,8 @@ impl ErrorCode {
             Self::Timeout => "timeout",
             Self::Validation => "validation",
             Self::ConfirmationRejected => "confirmation_rejected",
+            Self::Canceled => "canceled",
+            Self::JobNotCancellable => "job_not_cancellable",
             Self::Other(code) => code,
         }
     }
@@ -95,6 +106,27 @@ impl GenerationError {
         self
     }
     pub(super) fn from_body(body: &Value, http_status: Option<u16>) -> Self {
+        // A canceled job is not a failure: it carries no `failure`, and the
+        // server's own sentence (`cancellation.message`) is the message, as
+        // in the TypeScript and Python layers.
+        if http_status.is_none() && body["status"].as_str() == Some("canceled") {
+            let message = ["/cancellation/message", "/status_message"]
+                .into_iter()
+                .find_map(|path| {
+                    body.pointer(path)
+                        .and_then(Value::as_str)
+                        .filter(|s| !s.is_empty())
+                })
+                .unwrap_or("the job was canceled")
+                .to_owned();
+            return Self {
+                code: ErrorCode::Canceled,
+                message,
+                http_status: None,
+                job_id: None,
+                job: None,
+            };
+        }
         let supplied = ["/failure/code", "/error/code", "/code"]
             .into_iter()
             .filter(|path| *path != "/code" || http_status.is_some())
@@ -133,7 +165,7 @@ impl GenerationError {
         .map(str::to_owned)
         .unwrap_or_else(|| match http_status {
             Some(status) => format!("HTTP {status}"),
-            None => "generation failed or was canceled".to_owned(),
+            None => "generation failed".to_owned(),
         });
         // BEST-EFFORT, NOT A CONTRACT. A 409 duplicate refusal names the
         // already-accepted job only inside the English `detail` sentence:
@@ -166,7 +198,9 @@ impl GenerationError {
 }
 
 /// The wait budget starts at `result()`. Timing out only stops waiting:
-/// it does not cancel generation, and credits are still spent.
+/// it does not cancel generation, and credits are still spent. To stop the
+/// job itself, cancel it on the server with
+/// [`ClientExt::cancel_job_with_body`](crate::ClientExt::cancel_job_with_body).
 pub struct SubscribeOptions {
     pub poll_interval: Duration,
     pub max_poll_time: Duration,

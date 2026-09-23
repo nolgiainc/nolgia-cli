@@ -27,6 +27,9 @@ pub async fn run(args: StatusArgs, ctx: &CommandContext) -> Result<()> {
             if let Some(moderated) = crate::moderation::Moderated::from_job(&job) {
                 eprintln!("{}", moderated.render_text());
             }
+            if let Some(canceled) = crate::canceled::describe(&job) {
+                eprintln!("{canceled}");
+            }
             Ok(())
         }
     }

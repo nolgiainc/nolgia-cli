@@ -290,6 +290,10 @@ while true; do
 done
 ```
 
+Stopping the wait never stops the job. To stop the job itself, cancel it on
+the server with `nolgia jobs cancel <JOB_ID>` (below); every exit-75 report
+offers that command last, after the ones that keep following the job.
+
 Generation is stochastic, so an identical prompt is sometimes a deliberate
 second take rather than an accidental re-run. Pass a fresh `--idempotency-key`
 (or `NOLGIA_IDEMPOTENCY_KEY`) to say so; reuse one to collapse your own retries
@@ -315,6 +319,35 @@ message to stderr in text mode. To inspect a known moderated job, select its
 ```bash
 nolgia wait "$job_uuid" --field failure.kind
 ```
+
+### Canceling a job
+
+`nolgia jobs cancel <JOB_ID>` cancels a queued or running job on the server.
+The job ends as `canceled` straight away and is never delivered, whatever the
+model provider does next. The command prints the job's status line, the
+server's own sentence about what the provider did and what happened to the
+credits, then the credits: `Credits: 30 refunded.`, `Credits: 20 refunded, 10
+charged.` (the provider stopped part way and bills what it rendered), or
+`Credits: 30 charged.`. A job that had not reached the provider is refunded in
+full. When the provider has not answered yet the credits read `pending`: the
+job is already terminal, so check how they settle later with
+`nolgia jobs get <JOB_ID>` (`wait` returns at once). `--json` prints the
+canceled Job, whose `cancellation` object carries `stage`, `provider_cancel`,
+`settlement`, `credits_refunded`, `credits_charged` and `message`. Canceling
+twice prints the same result.
+
+A job that already finished, or whose result is being delivered, cannot be
+canceled (`409 job_not_cancellable`: nothing was changed). A job that is not in
+your library in the active workspace answers `404`, and an organization role
+that may not cancel it (viewers and billing contacts, or a member touching a
+teammate's job) answers `403`. Each exits `1` with the server's detail and what
+to do next.
+
+`canceled` is a terminal state of its own, not a failure: `status`, `jobs get`
+and `wait` exit `0` for it and print the cancel sentence and credits on stderr.
+A `gen` or `restore` command whose job is canceled while it waits exits `1`
+(there is no result), prints the same explanation instead of `Error:`, and
+under `--json` puts the canceled Job on stdout.
 
 ## Raw API requests
 
@@ -358,7 +391,7 @@ Replace every `<PLACEHOLDER>` below with a real value; angle-bracket placeholder
 | `gen` | `image`, `video`, `audio` generation |
 | `restore` | `video` footage restoration/upscale (de-noise, de-haze, up-res to a target tier) on `seedvr2-restore` or a `topaz-*` master upscaler |
 | `status`, `wait` | Inspect or wait for a job by UUID |
-| `jobs` | `get <JOB_ID>` inspects a job exactly like `status`; `list` your jobs, newest first, with `--status queued\|running\|succeeded\|failed\|canceled`, `--modality image\|video\|audio`, `--limit` and `--cursor` |
+| `jobs` | `get <JOB_ID>` inspects a job exactly like `status`; `list` your jobs, newest first, with `--status queued\|running\|succeeded\|failed\|canceled`, `--modality image\|video\|audio`, `--limit` and `--cursor`; `cancel <JOB_ID>` stops a queued or running job on the server and prints what happened to its credits |
 | `assets` | `list`, `get`, `delete`, `upload`, `tag`, `frame` |
 | `characters` | `list`, `get`, `create`, `update`, `delete` reusable characters |
 | `projects` | `list`, `get`, `create`, `update`, `delete`, `add-assets`, `remove-asset` |
@@ -470,12 +503,18 @@ from `result()`), change-only status callbacks, and submission headers such as
 `Idempotency-Key`. Server error codes, including unknown codes, and raw terminal
 job fields survive in `GenerationError`.
 
-**The Nolgia API has no job-cancel route today.** `cancel()` stops this client
-waiting and nothing else. It does not cancel generation on the server and does
-not refund credits; the job keeps running and its asset still lands in the
-library. A wait timeout likewise stops only the client waiting; credits are
-still spent. Keep the job ID to inspect the existing job instead of submitting
-another paid generation.
+`JobHandle::cancel()` stops this client waiting and nothing else. It does not
+cancel generation on the server and does not refund credits; the job keeps
+running and its asset still lands in the library. A wait timeout likewise
+stops only the client waiting; credits are still spent. To stop the job itself,
+call `client.cancel_job_with_body(job_id)` (from `ClientExt`, which sends
+`POST /jobs/{id}/cancel`): it returns the canceled job, whose `cancellation`
+says what the model provider did and whether the credits were refunded
+(`settlement` can read `pending` until the provider answers), and a `result()`
+still polling that job then fails with `ErrorCode::Canceled` and the server's
+sentence as its message. A job that already finished answers `409` with code
+`job_not_cancellable`. Keep the job ID to inspect the existing job instead of
+submitting another paid generation.
 
 Supported endpoints are `/generate/image`, `/generate/audio`, `/generate/video`,
 `/generate/3d`, and `/restore/video`. `/generate/set` returns an `OutputSet` and

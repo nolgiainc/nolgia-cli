@@ -204,6 +204,15 @@ impl LiveJob {
                 format!("{retry_command} ... --idempotency-key <new-value>"),
                 "deliberately run it again as a separate job",
             ));
+        } else {
+            // Stopping this command stopped only the watching. The one way to
+            // actually stop the work (and the billing the provider has not
+            // done yet) is a server cancel, so offer it, last, after the
+            // commands that keep following the job.
+            steps.push((
+                format!("nolgia jobs cancel {id}"),
+                "stop the job itself instead",
+            ));
         }
         steps
     }
@@ -279,7 +288,7 @@ impl std::error::Error for LiveJob {}
 /// stderr, so `--json` stdout stays a single parseable document.
 pub fn announce(job_id: Uuid, timeout_seconds: u64) {
     eprintln!(
-        "submitted job {job_id} — waiting up to {timeout_seconds}s (Ctrl-C is safe: it does not cancel the job)"
+        "submitted job {job_id} — waiting up to {timeout_seconds}s (Ctrl-C is safe: it does not cancel the job; `nolgia jobs cancel {job_id}` does)"
     );
 }
 
@@ -302,8 +311,14 @@ pub async fn guard<T>(
     result.map_err(|err| match err.downcast::<LiveJob>() {
         // Already carries the job id and the right explanation.
         Ok(live) => live.into(),
-        // A content-filter block is a finished job, so preserve its outcome.
-        Err(err) if err.is::<crate::moderation::Moderated>() => err,
+        // A content-filter block or a cancel is a finished job, so preserve
+        // its outcome instead of calling the job live.
+        Err(err)
+            if err.is::<crate::moderation::Moderated>()
+                || err.is::<crate::canceled::Canceled>() =>
+        {
+            err
+        }
         Err(err) => LiveJob::Detached {
             job_id,
             // `{err:#}` flattens the anyhow chain onto one line, keeping the
@@ -514,6 +529,47 @@ mod tests {
             assert_eq!(live.render_json()["job_id"], job_id.to_string());
             assert_eq!(live.render_json()["billed_twice"], false);
         }
+    }
+
+    /// NOL-1025: stopping the wait still leaves the job running (that stays
+    /// true and stays said), but the reader is now also handed the command
+    /// that really stops it, after the ones that keep following it, so an
+    /// automated reader of `follow_up[0]` still keeps waiting.
+    #[test]
+    fn a_stopped_wait_offers_the_real_cancel_last() {
+        let job_id = Uuid::parse_str("184166c4-0ecd-453c-b907-66cf511ae241").expect("valid uuid");
+        let cancel = format!("nolgia jobs cancel {job_id}");
+        for live in [
+            LiveJob::StillRunning {
+                job_id,
+                waited_seconds: 300,
+            },
+            LiveJob::Interrupted { job_id },
+            LiveJob::Detached {
+                job_id,
+                cause: "connection closed before message completed".into(),
+            },
+        ] {
+            let text = live.render_text();
+            assert!(
+                text.contains("was not cancelled") || text.contains("so the job exists"),
+                "{text}"
+            );
+            assert!(text.contains(&cancel), "{text}");
+            let follow_up = live.render_json()["follow_up"].clone();
+            assert_eq!(follow_up[0], format!("nolgia wait {job_id}"));
+            assert_eq!(
+                follow_up.as_array().and_then(|a| a.last()),
+                Some(&cancel.clone().into())
+            );
+        }
+        // A duplicate is a refusal to start a second job, not a stopped wait.
+        let duplicate = LiveJob::Duplicate {
+            job_id,
+            detail: REAL_409_DETAIL.into(),
+            retry_command: "nolgia gen video".into(),
+        };
+        assert!(!duplicate.render_text().contains("jobs cancel"));
     }
 
     /// A duplicate is the one ending where the user may genuinely have meant

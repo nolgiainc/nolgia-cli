@@ -11,6 +11,8 @@ fn codes_round_trip_including_open_vocabulary() {
         ("timeout", ErrorCode::Timeout),
         ("validation", ErrorCode::Validation),
         ("confirmation_rejected", ErrorCode::ConfirmationRejected),
+        ("canceled", ErrorCode::Canceled),
+        ("job_not_cancellable", ErrorCode::JobNotCancellable),
         ("future_code", ErrorCode::Other("future_code".into())),
     ] {
         assert_eq!(ErrorCode::from_wire(wire), code);
@@ -161,7 +163,7 @@ async fn terminal_failures_preserve_raw_job_and_server_codes() {
             Value::Null,
             ErrorCode::JobFailed,
         ),
-        ("canceled", Value::Null, Value::Null, ErrorCode::JobFailed),
+        ("canceled", Value::Null, Value::Null, ErrorCode::Canceled),
         (
             "failed",
             json!({"kind":"moderated", "code":"ip_detected"}),
@@ -193,6 +195,34 @@ async fn terminal_failures_preserve_raw_job_and_server_codes() {
         assert_eq!(error.job_id.as_deref(), Some("job-1"));
         assert_eq!(error.job, Some(terminal));
     }
+}
+
+/// NOL-1025: a job canceled on the server (from any surface) ends the wait
+/// with `canceled`, never `job_failed`, and carries the server's own sentence
+/// about the provider and the credits.
+#[tokio::test]
+async fn a_canceled_job_ends_the_wait_with_the_servers_cancellation_sentence() {
+    let server = MockServer::start().await;
+    mount_submit(&server, job("queued")).await;
+    let message = "Canceled before it reached the model provider. All 30 credits were refunded.";
+    let terminal = json!({
+        "id": "job-1", "status": "canceled", "status_message": message,
+        "cancellation": {
+            "canceled_at": "2026-09-18T10:00:01Z", "stage": "before_submit",
+            "provider_cancel": "not_needed", "settlement": "refunded",
+            "credits_refunded": 30, "message": message
+        }
+    });
+    mount_jobs(&server, vec![response(terminal.clone())]).await;
+    let error = subscribe(&client(&server), "/generate/image", arguments(), options())
+        .await
+        .err()
+        .unwrap();
+    assert_eq!(error.code, ErrorCode::Canceled);
+    assert_eq!(error.message, message);
+    assert_eq!(error.http_status, None);
+    assert_eq!(error.job_id.as_deref(), Some("job-1"));
+    assert_eq!(error.job, Some(terminal));
 }
 
 #[tokio::test]

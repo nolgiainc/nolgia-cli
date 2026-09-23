@@ -279,6 +279,24 @@ pub trait ClientExt {
         &self,
         slug: &str,
     ) -> impl std::future::Future<Output = StdResult<types::AgentInstalledAbility, ApiError<()>>> + Send;
+
+    /// POST `/jobs/{id}/cancel` to cancel a job on the server, returning the
+    /// canceled [`types::Job`] (its `cancellation` says what the model
+    /// provider did and what happened to the credits).
+    ///
+    /// This mirrors the generated `cancel_job` builder, which, because the
+    /// spec declares no request body for the operation, sends a bodyless POST
+    /// with no `Content-Length` header: the production load balancer rejects
+    /// that with `411 Length Required` before the request reaches the API
+    /// (NOL-542), exactly like `complete_asset_upload` above. This sends an
+    /// explicit empty body with `Content-Length: 0`. Non-2xx responses
+    /// surface as [`ApiError::UnexpectedResponse`], same as the generated
+    /// method, so a `409` problem's `code: job_not_cancellable` stays
+    /// readable.
+    fn cancel_job_with_body(
+        &self,
+        id: Uuid,
+    ) -> impl std::future::Future<Output = StdResult<types::Job, ApiError<()>>> + Send;
 }
 
 impl ClientExt for Client {
@@ -344,6 +362,25 @@ impl ClientExt for Client {
             return Err(ApiError::UnexpectedResponse(response));
         }
         Ok(response.json::<types::AgentInstalledAbility>().await?)
+    }
+
+    async fn cancel_job_with_body(&self, id: Uuid) -> StdResult<types::Job, ApiError<()>> {
+        let url = format!("{}/jobs/{}/cancel", self.baseurl(), id);
+        let response = self
+            .client()
+            .post(url)
+            .header(reqwest::header::ACCEPT, "application/json")
+            // reqwest omits `Content-Length` for a bodyless (or empty-body)
+            // POST, which the production LB rejects with 411. Set it
+            // explicitly so the request carries `Content-Length: 0`.
+            .header(reqwest::header::CONTENT_LENGTH, "0")
+            .body(Vec::<u8>::new())
+            .send()
+            .await?;
+        if !response.status().is_success() {
+            return Err(ApiError::UnexpectedResponse(response));
+        }
+        Ok(response.json::<types::Job>().await?)
     }
 }
 

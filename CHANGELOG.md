@@ -5,6 +5,29 @@ the matching GitHub release.
 
 ## Unreleased
 
+- **`nolgia jobs cancel <JOB_ID>` really stops a job.** Until now nothing in
+  the CLI could: Ctrl-C and a wait timeout stop only the watching, while the
+  provider keeps rendering and the credits are spent. The command cancels the
+  job on the server, which stops it at the model provider where the provider
+  allows it and never delivers it, then prints what happened to the credits in
+  the server's own words: refunded, partly refunded, charged, or `pending`
+  until the provider answers (`nolgia jobs get <JOB_ID>` shows how it
+  settled). `--json` prints the canceled job. A finished job, a job outside
+  your library and a role that may not cancel each exit `1` with what to do
+  next. Every "the job is still running" report (exit 75) and the
+  submit-time line now name the command.
+- **`canceled` reads as its own ending, not a failure.** `status`, `jobs get`
+  and `wait` print the cancel sentence and credits for a canceled job. A `gen`
+  or `restore` wait whose job is canceled no longer claims the job is still
+  running and "will be billed once": it says the job was canceled, exits `1`,
+  and under `--json` prints the canceled job.
+- **Rust client:** `ClientExt::cancel_job_with_body(id)` cancels a job on the
+  server (the generated `cancel_job` builder sends a POST the production load
+  balancer refuses with `411`). `ErrorCode` gains `Canceled` and
+  `JobNotCancellable`, and a wait on a canceled job now fails with `Canceled`
+  and the server's sentence instead of `JobFailed`. `JobHandle::cancel()` is
+  unchanged: it still stops only the local wait.
+
 ## v0.2.32
 
 - **The Rust client matches today's API contract.** Its types are regenerated
