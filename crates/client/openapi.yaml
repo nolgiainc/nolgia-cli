@@ -3324,6 +3324,8 @@ paths:
           $ref: '#/components/responses/ProblemResponse'
         '401':
           $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
         default:
           $ref: '#/components/responses/ProblemResponse'
   /characters/{id}:
@@ -3355,7 +3357,7 @@ paths:
       tags: [Characters]
       operationId: updateCharacter
       summary: Update a character's name, description, or reference images.
-      description: Partial update; only provided fields change. Providing `reference_asset_ids` replaces the full reference set.
+      description: Partial update; only provided fields change. Providing `reference_asset_ids` replaces the full reference set. `face_check_consent` records (true) or withdraws (false) consent to the face identity check for every reference photo the character holds after the update; true from the platform agent is a 403.
       parameters:
         - name: id
           in: path
@@ -3379,6 +3381,8 @@ paths:
         '400':
           $ref: '#/components/responses/ProblemResponse'
         '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
           $ref: '#/components/responses/ProblemResponse'
         '404':
           $ref: '#/components/responses/ProblemResponse'
@@ -11596,6 +11600,11 @@ components:
           type: string
           format: uuid
           nullable: true
+        face_check_consent:
+          type: boolean
+          nullable: true
+          description: >-
+            Applied to every member exactly as on `POST /generate/image`: records your consent to the face identity check for the `face_reference_asset_id` photo (once per photo; it stays recorded for later requests). Send true only after the person using NOLGIA has agreed to this wording, version 2026-09-23: "I am the person in this photo, or I have their permission to use it. I agree that NOLGIA checks the face in this photo and compares it with the faces in the images I make with it, as described in the Privacy Policy." Without consent on record the photo still conditions the render, but no face is compared, no identity gate or re-roll runs and no `identity_score` is stored. Requires `face_reference_asset_id`; a character's photos take consent on `PATCH /characters/{id}` instead, so it is a 400 alongside `character_id`/`character_ids`. A request sent by the platform agent is refused (403): consent must be the user's own.
         character_ids:
           type: array
           nullable: true
@@ -11871,7 +11880,12 @@ components:
           format: uuid
           nullable: true
           description: >-
-            Image asset (owned by the caller) whose face conditions the render for identity. A face reference IS an Aura identity request: it turns the pipeline on (an explicit `aura: false` alongside it is a 400) and needs a model that accepts reference images (`image.reference_images_max` above the number of references already attached) - rejected with a 400 otherwise, so a reference is never silently dropped. Rides alongside `image_url`/`image_urls` and counts against the model's combined reference budget. The delivered render is subject to the ArcFace identity acceptance gate (>= 0.60 against this reference, one automatic re-roll) once the scoring runtime is enabled; that gate scores and re-rolls a single render, so `num_images` must be 1 (or omitted) alongside a face reference - a batch is a 400 rather than a set of renders where only one was actually scored.
+            Image asset (owned by the caller) whose face conditions the render for identity. A face reference IS an Aura identity request: it turns the pipeline on (an explicit `aura: false` alongside it is a 400) and needs a model that accepts reference images (`image.reference_images_max` above the number of references already attached) - rejected with a 400 otherwise, so a reference is never silently dropped. Rides alongside `image_url`/`image_urls` and counts against the model's combined reference budget. The delivered render is subject to the ArcFace identity acceptance gate (>= 0.60 against this reference, one automatic re-roll) once the scoring runtime is enabled; that gate scores and re-rolls a single render, so `num_images` must be 1 (or omitted) alongside a face reference - a batch is a 400 rather than a set of renders where only one was actually scored. The gate runs only when consent to the face check is recorded for this photo (`face_check_consent`); without it the photo still conditions the render and nothing is face-compared.
+        face_check_consent:
+          type: boolean
+          nullable: true
+          description: >-
+            Records your consent to the face identity check for the `face_reference_asset_id` photo (once per photo; it stays recorded for later requests). Send true only after the person using NOLGIA has agreed to this wording, version 2026-09-23: "I am the person in this photo, or I have their permission to use it. I agree that NOLGIA checks the face in this photo and compares it with the faces in the images I make with it, as described in the Privacy Policy." Without consent on record the photo still conditions the render, but no face is compared, no identity gate or re-roll runs and no `identity_score` is stored. Requires `face_reference_asset_id`; a character's photos take consent on `PATCH /characters/{id}` instead, so it is a 400 alongside `character_id`/`character_ids`. A request sent by the platform agent is refused (403): consent must be the user's own.
         character_id:
           type: string
           format: uuid
@@ -12763,7 +12777,7 @@ components:
           minimum: -1
           maximum: 1
           description: >
-            ArcFace-family cosine similarity against the generation's identity reference (Aura identity gate). On image assets generated with a `face_reference_asset_id`, the render's dominant face scored against that reference; on video assets generated with a `character_id`, the best frame sampled at 2fps scored against the character's primary reference. Both lanes gate delivery at >= 0.60 with one automatic re-roll. Absent when no identity reference rode the generation or scoring was unavailable.
+            ArcFace-family cosine similarity against the generation's identity reference (Aura identity gate). On image assets generated with a `face_reference_asset_id`, the render's dominant face scored against that reference; on video assets generated with a `character_id`, the best frame sampled at 2fps scored against the character's primary reference. Both lanes gate delivery at >= 0.60 with one automatic re-roll. Absent when no identity reference rode the generation, when no consent to the face check was recorded for the reference photo (see `Character.face_check`), or when scoring was unavailable.
 
           examples: [0.81]
         identity_rerolls:
@@ -12972,8 +12986,9 @@ components:
             presented front-on), `needs_front_view` (one face, turned away
             or in profile), `no_face` (no face detected, or no references at
             all), `multiple_faces` (a group shot), `unverified` (the primary
-            has no verdict yet: saved before verdicts existed, or the check
-            could not run). Advisory: a save is never refused on it, but a
+            has no verdict yet: saved before verdicts existed, no consent to
+            the face check is recorded for it (see `face_check`), or the
+            check could not run). Advisory: a save is never refused on it, but a
             render cast on a character that is not `ready` is likely to
             fail the identity gate. Always sent.
         reference_verdicts:
@@ -12996,12 +13011,61 @@ components:
             and write responses omit it.
           items:
             $ref: '#/components/schemas/CharacterFidelitySample'
+        face_check:
+          $ref: '#/components/schemas/CharacterFaceCheck'
+          description: >-
+            Whether the face identity check runs for this character and whether any of its photos still needs consent. Optional in the schema only so existing clients keep parsing; the API always sends it.
         created_at:
           type: string
           format: date-time
         updated_at:
           type: string
           format: date-time
+    CharacterFaceCheck:
+      type: object
+      additionalProperties: false
+      required: [enabled, needs_consent, consented_asset_ids]
+      description: |
+        Consent to the face identity check for a character's reference
+        photos. The check compares the faces in images and videos cast on
+        the character against its primary reference photo (ArcFace-family
+        embeddings computed and discarded in memory on NOLGIA's own
+        servers, a 0.60 gate, one automatic re-roll, video sampled at 2
+        frames per second) and, when a photo joins the character, judges
+        whether the photo shows one clear, front-facing face. It runs ONLY
+        on photos whose consent is recorded. Consent is recorded per photo
+        (the same photo on another character, or a duplicate, is covered
+        too) with who gave it, when and the wording version. A photo
+        without consent still rides every generation as a reference; it is
+        simply never face-compared and no `identity_score` is stored.
+      properties:
+        enabled:
+          type: boolean
+          description: True when consent covers the primary reference photo, so renders cast on this character are face-checked.
+        needs_consent:
+          type: boolean
+          description: |
+            True when at least one reference photo has never been consented
+            (a photo whose consent was withdrawn does not count: that was the
+            user's choice). Clients show the consent prompt; generation is
+            never blocked on it.
+        consented_asset_ids:
+          type: array
+          maxItems: 8
+          description: The reference photos currently covered by consent.
+          items:
+            type: string
+            format: uuid
+        consented_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the most recent active consent among the photos was given.
+        consent_version:
+          type: string
+          nullable: true
+          description: The consent wording version of that most recent consent.
+          examples: ['2026-09-23']
     CharacterReferenceVerdict:
       type: object
       additionalProperties: false
@@ -13292,6 +13356,11 @@ components:
         preferred_models:
           $ref: '#/components/schemas/CharacterPreferredModels'
           description: Models this character renders best on; clients use these as defaults when attached.
+        face_check_consent:
+          type: boolean
+          nullable: true
+          description: >-
+            true records your consent to the face identity check for every reference photo the character holds after this write (see `Character.face_check`). Send true only after the person using NOLGIA has agreed to this wording, version 2026-09-23: "I am the person in these photos, or I have their permission to use them. I agree that NOLGIA checks the faces in these photos and compares them with the faces in the images and videos I make with this character, as described in the Privacy Policy." Omitted leaves consent as it is: photos added without it stay unchecked. A request sent by the platform agent is refused (403): consent must be the user's own.
     UpdateCharacterRequest:
       type: object
       additionalProperties: false
@@ -13352,6 +13421,11 @@ components:
         preferred_models:
           $ref: '#/components/schemas/CharacterPreferredModels'
           description: When provided, REPLACES both preferences (send {} or null fields to clear); omitted leaves them unchanged.
+        face_check_consent:
+          type: boolean
+          nullable: true
+          description: >-
+            true records your consent to the face identity check for every reference photo the character holds after this write (see `Character.face_check`). Send true only after the person using NOLGIA has agreed to this wording, version 2026-09-23: "I am the person in these photos, or I have their permission to use them. I agree that NOLGIA checks the faces in these photos and compares them with the faces in the images and videos I make with this character, as described in the Privacy Policy." Omitted leaves consent as it is: photos added without it stay unchecked. false withdraws consent for every reference photo the character holds, which turns the face check off for them. A request sent by the platform agent is refused (403): consent must be the user's own.
     BrandPaletteRole:
       type: string
       enum: [primary, secondary, accent, background, text]
