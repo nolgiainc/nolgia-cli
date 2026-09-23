@@ -2352,6 +2352,61 @@ paths:
           $ref: '#/components/responses/ProblemResponse'
         default:
           $ref: '#/components/responses/ProblemResponse'
+  /jobs/{id}/cancel:
+    post:
+      tags: [Jobs]
+      operationId: cancelJob
+      summary: Cancel a job, and stop it at the model provider where the provider allows it.
+      description: |
+        Cancels a queued or running job. The job moves to the terminal status
+        `canceled` straight away, it is never delivered afterwards (no asset
+        is added to the library, whatever the provider does next), and the
+        response's `cancellation` object says plainly what happened to the
+        work and to the credits:
+
+        - The job had not reached the model provider yet (`stage:
+          before_submit`): nothing was sent, and the whole credit hold is
+          refunded now (`settlement: refunded`).
+        - The provider had accepted it (`stage: in_progress`): Nolgia asks the
+          provider to stop it where the provider has a cancel API. When the
+          provider confirms it stopped the render before starting it
+          (`provider_cancel: cancelled`), the credits are refunded now; when
+          it stops a started render and bills only the part it rendered
+          (`stopped_partway`), that share is charged and the rest refunded
+          (`settlement: partially_refunded`).
+          Otherwise (`requested`, `refused`, `unsupported`, `failed`) the
+          settlement stays `pending` until the provider's final answer: a
+          render the provider stops or fails without billing is refunded, a
+          render it finishes and bills is charged. Nothing is refunded that
+          the provider billed, and a refund is never reported before it
+          happened.
+
+        Idempotent: canceling a job that is already `canceled` returns its
+        existing cancellation with `200`. A job that already finished, or
+        whose finished result is being delivered, answers `409` with
+        `code: job_not_cancellable`. A job outside the caller's library
+        answers `404`. In an organization, members may cancel their own jobs
+        and owners and admins any job; viewers and billing contacts get `403`.
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '200':
+          description: >-
+            The job is canceled. `status` is `canceled` and `cancellation` carries the provider outcome and the credit settlement.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
   /jobs/{id}/sse-ticket:
     post:
       tags: [Jobs]
@@ -8788,7 +8843,7 @@ components:
         code:
           type: string
           description: >
-            Machine-readable error code. Agent endpoints (`/agent/chat`, `/agent/messages*`, `/agent/sessions*`, `/agent/steps`) set one of the `AgentErrorCode` values. The generation endpoints (`/generate/image`, `/generate/video`, `/generate/audio`, `/generate/3d`, `/generate/set`) set one of the `GenerationErrorCode` values when the refusal has one; a `409` duplicate-submission refusal carries no code, because the status and the named existing job already say what happened. Absent otherwise.
+            Machine-readable error code. Agent endpoints (`/agent/chat`, `/agent/messages*`, `/agent/sessions*`, `/agent/steps`) set one of the `AgentErrorCode` values. The generation endpoints (`/generate/image`, `/generate/video`, `/generate/audio`, `/generate/3d`, `/generate/set`) set one of the `GenerationErrorCode` values when the refusal has one; a `409` duplicate-submission refusal carries no code, because the status and the named existing job already say what happened. `POST /jobs/{id}/cancel` sets `job_not_cancellable` on its `409`. Absent otherwise.
 
         type:
           type: string
@@ -12710,7 +12765,7 @@ components:
           type: string
           nullable: true
           description: >-
-            Human-readable companion to status_detail, safe to render to the customer as-is.
+            Human-readable companion to status_detail, safe to render to the customer as-is. On a `canceled` job it is the same plain statement as `cancellation.message`: what the cancel did at the provider and what happened to the credits.
         fal_request_id:
           type: string
           nullable: true
@@ -12729,6 +12784,8 @@ components:
             - $ref: '#/components/schemas/Error'
         failure:
           $ref: '#/components/schemas/JobFailure'
+        cancellation:
+          $ref: '#/components/schemas/JobCancellation'
         progress:
           type: number
           nullable: true
@@ -12744,6 +12801,48 @@ components:
           type: string
           nullable: true
           format: date-time
+    JobCancellation:
+      type: object
+      additionalProperties: false
+      required: [canceled_at, stage, provider_cancel, settlement, message]
+      description: >-
+        What canceling the job did (`POST /jobs/{id}/cancel`). Present only when `status` is `canceled`. A canceled job is never delivered: no asset is created for it, even when the provider finishes the render.
+      properties:
+        canceled_at:
+          type: string
+          format: date-time
+        stage:
+          type: string
+          enum: [before_submit, in_progress]
+          x-enum-varnames: [JobCancellationStageBeforeSubmit, JobCancellationStageInProgress]
+          description: >-
+            Where the job was when it was canceled. `before_submit`: it had not reached the model provider (queued, or waiting for a provider slot), so nothing was sent and nothing can have been billed. `in_progress`: the provider had already accepted the work.
+        provider_cancel:
+          type: string
+          enum: [not_needed, cancelled, stopped_partway, requested, refused, unsupported, failed]
+          x-enum-varnames: [JobProviderCancelNotNeeded, JobProviderCancelCancelled, JobProviderCancelStoppedPartway, JobProviderCancelRequested, JobProviderCancelRefused, JobProviderCancelUnsupported, JobProviderCancelFailed]
+          description: >-
+            What the model provider said. `not_needed`: nothing had been sent to it. `cancelled`: it confirmed the render was stopped before it started, so it is not billed. `stopped_partway`: it stopped a render that had started and bills only for the part it rendered (settled as `partially_refunded`). `requested`: it accepted a stop request for a render that had already started; the render may still finish and be billed. `refused`: it answered that the render can no longer be stopped. `unsupported`: the provider has no way to stop a render once it is accepted. `failed`: the stop request could not be delivered. For `requested`, `refused`, `unsupported` and `failed`, `settlement` stays `pending` until the provider's final answer.
+        settlement:
+          type: string
+          enum: [pending, refunded, partially_refunded, charged]
+          x-enum-varnames: [JobCancelSettlementPending, JobCancelSettlementRefunded, JobCancelSettlementPartiallyRefunded, JobCancelSettlementCharged]
+          description: >-
+            What happened to the job's credit hold. `pending`: the provider has not given its final answer yet; the hold is neither refunded nor charged. `refunded`: the hold was released and the job cost nothing. `partially_refunded`: the provider stopped the render part way and bills only for the part it rendered, so that share was charged (`credits_charged`) and the rest refunded (`credits_refunded`). `charged`: the provider billed for the render, so the credits were not refunded.
+        credits_refunded:
+          type: integer
+          nullable: true
+          minimum: 0
+          description: Credits returned to the wallet. Set once `settlement` is `refunded` or `partially_refunded`.
+        credits_charged:
+          type: integer
+          nullable: true
+          minimum: 0
+          description: Credits kept for the render. Set once `settlement` is `charged` or `partially_refunded`.
+        message:
+          type: string
+          description: >-
+            Plain statement of what the cancel did at the provider and what happened to the credits, safe to show the customer as-is. It is rewritten when a pending settlement lands.
     JobFailure:
       type: object
       additionalProperties: false
@@ -17493,8 +17592,8 @@ components:
           description: After this the token is refused and a submit carrying it fails with `confirmation_rejected`. Re-quote.
     GenerationErrorCode:
       type: string
-      enum: [out_of_credits, rate_limit, prompt_nsfw, ip_detected, job_failed, timeout, validation, confirmation_rejected]
-      x-enum-varnames: [GenerationErrorCodeOutOfCredits, GenerationErrorCodeRateLimit, GenerationErrorCodePromptNsfw, GenerationErrorCodeIpDetected, GenerationErrorCodeJobFailed, GenerationErrorCodeTimeout, GenerationErrorCodeValidation, GenerationErrorCodeConfirmationRejected]
+      enum: [out_of_credits, rate_limit, prompt_nsfw, ip_detected, job_failed, timeout, validation, confirmation_rejected, canceled, job_not_cancellable]
+      x-enum-varnames: [GenerationErrorCodeOutOfCredits, GenerationErrorCodeRateLimit, GenerationErrorCodePromptNsfw, GenerationErrorCodeIpDetected, GenerationErrorCodeJobFailed, GenerationErrorCodeTimeout, GenerationErrorCodeValidation, GenerationErrorCodeConfirmationRejected, GenerationErrorCodeCanceled, GenerationErrorCodeJobNotCancellable]
       description: |
         Stable machine-readable class of a generation failure, on the
         `/generate/*` submit responses (as `error.code`) and on a failed job
@@ -17510,6 +17609,8 @@ components:
         - `timeout`: the job ran past its time budget, or a `GET /jobs/{id}/wait` returned before the job reached a terminal status. On a failed job the work is over; on a `wait` the job may still be running.
         - `validation`: the request itself is not acceptable — a missing or malformed field, a model that does not support the capability asked of it, a duration the model will not render. Nothing was submitted and nothing was charged. Retrying unchanged will fail identically.
         - `confirmation_rejected`: the cost confirmation gate did not pass. Either a client showed the customer a quote and the customer declined, or a supplied confirmation token was refused. A submit that carries no confirmation token is never refused for this reason.
+        - `canceled`: the job was canceled by its owner (`POST /jobs/{id}/cancel`), not broken. It is the code the SDK wait helpers raise for a `canceled` job; `cancellation` on the job says what the provider did and what was refunded. A canceled job carries no `failure`.
+        - `job_not_cancellable`: `POST /jobs/{id}/cancel` refused (`409`) because the job already finished, or its finished result is already being delivered. The job will reach `succeeded` or `failed` on its own; nothing was changed.
     AgentMessageConflict:
       type: object
       additionalProperties: false
