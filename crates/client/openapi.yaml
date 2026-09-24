@@ -2964,6 +2964,65 @@ paths:
           $ref: '#/components/responses/ProblemResponse'
         default:
           $ref: '#/components/responses/ProblemResponse'
+  /samples/{slug}/use:
+    post:
+      tags: [Assets]
+      operationId: useSample
+      summary: Copy an example's input files into the current user's Library.
+      description: |
+        Makes the files behind one of NOLGIA's own examples (the clip and the
+        photos a guide or a product page shows) the caller's own, so a
+        composer can open with that example loaded and the caller can press
+        Generate. `slug` names an example from a curated list maintained in
+        the API, for example `miroge-singers`; every file in the list is
+        owned by a NOLGIA administrator account, so the endpoint can never
+        copy another customer's file.
+
+        Each file is copied with a server-side storage copy into a new asset
+        the caller owns in the active library, exactly like
+        `POST /assets/{id}/duplicate`: it can be renamed, filed or deleted
+        like any other asset, and every generate endpoint accepts it. Nothing
+        is charged.
+
+        Idempotent per caller: a file the caller already holds a live copy
+        of (from this example or another one that uses the same file) is
+        returned as it is (`reused: true`) instead of being copied again. A
+        copy the caller deleted is copied afresh. `items` follow the
+        example's own order, and `key` names each file's role in the example
+        (`motion_video`, `person`, `dog`), so a client never has to guess
+        which asset is which.
+
+        An unknown slug, or an example whose files are not available in this
+        environment, returns 404. Calls are rate limited per account (429).
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^[a-z0-9][a-z0-9-]{0,63}$'
+            examples: ['miroge-singers']
+      responses:
+        '200':
+          description: The caller's copies of the example's files, in the example's order.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SampleUse'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '429':
+          $ref: '#/components/responses/ProblemResponse'
+        '501':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
   /assets/{id}/element:
     post:
       tags: [Elements]
@@ -11762,6 +11821,37 @@ components:
           description: >-
             Display name for the copy; defaults to the source's display name plus " copy" (truncated to fit 200 characters).
           examples: ['hero-shot copy']
+    SampleUse:
+      type: object
+      additionalProperties: false
+      required: [slug, items]
+      description: The caller's copies of one example's input files.
+      properties:
+        slug:
+          type: string
+          description: The example these files belong to.
+          examples: ['miroge-singers']
+        items:
+          type: array
+          description: One entry per file, in the example's own order.
+          items:
+            $ref: '#/components/schemas/SampleUseItem'
+    SampleUseItem:
+      type: object
+      additionalProperties: false
+      required: [key, reused, asset]
+      properties:
+        key:
+          type: string
+          description: >-
+            The file's role in the example, stable across calls and environments (for example `motion_video`, `person`, `dog`).
+          examples: ['motion_video']
+        reused:
+          type: boolean
+          description: >-
+            True when this is a copy the caller already held from an earlier call; false when it was copied by this call.
+        asset:
+          $ref: '#/components/schemas/Asset'
     ExtractAssetFrameRequest:
       type: object
       additionalProperties: false
