@@ -19049,8 +19049,8 @@ components:
           description: After this the token is refused and a submit carrying it fails with `confirmation_rejected`. Re-quote.
     GenerationErrorCode:
       type: string
-      enum: [out_of_credits, rate_limit, prompt_nsfw, ip_detected, job_failed, timeout, validation, confirmation_rejected, canceled, job_not_cancellable, approval_required]
-      x-enum-varnames: [GenerationErrorCodeOutOfCredits, GenerationErrorCodeRateLimit, GenerationErrorCodePromptNsfw, GenerationErrorCodeIpDetected, GenerationErrorCodeJobFailed, GenerationErrorCodeTimeout, GenerationErrorCodeValidation, GenerationErrorCodeConfirmationRejected, GenerationErrorCodeCanceled, GenerationErrorCodeJobNotCancellable, GenerationErrorCodeApprovalRequired]
+      enum: [out_of_credits, rate_limit, prompt_nsfw, ip_detected, job_failed, timeout, validation, confirmation_rejected, canceled, job_not_cancellable, approval_required, run_ended]
+      x-enum-varnames: [GenerationErrorCodeOutOfCredits, GenerationErrorCodeRateLimit, GenerationErrorCodePromptNsfw, GenerationErrorCodeIpDetected, GenerationErrorCodeJobFailed, GenerationErrorCodeTimeout, GenerationErrorCodeValidation, GenerationErrorCodeConfirmationRejected, GenerationErrorCodeCanceled, GenerationErrorCodeJobNotCancellable, GenerationErrorCodeApprovalRequired, GenerationErrorCodeRunEnded]
       description: |
         Stable machine-readable class of a generation failure, on the
         `/generate/*` submit responses (as `error.code`) and on a failed job
@@ -19069,6 +19069,7 @@ components:
         - `canceled`: the job was canceled by its owner (`POST /jobs/{id}/cancel`), not broken. It is the code the SDK wait helpers raise for a `canceled` job; `cancellation` on the job says what the provider did and what was refunded. A canceled job carries no `failure`.
         - `job_not_cancellable`: `POST /jobs/{id}/cancel` refused (`409`) because the job already finished, or its finished result is already being delivered. The job will reach `succeeded` or `failed` on its own; nothing was changed.
         - `approval_required`: refused with `402` (title `Approval Needed`) because the generation would take an agent run past the price its customer approved (the `credit_ceiling` a guided preset's review card showed, sent with the brief). Nothing was submitted and nothing was charged. The detail names the generation's cost and the new run total; the agent must ask the customer to approve that total before it continues, never retry, split the job or switch models to fit.
+        - `run_ended`: refused with `409` (title `Run Ended`) because the agent run this generation was started for (the turn its turn-scoped credential names) has already ended: the platform failed, swept or stopped the turn, or it finished and delivered its reply. Nothing was submitted and nothing was charged. The agent must stop working on that run, never retry or switch models; the customer's chat already shows how it ended.
     AgentMessageConflict:
       type: object
       additionalProperties: false
