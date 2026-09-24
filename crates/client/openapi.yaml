@@ -3135,6 +3135,49 @@ paths:
           $ref: '#/components/responses/ProblemResponse'
         default:
           $ref: '#/components/responses/ProblemResponse'
+  /assets/{id}/cuts:suggest:
+    post:
+      tags: [Assets]
+      operationId: suggestAssetCuts
+      summary: Propose camera cut points across one take of a video (free).
+      description: >-
+        Scan one video take for the moments a camera cut lands well and propose a cut list for a multicam edit. The scan reads the media itself: the loudness of the sound (pauses between words and sentences) and the movement in the picture (when something starts to move, and whether that movement sits low in the frame, where hands work on a table). When the asset already has a ready transcript (POST /assets/{id}/transcription), its words mark which pauses end a sentence and each segment carries the words said in it. The planner keeps every segment between min_seconds and max_seconds, close to target_seconds. Nothing is generated and nothing is charged. Takes of up to 120 seconds.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SuggestCutsRequest'
+      responses:
+        '200':
+          description: Successful response.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CutSuggestions'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        '429':
+          $ref: '#/components/responses/ProblemResponse'
+        '502':
+          $ref: '#/components/responses/ProblemResponse'
+        '503':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
   /assets/{id}/clips:
     post:
       tags: [Assets]
@@ -17327,6 +17370,113 @@ components:
           type: integer
         model:
           type: string
+    SuggestCutsRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        min_seconds:
+          type: number
+          format: double
+          minimum: 1
+          maximum: 30
+          description: Shortest segment, 2 seconds when omitted.
+        max_seconds:
+          type: number
+          format: double
+          minimum: 2
+          maximum: 30
+          description: Longest segment, 8 seconds when omitted. At least 1 second more than min_seconds.
+        target_seconds:
+          type: number
+          format: double
+          minimum: 1
+          maximum: 30
+          description: The segment length the planner aims for, 4 seconds when omitted. Clamped between min_seconds and max_seconds.
+    CutPointKind:
+      type: string
+      enum: [sentence, pause, hands, motion, even]
+      x-enum-varnames: [CutPointKindSentence, CutPointKindPause, CutPointKindHands, CutPointKindMotion, CutPointKindEven]
+      description: >-
+        Why the cut lands here. sentence: a pause that ends a sentence (needs a transcript). pause: a gap in the speech. hands: movement starts low in the frame, where hands work. motion: movement starts. even: no boundary nearby, so the cut keeps the segment within max_seconds.
+    CutPoint:
+      type: object
+      additionalProperties: false
+      required: [at_seconds, kind, reason]
+      properties:
+        at_seconds:
+          type: number
+          format: double
+        kind:
+          $ref: '#/components/schemas/CutPointKind'
+        reason:
+          type: string
+          description: The reason in plain words, for example "a new sentence".
+    CutSegment:
+      type: object
+      additionalProperties: false
+      required: [start_seconds, end_seconds, speech, motion, hands, text]
+      properties:
+        start_seconds:
+          type: number
+          format: double
+        end_seconds:
+          type: number
+          format: double
+        speech:
+          type: number
+          format: double
+          description: Share of the segment with sound above the take's quiet floor, 0 to 1.
+        motion:
+          type: number
+          format: double
+          description: Mean movement in the segment, relative to the take's busiest moments, 0 to 1.
+        hands:
+          type: boolean
+          description: The segment moves, and mostly low in the frame (on a tabletop take, the hands at work).
+        text:
+          type: string
+          description: The words said in the segment, placed from the transcript. Empty without one.
+    CutSuggestions:
+      type: object
+      additionalProperties: false
+      required: [duration_seconds, level_step_seconds, audio_levels, motion_levels, cuts, segments, sentences, used_transcript]
+      properties:
+        duration_seconds:
+          type: number
+          format: double
+        level_step_seconds:
+          type: number
+          format: double
+          description: Spacing of audio_levels and motion_levels, 0.1 seconds.
+        audio_levels:
+          type: array
+          description: Loudness per step, 0 to 1, for drawing the take's sound on a timeline. All zero when the take has no sound.
+          items:
+            type: number
+            format: double
+        motion_levels:
+          type: array
+          description: Movement per step, 0 to 1, relative to the take's busiest moments.
+          items:
+            type: number
+            format: double
+        cuts:
+          type: array
+          description: The proposed cut points in time order, excluding the take's start and end. Empty for a take shorter than two minimum segments.
+          items:
+            $ref: '#/components/schemas/CutPoint'
+        segments:
+          type: array
+          description: The stretches between the cuts, covering the whole take.
+          items:
+            $ref: '#/components/schemas/CutSegment'
+        sentences:
+          type: array
+          description: The transcript's sentences placed on the take's clock (approximate). Empty without a transcript.
+          items:
+            $ref: '#/components/schemas/TranscriptSegment'
+        used_transcript:
+          type: boolean
     ClipAspectRatio:
       type: string
       enum: ['9:16', original]
