@@ -11869,9 +11869,9 @@ components:
       x-enum-varnames: [OutputSetKindPack, OutputSetKindVariants]
     OutputSetStatus:
       type: string
-      enum: [generating, ready, partial, failed]
-      x-enum-varnames: [OutputSetStatusGenerating, OutputSetStatusReady, OutputSetStatusPartial, OutputSetStatusFailed]
-      description: Generating while jobs run, Ready when all Outputs are ready, partial when some jobs failed, or Failed when all jobs failed.
+      enum: [generating, ready, partial, failed, canceled]
+      x-enum-varnames: [OutputSetStatusGenerating, OutputSetStatusReady, OutputSetStatusPartial, OutputSetStatusFailed, OutputSetStatusCanceled]
+      description: Generating while jobs run, Ready when all Outputs are ready, partial when some jobs failed or were canceled and the rest are ready, Failed when every job failed or was canceled and at least one failed, or Canceled when its owner canceled every job.
     OutputSetMemberInput:
       type: object
       additionalProperties: false
@@ -14408,8 +14408,11 @@ components:
       properties:
         status:
           type: string
-          enum: [idle, queued, running, succeeded, failed]
-          x-enum-varnames: [CanvasRunStatusIdle, CanvasRunStatusQueued, CanvasRunStatusRunning, CanvasRunStatusSucceeded, CanvasRunStatusFailed]
+          description: >
+            The node's last run as the editor saved it. `canceled` is a run its owner stopped (`POST /jobs/{id}/cancel`); it is neither a failure nor idle.
+
+          enum: [idle, queued, running, succeeded, failed, canceled]
+          x-enum-varnames: [CanvasRunStatusIdle, CanvasRunStatusQueued, CanvasRunStatusRunning, CanvasRunStatusSucceeded, CanvasRunStatusFailed, CanvasRunStatusCanceled]
         job_id:
           type: string
           format: uuid
@@ -16269,7 +16272,9 @@ components:
       type: string
       description: |
         What happened. `generation.*` events come from jobs
-        (created_at/completed_at), `asset.created` from assets,
+        (created_at/completed_at); `generation.canceled` is a job its owner
+        canceled (`POST /jobs/{id}/cancel`), at cancel time, never a failure.
+        `asset.created` comes from assets,
         `composition.updated` from compositions (updated_at), and
         `render.requested`/`render.finished` from renders
         (created_at/finished_at).
@@ -16277,6 +16282,7 @@ components:
         - generation.submitted
         - generation.succeeded
         - generation.failed
+        - generation.canceled
         - asset.created
         - composition.updated
         - render.requested
@@ -16285,6 +16291,7 @@ components:
         - ActivityGenerationSubmitted
         - ActivityGenerationSucceeded
         - ActivityGenerationFailed
+        - ActivityGenerationCanceled
         - ActivityAssetCreated
         - ActivityCompositionUpdated
         - ActivityRenderRequested
@@ -16338,7 +16345,7 @@ components:
           nullable: true
           maxLength: 220
           description: >
-            User-facing failure reason for `generation.failed`; absent for every other event kind.
+            User-facing failure reason for `generation.failed`, or the cancellation's plain message (what was refunded or charged) for `generation.canceled`; absent for every other event kind.
 
         refs:
           $ref: '#/components/schemas/ActivityEventRefs'
