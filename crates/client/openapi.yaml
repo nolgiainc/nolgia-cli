@@ -18416,6 +18416,12 @@ components:
           description: How many of those seconds are the take's own framing.
         copy:
           type: boolean
+        reference:
+          type: string
+          nullable: true
+          enum: [take, crop]
+          x-enum-varnames: [MulticamCopyCheckReferenceTake, MulticamCopyCheckReferenceCrop]
+          description: 'What the render saw as @Video1: the take (or its part), or a crop of it (a close framing on a take with no clear person).'
         refunded_credits:
           type: integer
           nullable: true
@@ -18449,6 +18455,13 @@ components:
         height:
           type: integer
           nullable: true
+        subject:
+          type: string
+          nullable: true
+          enum: [person, none, unknown]
+          x-enum-varnames: [MulticamRunTakeSubjectPerson, MulticamRunTakeSubjectNone, MulticamRunTakeSubjectUnknown]
+          description: >-
+            What the take is of, read from a few of its frames before the first render. `person`: a face in most frames; every angle renders over the take with its own words. `none`: no clear person (a product, a silhouette); the close framings render over a crop of the take and every other angle is asked with the neutral wording, which keep the model from returning the take's own framing. `unknown`: it could not be read; the angles render as for a person.
     MulticamRunPiece:
       type: object
       additionalProperties: false
