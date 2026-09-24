@@ -2183,7 +2183,7 @@ paths:
         asset.
 
         Pick the model to match the footage: `seedvr2-restore` is the general
-        AI restorer, and the `topaz-*` master upscalers expose one Topaz
+        AI restorer, and the `topaz-*` master upscalers expose one
         engine each (faces, CG, interlaced, generative, and so on) — see
         `RestoreVideoModel`.
 
@@ -10997,7 +10997,7 @@ components:
           type: array
           description: |
             The `video_task` values the model's reference-video slot can run
-            (Seedance 2.5 on its SeeGen omni-reference route: `reference`,
+            (Seedance 2.5 on its omni-reference route: `reference`,
             `edit`, `extend`). Absent when the model classifies the task from
             the prompt alone and `video_task` is refused with a 400.
           items:
@@ -11774,7 +11774,7 @@ components:
         - mmaudio-v2
     VideoModel:
       type: string
-      description: "Video model identifier. Priority models are Kling v3.0, Seedance 2.0 Pro,\nand MiniMax Hailuo 3 (`minimax-h3`, the 2K multimodal flagship). BFL\nFLUX 3 (`flux-3-video`) is the native-audio t2v/i2v flagship with hd/fhd\nresolution tiers. Alibaba Wan 3.0 (`wan-3.0`) renders 5-30 second\nclips at 480p/720p/1080p from text or a start image, and is the\ndefault text-to-video route. Wan 3.0 Prime (`wan-3.0-prime`) is its\nfast variant on the same range and tiers. Wan 2.7 (`wan-2.7`) renders\n5-10 second clips at 720p/1080p from text, a start and/or end image,\nor up to 4 reference images - the only reference-to-video route\noutside the Seedance family. Wan 2.6 (`wan-2.6`) renders exactly 5 or\n10 second clips at 720p/1080p, 16:9 or 9:16, from text or a start\nimage. MiniMax H3 Max (`minimax-h3-max-t2v` and\n`minimax-h3-max-i2v`) is the post-trained H3 variant with\n480p/768p tiers. Seedance 2.5 (`seedance-2.5`): 4 to 30 second clips\nat 480p/720p/1080p (1080p at 16:9 and 9:16 only, see the tier's\n`quality.options[].aspect_ratios`) from text, a start and/or end\nimage, or references (up\nto 9 images, 10 videos and 10 audio tracks on its SeeGen\nomni-reference route: extend or edit a clip of up to 30 seconds),\noptional audio. Seedance 2.0 Fast and Mini\n(`seedance-2.0-fast`, `seedance-2.0-mini`) are the budget Seedance\nroutes: the same text, start/end-frame and image-reference modes as\n2.5 (no reference video or audio) on 4 to 15 second clips at\n480p/720p.\nVeo 3.1 Lite (`veo-3.1-lite`) is the budget Veo 3.1 tier with the\nsame 4/6/8 second and start-frame surface as `veo-3.1-fast`, 720p\ndefault and a 1080p tier, and NO reference (ingredient) images:\nGemini refuses them on Lite. `veo-3.1` and `veo-3.1-fast` take up to\nthree reference images on an 8 second clip, or a start frame, but not\nboth in one request. HappyHorse 1.1\n(`happyhorse-1.1`) and HappyHorse 1.0 (`happyhorse-1.0`) render silent\n5 to 15 second clips at 720p/1080p from text or a start image.\nSeeGen HappyHorse R2V (`happyhorse-1.1-r2v`) renders 3 to 15 second\nclips with audio from 1 to 9 required reference images. SeeGen\nHappyHorse Video Edit (`happyhorse-1.0-video-edit`) rewrites one\nrequired 2 to 15 second source clip, with up to 5 optional reference\nimages; both SeeGen routes offer 720p/1080p and an honored seed.\nKling motion control (`kling-v3-motion-control`) is the human motion\ntransfer entry: one driver video plus one performer still produces\noutput copying the driver's motion, timing and camera at the driver's\nown length.\nGemini Omni 1.1 Edit (`omni-1.1-flash-edit`) rewrites one required 3 to\n10 second source clip (a video asset with a stored duration) from a text\ninstruction and is billed at the source's length; the output keeps the\nsource's duration and framing, and it takes no reference images.\nSeedance 1.5 Pro (`seedance-1-5-pro`) is the budget Seedance flagship:\n4 to 12 second clips at 480p/720p/1080p with the same start/end frame\nand reference-image surface as 2.5, and the one Seedance route whose\noptional audio carries a price of its own. \nHeyGen Avatar IV (`heygen-avatar-iv`) is\nthe LIP SYNC entry: a portrait plus a voice track becomes a talking\nhead, and both references are mandatory. Runway\nAleph 2 (`runway-aleph-2`) is the VIDEO EDIT entry: it rewrites footage\nyou supply from a text instruction, so a reference video is mandatory.\nRunway Gen-4.5 (`runway-gen-4.5`) is Runway's cinematic generation\ntier, 2 to 10 second clips at 720p from text or a start image. Read the\n`capabilities` array on GET /models rather than inferring a model's\npurpose from its inputs. Default is `wan-3.0`.\n"
+      description: "Video model identifier. Priority models are Kling v3.0, Seedance 2.0 Pro,\nand MiniMax Hailuo 3 (`minimax-h3`, the 2K multimodal flagship). BFL\nFLUX 3 (`flux-3-video`) is the native-audio t2v/i2v flagship with hd/fhd\nresolution tiers. Alibaba Wan 3.0 (`wan-3.0`) renders 5-30 second\nclips at 480p/720p/1080p from text or a start image, and is the\ndefault text-to-video route. Wan 3.0 Prime (`wan-3.0-prime`) is its\nfast variant on the same range and tiers. Wan 2.7 (`wan-2.7`) renders\n5-10 second clips at 720p/1080p from text, a start and/or end image,\nor up to 4 reference images - the only reference-to-video route\noutside the Seedance family. Wan 2.6 (`wan-2.6`) renders exactly 5 or\n10 second clips at 720p/1080p, 16:9 or 9:16, from text or a start\nimage. MiniMax H3 Max (`minimax-h3-max-t2v` and\n`minimax-h3-max-i2v`) is the post-trained H3 variant with\n480p/768p tiers. Seedance 2.5 (`seedance-2.5`): 4 to 30 second clips\nat 480p/720p/1080p (1080p at 16:9 and 9:16 only, see the tier's\n`quality.options[].aspect_ratios`) from text, a start and/or end\nimage, or references (up\nto 9 images, 10 videos and 10 audio tracks on its\nomni-reference route: extend or edit a clip of up to 30 seconds),\noptional audio. Seedance 2.0 Fast and Mini\n(`seedance-2.0-fast`, `seedance-2.0-mini`) are the budget Seedance\nroutes: the same text, start/end-frame and image-reference modes as\n2.5 (no reference video or audio) on 4 to 15 second clips at\n480p/720p.\nVeo 3.1 Lite (`veo-3.1-lite`) is the budget Veo 3.1 tier with the\nsame 4/6/8 second and start-frame surface as `veo-3.1-fast`, 720p\ndefault and a 1080p tier, and NO reference (ingredient) images:\nGemini refuses them on Lite. `veo-3.1` and `veo-3.1-fast` take up to\nthree reference images on an 8 second clip, or a start frame, but not\nboth in one request. HappyHorse 1.1\n(`happyhorse-1.1`) and HappyHorse 1.0 (`happyhorse-1.0`) render silent\n5 to 15 second clips at 720p/1080p from text or a start image.\nHappyHorse 1.1 Reference to Video (`happyhorse-1.1-r2v`) renders 3 to\n15 second clips with audio from 1 to 9 required reference images.\nHappyHorse 1.0 Video Edit (`happyhorse-1.0-video-edit`) rewrites one\nrequired 2 to 15 second source clip, with up to 5 optional reference\nimages; both offer 720p/1080p and an honored seed.\nKling motion control (`kling-v3-motion-control`) is the human motion\ntransfer entry: one driver video plus one performer still produces\noutput copying the driver's motion, timing and camera at the driver's\nown length.\nGemini Omni 1.1 Edit (`omni-1.1-flash-edit`) rewrites one required 3 to\n10 second source clip (a video asset with a stored duration) from a text\ninstruction and is billed at the source's length; the output keeps the\nsource's duration and framing, and it takes no reference images.\nSeedance 1.5 Pro (`seedance-1-5-pro`) is the budget Seedance flagship:\n4 to 12 second clips at 480p/720p/1080p with the same start/end frame\nand reference-image surface as 2.5, and the one Seedance route whose\noptional audio carries a price of its own. \nHeyGen Avatar IV (`heygen-avatar-iv`) is\nthe LIP SYNC entry: a portrait plus a voice track becomes a talking\nhead, and both references are mandatory. Runway\nAleph 2 (`runway-aleph-2`) is the VIDEO EDIT entry: it rewrites footage\nyou supply from a text instruction, so a reference video is mandatory.\nRunway Gen-4.5 (`runway-gen-4.5`) is Runway's cinematic generation\ntier, 2 to 10 second clips at 720p from text or a start image. Read the\n`capabilities` array on GET /models rather than inferring a model's\npurpose from its inputs. Default is `wan-3.0`.\n"
       enum:
         - kling-v3-t2v
         - kling-v3-master-t2v
@@ -11931,8 +11931,8 @@ components:
         `seedvr2-restore` is the AI footage restorer (SeedVR2), tiers
         720p/1080p/1440p/2160p.
 
-        The `topaz-*` ids are the Topaz master upscalers, one per engine, so
-        you pick the engine that matches the footage:
+        The `topaz-*` ids are master upscalers, one per engine, so you pick
+        the engine that matches the footage:
 
         Up-res and detail, for footage that is basically sound:
 
@@ -11958,9 +11958,10 @@ components:
         - `topaz-artemis-dehalo-medium` — halo suppression, one strength
         - `topaz-artemis-dehalo-low` — halo suppression, the other strength
 
-        The two halo variants are not ranked here on purpose: Topaz's own
-        published mapping for them contradicts the example files on the same
-        page, so try both on a clip rather than trusting an ordering.
+        The two halo variants are not ranked here on purpose: the engine
+        maker's own published mapping for them contradicts the example files
+        on the same page, so try both on a clip rather than trusting an
+        ordering.
 
         Denoise:
 
@@ -11996,7 +11997,7 @@ components:
         `quality.options` on `GET /models` rather than hard-coding this
         paragraph.
 
-        Four more Topaz engines are configured but not offered yet:
+        Four more restore engines are configured but not offered yet:
         animation up-res, Starlight HQ, Starlight Mini and black-and-white
         colorization. Those four are the only ones that require the source
         clip's own dimensions and frame count to be declared upstream, which
@@ -12708,7 +12709,7 @@ components:
           nullable: true
           maxItems: 10
           description: >-
-            Reference videos for models with `references.video_refs_max > 0` on `GET /models` (`seedance-2.5`: up to 10; `seedance-2.0-pro-r2v`: up to 3; `minimax-h3` takes none), given as ids of your video assets — the server resolves each to a signed URL and forwards them as the provider's `video_urls`. Address them in the prompt as `@Video1`..`@VideoN` (optionally with `[0-3s]`-style timeline markers). Provider constraints, enforced where asset metadata allows: at most `video_refs_max` videos combined with `video_urls` (never more than 10), MP4/MOV, 50MB total. Seedance 2.5 takes 2–30 seconds combined (extend or edit a clip of up to 30 seconds on its SeeGen omni-reference route); Seedance 2.0 Pro r2v takes 2–15 seconds combined and additionally requires 480p–720p input. This is the recommended way to pass reference videos.
+            Reference videos for models with `references.video_refs_max > 0` on `GET /models` (`seedance-2.5`: up to 10; `seedance-2.0-pro-r2v`: up to 3; `minimax-h3` takes none), given as ids of your video assets — the server resolves each to a signed URL and forwards them as the provider's `video_urls`. Address them in the prompt as `@Video1`..`@VideoN` (optionally with `[0-3s]`-style timeline markers). Provider constraints, enforced where asset metadata allows: at most `video_refs_max` videos combined with `video_urls` (never more than 10), MP4/MOV, 50MB total. Seedance 2.5 takes 2–30 seconds combined (extend or edit a clip of up to 30 seconds on its omni-reference route); Seedance 2.0 Pro r2v takes 2–15 seconds combined and additionally requires 480p–720p input. This is the recommended way to pass reference videos.
 
 
             Pricing: on `flux-3-video`, attaching a reference video selects the provider's video-continuation mode, which it bills well above the text/image rate — such a request is charged the continuation price (120 credits per 5s at `hd`, 150 at `fhd`) rather than the 48/81 published on `GET /pricing/models`, and scales with duration from there. The job's reservation carries the exact amount charged. No other model charges a continuation premium.
@@ -13022,7 +13023,7 @@ components:
           nullable: true
           maxLength: 16
           description: >-
-            Target output resolution tier (`720p`, `1080p`, `1440p`, `2160p`, and `4320p` on the Topaz engines that support 8K). Omit for the model's default, which is `1080p` on every restore-lane model. The tiers are per-model: allowed values and per-tier credit rates are on the model's `quality.options` on `GET /models`, and a tier the selected model does not publish is rejected (400). The charge scales with the source clip length like a generation's does.
+            Target output resolution tier (`720p`, `1080p`, `1440p`, `2160p`, and `4320p` on the `topaz-*` engines that support 8K). Omit for the model's default, which is `1080p` on every restore-lane model. The tiers are per-model: allowed values and per-tier credit rates are on the model's `quality.options` on `GET /models`, and a tier the selected model does not publish is rejected (400). The charge scales with the source clip length like a generation's does.
           examples: ['2160p']
         noise_scale:
           type: number
@@ -13030,7 +13031,7 @@ components:
           minimum: 0
           maximum: 1
           description: >-
-            Detail-injection strength on `seedvr2-restore` (the provider's `noise_scale`; omit for the provider default, 0.1). Higher values recover more texture but hallucinate more; keep low for archival fidelity. The Topaz engines expose no equivalent control — the engine choice and the resolution tier are the whole input — so sending this field with a `topaz-*` model is rejected (400) rather than accepted and dropped.
+            Detail-injection strength on `seedvr2-restore` (the provider's `noise_scale`; omit for the provider default, 0.1). Higher values recover more texture but hallucinate more; keep low for archival fidelity. The `topaz-*` engines expose no equivalent control — the engine choice and the resolution tier are the whole input — so sending this field with a `topaz-*` model is rejected (400) rather than accepted and dropped.
         duration_seconds:
           type: integer
           minimum: 1
@@ -13079,7 +13080,7 @@ components:
             tracks the source geometry as well as the output tier. Declared
             values win over an asset's stored metadata.
 
-            Topaz sources are capped at DCI 4K (4096x2160 pixels); a larger
+            `topaz-*` sources are capped at DCI 4K (4096x2160 pixels); a larger
             master is rejected (400) rather than restored at a rate that does
             not cover it. Not used by `seedvr2-restore`, which resolves its
             own output geometry from the footage.
@@ -13263,7 +13264,7 @@ components:
       additionalProperties: false
       required: [mime_type, size_bytes]
       description: >
-        The provider's own file for a video the platform re-encoded for playback. Some models deliver video that browsers cannot all decode (HEVC 10-bit from Seedance 2.5 at 1080p, Seedance 2.0 Pro at 4K and the Topaz restore models; VP9 in an MP4). For those the asset's `signed_url` is an 8-bit H.264 MP4 that every browser and editor plays, and this is the full-quality original. Fetch it with `GET /assets/{id}?variant=original`. Absent for every other asset.
+        The provider's own file for a video the platform re-encoded for playback. Some models deliver video that browsers cannot all decode (HEVC 10-bit from Seedance 2.5 at 1080p, Seedance 2.0 Pro at 4K and the `topaz-*` restore models; VP9 in an MP4). For those the asset's `signed_url` is an 8-bit H.264 MP4 that every browser and editor plays, and this is the full-quality original. Fetch it with `GET /assets/{id}?variant=original`. Absent for every other asset.
 
       properties:
         mime_type:
@@ -19924,7 +19925,7 @@ components:
         guardrails:
           type: string
           description: >-
-            Style/scope constraints phrased as instructions to a creative agent (what style to hold, what output type to produce, what to decline as out of scope). Injected into the relayed turn preamble of chat sessions created under this preset. Empty when the preset defines none. Always emitted by the server; optional in the schema so pre-existing client fixtures stay valid.
+            ADMIN ONLY. Style/scope constraints phrased as instructions to a creative agent (what style to hold, what output type to produce, what to decline as out of scope). The server injects them into the relayed turn preamble of chat sessions created under this preset, so a client never needs to send or read them. Emitted only to an admin caller (the catalog list, the detail read and the write responses); absent for anonymous and customer callers and on the agent manifest. Empty for an admin when the preset defines none.
         target:
           $ref: '#/components/schemas/PresetTarget'
         page_category:
@@ -20072,7 +20073,7 @@ components:
       additionalProperties: false
       required: [slug, name, description, output_type, estimated_credits, estimated_time, example_count, visibility]
       description: >-
-        One direction under a parent preset, as the parent's page lists it. The full child (prompt, examples, guardrails) is `GET /presets/{slug}`.
+        One direction under a parent preset, as the parent's page lists it. The full child (prompt, examples) is `GET /presets/{slug}`.
       properties:
         slug:
           type: string
@@ -20112,7 +20113,7 @@ components:
         guardrails_from_parent:
           type: boolean
           description: >-
-            `true` when the child's `guardrails` equal the parent's exactly (the authoring convention for a family); `false` when the child carries guardrails of its own.
+            `true` when the child's `guardrails` equal the parent's exactly (the authoring convention for a family); `false` when the child carries guardrails of its own. Public: it reports that the family shares its rules without printing them (`guardrails` itself is admin only).
         intake_from_parent:
           type: boolean
           description: >-
