@@ -5568,6 +5568,46 @@ paths:
           $ref: '#/components/responses/ProblemResponse'
         default:
           $ref: '#/components/responses/ProblemResponse'
+  /multicam/takes/{asset_id}:
+    get:
+      tags: [Multicam]
+      operationId: getMulticamTake
+      summary: What Multicam can make of a take (free).
+      description: |
+        Reads a few frames of the take (free, nothing is stored) and answers
+        what it is of and which angles it can have. A take with no clear
+        person in it (a product shot) renders some angles on engines made for
+        products (`engines`: Overhead and Macro detail on Seedance 2.5 `edit`,
+        Slow push-in on Wan 2.7 from two real frames of the take), marks the
+        ones that are still experimental, and does not offer the angles that
+        need a person (`hidden_angles`, with `note` to show). A take with a
+        person offers every angle as usual.
+      parameters:
+        - name: asset_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The take's subject and its angles.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MulticamTakeInfo'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        '503':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
   /multicam/runs:
     post:
       tags: [Multicam]
@@ -5587,7 +5627,10 @@ paths:
         a page to stay open: read progress with `GET /multicam/runs/{id}`.
 
         Each angle render is an ordinary video job (`video_task: reference`,
-        the take as the reference video) billed like `POST /generate/video` at the price agreed here: every entry in
+        the take as the reference video; on a take with no clear person some
+        angles render on engines made for products, see `MulticamEngine` and
+        `GET /multicam/takes/{asset_id}`, and the angles that need a person
+        are refused) billed like `POST /generate/video` at the price agreed here: every entry in
         `shots[].pieces[].credits` must equal the current price of that
         render (`POST /jobs/cost` on the same body) or the run is refused
         with `409` and `code: confirmation_rejected`, and nothing is started.
@@ -18247,6 +18290,14 @@ components:
           minimum: 1
           maximum: 24
           description: How many angles the job renders.
+        angles:
+          type: array
+          maxItems: 24
+          items:
+            type: string
+            maxLength: 64
+          description: >-
+            The angles, in order (`angle_id` of each shot, `custom` for your own words); one per shot. With them, each angle is priced on the engine it will render on (`shot_prices`): on a take with no clear person some angles render on engines made for products. Without them every angle is priced as `video_task: reference`.
     MulticamQuotePart:
       type: object
       additionalProperties: false
@@ -18285,6 +18336,119 @@ components:
           description: What the caller can spend on it, when known.
         sufficient_credits:
           type: boolean
+        subject:
+          type: string
+          nullable: true
+          enum: [person, none, unknown]
+          x-enum-varnames: [MulticamQuoteSubjectPerson, MulticamQuoteSubjectNone, MulticamQuoteSubjectUnknown]
+          description: What the take is of, when `angles` were sent (see `GET /multicam/takes/{asset_id}`).
+        shot_prices:
+          type: array
+          nullable: true
+          items:
+            $ref: '#/components/schemas/MulticamQuoteShot'
+          description: 'Each angle''s price on the engine it renders on, when `angles` were sent; `credits` is their sum.'
+    MulticamEngine:
+      type: string
+      enum: [reference, edit, frames]
+      x-enum-varnames: [MulticamEngineReference, MulticamEngineEdit, MulticamEngineFrames]
+      description: >-
+        How an angle is rendered. `reference`: the run's model with the take as the reference video (`video_task: reference`). `edit`: Seedance 2.5 `video_task: edit` over the take, billed on the take's own length (a take with no clear person: Overhead, Macro detail). `frames`: Wan 2.7 from two real frames of the take, the first frame of the stretch and a close-up of the product at its end (a take with no clear person: Slow push-in); billed at Wan 2.7's rate for 5 to 10 seconds (a longer stretch holds its close-up to the end).
+    MulticamQuoteShot:
+      type: object
+      additionalProperties: false
+      required: [shot, angle_id, engine, experimental, credits, parts]
+      properties:
+        shot:
+          type: integer
+        angle_id:
+          type: string
+        engine:
+          $ref: '#/components/schemas/MulticamEngine'
+        experimental:
+          type: boolean
+          description: The angle is offered as Experimental on this take.
+        credits:
+          type: integer
+          description: The angle over every part of the take.
+        parts:
+          type: array
+          items:
+            $ref: '#/components/schemas/MulticamQuotePart'
+    MulticamTakeInfo:
+      type: object
+      additionalProperties: false
+      required: [asset_id, subject, hidden_angles, experimental_angles, engines]
+      properties:
+        asset_id:
+          type: string
+          format: uuid
+        subject:
+          type: string
+          enum: [person, none, unknown]
+          x-enum-varnames: [MulticamTakeInfoSubjectPerson, MulticamTakeInfoSubjectNone, MulticamTakeInfoSubjectUnknown]
+          description: '`person`: a face in most of five frames. `none`: no clear person (a product shot). `unknown`: it could not be read; every angle is offered as for a person.'
+        faces:
+          type: array
+          items:
+            type: integer
+          description: The faces found in each frame read.
+        hidden_angles:
+          type: array
+          items:
+            type: string
+          description: Angles this take cannot have (they need a person in the shot); a run that asks for one is refused.
+        experimental_angles:
+          type: array
+          items:
+            type: string
+          description: Angles offered as Experimental on this take.
+        engines:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/MulticamEngine'
+          description: The angles that render on another engine than `reference` on this take.
+        note:
+          type: string
+          nullable: true
+          description: What to show where the hidden angles would be.
+    MulticamJudgeCheck:
+      type: object
+      additionalProperties: false
+      required: [attempt, verdict]
+      description: >-
+        One finished render judged for the angle it was asked for (a take with no clear person): a vision model compares the take's frames with three of the render's and a crop of the real product under a strict rubric for the angle (camera height, distance, direction, movement) and for fidelity, a majority of up to three votes; beside it the render must not be the take's own view enlarged or cut to another shot. A render that fails is re-rolled once for free; failing again, its credits are refunded and it is left out of the highlight edit.
+      properties:
+        attempt:
+          type: integer
+        job_id:
+          type: string
+          format: uuid
+          nullable: true
+        asset_id:
+          type: string
+          format: uuid
+          nullable: true
+        verdict:
+          type: string
+          enum: [pending, pass, fail, unavailable]
+          x-enum-varnames: [MulticamJudgeCheckVerdictPending, MulticamJudgeCheckVerdictPass, MulticamJudgeCheckVerdictFail, MulticamJudgeCheckVerdictUnavailable]
+          description: '`unavailable`: the angle check could not run, so the render was delivered on the copy check alone.'
+        votes:
+          type: string
+          nullable: true
+          description: The tally, e.g. `2 pass / 0 fail`.
+        reasons:
+          type: array
+          items:
+            type: string
+        cost_usd:
+          type: number
+          format: double
+          description: What judging this render cost the platform (never billed to you).
+        refunded_credits:
+          type: integer
+          nullable: true
     CreateMulticamRunRequest:
       type: object
       additionalProperties: false
@@ -18376,16 +18540,16 @@ components:
         `running` while anything is still being made, `finished` once every angle, clip and the highlight edit has settled, `canceled` after `POST /multicam/runs/{id}/cancel` (finished angles keep their clips).
     MulticamPieceState:
       type: string
-      enum: [preparing, waiting, queued, rendering, ready, failed, canceled, copy]
-      x-enum-varnames: [MulticamPieceStatePreparing, MulticamPieceStateWaiting, MulticamPieceStateQueued, MulticamPieceStateRendering, MulticamPieceStateReady, MulticamPieceStateFailed, MulticamPieceStateCanceled, MulticamPieceStateCopy]
+      enum: [preparing, waiting, queued, rendering, ready, failed, canceled, copy, off_angle]
+      x-enum-varnames: [MulticamPieceStatePreparing, MulticamPieceStateWaiting, MulticamPieceStateQueued, MulticamPieceStateRendering, MulticamPieceStateReady, MulticamPieceStateFailed, MulticamPieceStateCanceled, MulticamPieceStateCopy, MulticamPieceStateOffAngle]
       description: >-
-        `preparing`: the part of the take is being cut (free). `waiting`: not sent yet: your plan's concurrent renders are busy, or your balance does not cover it (`message` says which). `queued` / `rendering`: the job is with the model (a render that came back as a copy of the take is re-rolled once for free and reads `queued` / `rendering` again, with `rerolled`). `ready`, `failed`, `canceled`: settled. `copy`: settled; the render came back as the take's own framing even after its free re-roll, so its credits were refunded (`credits_refunded`) and it is kept out of the highlight edit.
+        `preparing`: the part of the take is being cut (free). `waiting`: not sent yet: your plan's concurrent renders are busy, or your balance does not cover it (`message` says which). `queued` / `rendering`: the job is with the model (a render that came back as a copy of the take is re-rolled once for free and reads `queued` / `rendering` again, with `rerolled`). `ready`, `failed`, `canceled`: settled. `copy`: settled; the render came back as the take's own framing even after its free re-roll, so its credits were refunded (`credits_refunded`) and it is kept out of the highlight edit. `off_angle`: settled; the render did not come out as the angle asked for (`judge_checks`) even after its free re-roll, so it was refunded and kept out of the highlight edit.
     MulticamShotState:
       type: string
-      enum: [generating, finishing, ready, failed, canceled, copy]
-      x-enum-varnames: [MulticamShotStateGenerating, MulticamShotStateFinishing, MulticamShotStateReady, MulticamShotStateFailed, MulticamShotStateCanceled, MulticamShotStateCopy]
+      enum: [generating, finishing, ready, failed, canceled, copy, off_angle]
+      x-enum-varnames: [MulticamShotStateGenerating, MulticamShotStateFinishing, MulticamShotStateReady, MulticamShotStateFailed, MulticamShotStateCanceled, MulticamShotStateCopy, MulticamShotStateOffAngle]
       description: >-
-        `generating` while its renders run, `finishing` while its clip is put together over the take's sound (free), then `ready`, `failed`, `canceled` or `copy`: the angle came back as the take's own framing even after its free re-roll, so it was refunded and left out of the highlight edit (`message` says so).
+        `generating` while its renders run, `finishing` while its clip is put together over the take's sound (free), then `ready`, `failed`, `canceled` or `copy`: the angle came back as the take's own framing even after its free re-roll, so it was refunded and left out of the highlight edit (`message` says so). `off_angle`: the angle did not come out as asked even after its free re-roll, so it was refunded and left out of the highlight edit (`message` says so).
     MulticamCopyCheck:
       type: object
       additionalProperties: false
@@ -18525,6 +18689,12 @@ components:
           items:
             $ref: '#/components/schemas/MulticamCopyCheck'
           description: Every finished attempt of this render measured against the take, oldest first.
+        judge_checks:
+          type: array
+          nullable: true
+          items:
+            $ref: '#/components/schemas/MulticamJudgeCheck'
+          description: Every finished attempt of this render judged for its angle, oldest first (a take with no clear person).
     MulticamRunShot:
       type: object
       additionalProperties: false
@@ -18559,6 +18729,11 @@ components:
         in_highlight:
           type: boolean
           description: Whether the highlight edit's cut list uses this angle.
+        engine:
+          $ref: '#/components/schemas/MulticamEngine'
+        experimental:
+          type: boolean
+          description: The angle was offered as Experimental on this take (show it as such).
     MulticamRunHighlight:
       type: object
       additionalProperties: false
