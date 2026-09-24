@@ -1872,6 +1872,16 @@ paths:
 
         **Failures carry a machine-readable code.** A refusal sets `error.code` and a failed job sets
         `failure.code` to a `GenerationErrorCode`, so a client can branch without parsing prose.
+
+        **Some edit models are not offered everywhere.** `omni-1.1-flash-edit`
+        edits uploaded footage only for customers outside the regions where
+        its provider withholds that feature. A request from a customer in one
+        of those regions, or one whose region cannot be determined, is refused
+        with `400` and `error.code` `validation` before any charge, naming
+        the models that do the same job (`seedance-2.5` with `video_task`
+        `edit`, `runway-aleph-2`, `happyhorse-1.0-video-edit`). The region is
+        the caller's, as the platform's load balancer locates it; generating
+        on `omni-1.1-flash` from text or a start frame is unaffected.
       requestBody:
         required: true
         content:
@@ -5514,6 +5524,47 @@ paths:
         '401':
           $ref: '#/components/responses/ProblemResponse'
         '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /multicam/quote:
+    post:
+      tags: [Multicam]
+      operationId: quoteMulticamRun
+      summary: The price of a Multicam job before it starts (free).
+      description: |
+        Prices every render a Multicam job would run: one per angle per part
+        of the take, at the model, quality and sound settings given, each
+        priced exactly as `POST /generate/video` will charge it. A render's
+        reference is the whole take on a take that fits one render, or its
+        own cut on a longer take; where the provider bills the reference's
+        seconds too, that length enters the price, so a part of a long take
+        is quoted on its own length and never on the whole take's. The
+        numbers here are what `POST /multicam/runs`, `POST
+        /multicam/runs/{id}/shots` and a remake expect as the agreed price.
+        Nothing is started and nothing is charged.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MulticamQuoteRequest'
+      responses:
+        '200':
+          description: The price.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MulticamQuote'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        '503':
           $ref: '#/components/responses/ProblemResponse'
         default:
           $ref: '#/components/responses/ProblemResponse'
@@ -17981,6 +18032,74 @@ components:
           type: integer
           minimum: -1
           description: The angle's index in `shots`, or -1 for the take itself.
+    MulticamQuoteRequest:
+      type: object
+      additionalProperties: false
+      required: [take_asset_id, model, parts, shots]
+      properties:
+        take_asset_id:
+          type: string
+          format: uuid
+        take_seconds:
+          type: number
+          format: double
+          description: 'The take''s length as the page measured it (used within a second of the stored length).'
+        model:
+          type: string
+          minLength: 1
+        quality:
+          type: string
+        generate_audio:
+          type: boolean
+        parts:
+          type: array
+          minItems: 1
+          maxItems: 8
+          items:
+            $ref: '#/components/schemas/MulticamPartInput'
+        shots:
+          type: integer
+          minimum: 1
+          maximum: 24
+          description: How many angles the job renders.
+    MulticamQuotePart:
+      type: object
+      additionalProperties: false
+      required: [part, seconds, credits]
+      properties:
+        part:
+          type: integer
+        seconds:
+          type: integer
+          description: The render's length.
+        credits:
+          type: integer
+          description: The price of one angle's render of this part.
+    MulticamQuote:
+      type: object
+      additionalProperties: false
+      required: [model, credits, per_angle, parts, shots, sufficient_credits]
+      properties:
+        model:
+          type: string
+        credits:
+          type: integer
+          description: The whole job, every angle over every part.
+        per_angle:
+          type: integer
+          description: One angle over the whole take (every part).
+        parts:
+          type: array
+          items:
+            $ref: '#/components/schemas/MulticamQuotePart'
+        shots:
+          type: integer
+        balance_credits:
+          type: integer
+          nullable: true
+          description: What the caller can spend on it, when known.
+        sufficient_credits:
+          type: boolean
     CreateMulticamRunRequest:
       type: object
       additionalProperties: false
