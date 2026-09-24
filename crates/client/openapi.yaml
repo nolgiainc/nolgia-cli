@@ -86,6 +86,15 @@ tags:
       own clip as long as the take, in sync, over the take's original sound,
       plus a free highlight edit cut between them. A run is owned by the
       server from start to finish, so it completes with no page open.
+  - name: Quality
+    description: |
+      The platform's quality check on a finished video: the sound (loudness,
+      true peak, clipping, dead air, the voice over the music bed, a bed and
+      a sound cue actually in the file) and the picture (people clothed, no
+      stray text or numbers, natural eyes, sound anatomy), judged on the
+      stored file itself. Every video an agent run delivers passes this check
+      before the reply reaches the customer; these endpoints run the same
+      check on demand.
   - name: Activity
     description: |
       Read-only chronological feed of platform events (generations, assets,
@@ -5603,6 +5612,104 @@ paths:
         '404':
           $ref: '#/components/responses/ProblemResponse'
         '409':
+          $ref: '#/components/responses/ProblemResponse'
+        '503':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /qc/deliverable:
+    post:
+      tags: [Quality]
+      operationId: checkDeliverable
+      summary: Run the platform's quality check on a video in your library.
+      description: |
+        Runs the same check the platform runs on every video an agent run
+        delivers, on the stored file itself, and returns the verdict.
+
+        Sound, on an edit (an uploaded final or a Studio render): loudness
+        about -14 LUFS (-15.5 to -12.5), true peak at or under -1 dBTP, no
+        clipped samples, no silence over 0.5 s; and when one of your voice
+        takes (or a clip carrying dialogue) is in the file, the voice at least
+        3 dB over everything else while it speaks, a music bed, and at least
+        one sound cue audibly in the file. The stems are found by the platform
+        among your own recent audio (and this chat's), not taken from the
+        request. A single raw generation is measured but not held to the mix
+        rules.
+
+        Picture, on every video: every shot (cuts are detected) is judged on
+        three to six frames by a vision model against a fixed rubric: people
+        clothed (a silhouette that reads as unclothed fails), no readable or
+        pseudo-readable text or numbers anywhere (only text the customer
+        asked for, spelled exactly), natural eyes and faces, sound anatomy.
+
+        Only the customer's own words relax a rule: an opt-out (`opt_outs`)
+        must quote what the customer wrote in the chat (an agent credential's
+        chat), and allowed on-screen text (`allow_text`) must appear there.
+        Quotes that do not are returned in `rejected_opt_outs` and not
+        applied. A person calling with their own credential is the customer.
+
+        A verdict for the same file under the same options is read back
+        (`cached: true`) instead of judged twice. `status: unavailable` means
+        the check could not run (never a pass). The call can take one to two
+        minutes on a long film.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QcDeliverableRequest'
+      responses:
+        '200':
+          description: The verdict.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QcVerdict'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '503':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /qc/picture:
+    post:
+      tags: [Quality]
+      operationId: checkPicture
+      summary: Judge frames of shots against the platform's picture rubric.
+      description: |
+        The picture half of the quality check, on frames the caller sampled
+        (a clip that is not in the library yet, a shot being worked on). Each
+        shot's frames (JPEG, base64, one to six per shot, in order) are judged
+        by the platform's vision model against the same rubric as
+        `POST /qc/deliverable`: people clothed, no stray text or numbers,
+        natural eyes and faces, sound anatomy. `allow_text` and `opt_outs`
+        follow the same rule: only the customer's own words.
+
+        This is a pre-check. It does not certify a delivery: the platform
+        checks the delivered file itself before an agent's reply reaches the
+        customer.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QcPictureRequest'
+      responses:
+        '200':
+          description: The picture verdict.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QcPictureVerdict'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '413':
           $ref: '#/components/responses/ProblemResponse'
         '503':
           $ref: '#/components/responses/ProblemResponse'
@@ -18260,6 +18367,317 @@ components:
           type: integer
           minimum: -1
           description: The angle's index in `shots`, or -1 for the take itself.
+    QcOptOut:
+      type: object
+      required: [rule, quote]
+      properties:
+        rule:
+          type: string
+          enum: [music, sfx, silence, clothed, no_text, eyes_faces]
+          description: 'The rule the customer relaxed: no music bed, no sound effects, silence allowed, or a picture rule.'
+        quote:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: The customer's own words asking for it, quoted.
+        source:
+          type: string
+          description: '`declared` (quoted by the caller and found in the chat), `customer_words` (read in the chat by the platform) or `caller` (a person on their own credential).'
+    QcDeliverableRequest:
+      type: object
+      additionalProperties: false
+      required: [asset_id]
+      properties:
+        asset_id:
+          type: string
+          format: uuid
+          description: The video to check (a library asset readable by the caller).
+        opt_outs:
+          type: array
+          maxItems: 6
+          items:
+            $ref: '#/components/schemas/QcOptOut'
+        allow_text:
+          type: array
+          maxItems: 8
+          items:
+            type: string
+            minLength: 1
+            maxLength: 80
+          description: On-screen text the customer asked for (their own name or words), spelled exactly.
+        fresh:
+          type: boolean
+          description: Judge the file again instead of reading back a stored verdict.
+    QcPictureShot:
+      type: object
+      additionalProperties: false
+      required: [frames]
+      properties:
+        start_s:
+          type: number
+          format: double
+        end_s:
+          type: number
+          format: double
+        frames:
+          type: array
+          minItems: 1
+          maxItems: 6
+          items:
+            type: string
+            format: byte
+          description: JPEG frames of the shot, in order, base64.
+    QcPictureRequest:
+      type: object
+      additionalProperties: false
+      required: [shots]
+      properties:
+        shots:
+          type: array
+          minItems: 1
+          maxItems: 12
+          items:
+            $ref: '#/components/schemas/QcPictureShot'
+        opt_outs:
+          type: array
+          maxItems: 6
+          items:
+            $ref: '#/components/schemas/QcOptOut'
+        allow_text:
+          type: array
+          maxItems: 8
+          items:
+            type: string
+            minLength: 1
+            maxLength: 80
+    QcStemHit:
+      type: object
+      required: [asset_id, model, role, at_s, match, heard]
+      properties:
+        asset_id:
+          type: string
+        model:
+          type: string
+        role:
+          type: string
+          description: voice, dialogue (a clip carrying speech), music, sfx, or audio (an upload of no known role).
+        at_s:
+          type: number
+          format: double
+          description: Where the stem starts in the file (for a bed, the take's time at the file's start).
+        match:
+          type: number
+          format: double
+          description: Share (amplitude) of the file the stem explains where it sounds.
+        score:
+          type: number
+          format: double
+        chance:
+          type: number
+          format: double
+          description: The best score the stem reaches away from where it was found (chance level).
+        chance_reversed:
+          type: number
+          format: double
+        heard:
+          type: boolean
+    QcSoundVerdict:
+      type: object
+      required: [ok, failures, duration_s, has_audio, clipped_samples, silences, longest_silence_s, narrated, voices, bed_heard, cues, cues_heard, stems_searched]
+      properties:
+        ok:
+          type: boolean
+        failures:
+          type: array
+          items:
+            type: string
+        advisories:
+          type: array
+          items:
+            type: string
+        duration_s:
+          type: number
+          format: double
+        has_audio:
+          type: boolean
+        integrated_lufs:
+          type: number
+          format: double
+          nullable: true
+        true_peak_dbtp:
+          type: number
+          format: double
+          nullable: true
+        clipped_samples:
+          type: integer
+        sample_peak:
+          type: number
+          format: double
+        silences:
+          type: array
+          items:
+            type: array
+            items:
+              type: number
+              format: double
+        longest_silence_s:
+          type: number
+          format: double
+        narrated:
+          type: boolean
+          description: One of the account's voice takes (or a clip carrying dialogue) is in the file, so the mix rules of a narrated piece apply.
+        processed_voice:
+          type: boolean
+          description: This chat's voice takes are not in the file as generated (processed before the mix); the voice was measured as the file less its bed and cues.
+        voice_over_rest_db:
+          type: number
+          format: double
+          nullable: true
+        speech_s:
+          type: number
+          format: double
+        voices:
+          type: array
+          items:
+            $ref: '#/components/schemas/QcStemHit'
+        bed:
+          $ref: '#/components/schemas/QcStemHit'
+        bed_heard:
+          type: boolean
+        cues:
+          type: array
+          items:
+            $ref: '#/components/schemas/QcStemHit'
+        cues_heard:
+          type: integer
+        stems_searched:
+          type: integer
+        searched:
+          type: array
+          items:
+            $ref: '#/components/schemas/QcStemHit'
+    QcShotCheck:
+      type: object
+      required: [pass]
+      properties:
+        pass:
+          type: boolean
+        why:
+          type: string
+    QcShotVerdict:
+      type: object
+      required: [shot, start_s, end_s, times_s, verdict, failed_checks, reasons, cost_usd]
+      properties:
+        shot:
+          type: integer
+        start_s:
+          type: number
+          format: double
+        end_s:
+          type: number
+          format: double
+        times_s:
+          type: array
+          items:
+            type: number
+            format: double
+        model:
+          type: string
+        response_id:
+          type: string
+        verdict:
+          type: string
+          enum: [pass, fail, unavailable]
+        failed_checks:
+          type: array
+          items:
+            type: string
+        reasons:
+          type: array
+          items:
+            type: string
+        checks:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/QcShotCheck'
+        cost_usd:
+          type: number
+          format: double
+    QcPictureVerdict:
+      type: object
+      required: [rubric, model, ok, shots, failures, cost_usd]
+      properties:
+        rubric:
+          type: string
+        model:
+          type: string
+        ok:
+          type: boolean
+        unavailable:
+          type: boolean
+        shots:
+          type: array
+          items:
+            $ref: '#/components/schemas/QcShotVerdict'
+        failures:
+          type: array
+          items:
+            type: string
+        waived:
+          type: object
+          additionalProperties:
+            type: string
+        allowed_text:
+          type: array
+          items:
+            type: string
+        cost_usd:
+          type: number
+          format: double
+    QcVerdict:
+      type: object
+      required: [version, kind, status, ok, failures, opt_outs, cost_usd, elapsed_ms]
+      properties:
+        version:
+          type: string
+        asset_id:
+          type: string
+        kind:
+          type: string
+          enum: [composed, clip]
+          description: '`composed`: an edit (an upload or a render), held to the mix rules. `clip`: one raw generation, whose sound is measured only.'
+        status:
+          type: string
+          enum: [pass, fail, unavailable]
+        ok:
+          type: boolean
+        failures:
+          type: array
+          items:
+            type: string
+        sound:
+          $ref: '#/components/schemas/QcSoundVerdict'
+        picture:
+          $ref: '#/components/schemas/QcPictureVerdict'
+        opt_outs:
+          type: array
+          items:
+            $ref: '#/components/schemas/QcOptOut'
+        rejected_opt_outs:
+          type: array
+          items:
+            $ref: '#/components/schemas/QcOptOut'
+        cost_usd:
+          type: number
+          format: double
+        elapsed_ms:
+          type: integer
+          format: int64
+        error:
+          type: string
+        cached:
+          type: boolean
+          description: The verdict was read back from an earlier check of the same file under the same options.
     MulticamQuoteRequest:
       type: object
       additionalProperties: false
