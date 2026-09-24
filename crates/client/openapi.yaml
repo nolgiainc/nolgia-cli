@@ -80,6 +80,12 @@ tags:
       version with `POST /compositions/{id}/clone` (typically bumping
       `meta.version` via `meta_patch`) and list a series with
       `GET /compositions?series=...`.
+  - name: Multicam
+    description: |
+      One locked-off video take becomes every chosen camera angle: each its
+      own clip as long as the take, in sync, over the take's original sound,
+      plus a free highlight edit cut between them. A run is owned by the
+      server from start to finish, so it completes with no page open.
   - name: Activity
     description: |
       Read-only chronological feed of platform events (generations, assets,
@@ -5511,6 +5517,234 @@ paths:
           $ref: '#/components/responses/ProblemResponse'
         default:
           $ref: '#/components/responses/ProblemResponse'
+  /multicam/runs:
+    post:
+      tags: [Multicam]
+      operationId: createMulticamRun
+      summary: Start a Multicam run - every chosen angle of one take, rendered and finished on the server.
+      description: |
+        Starts a Multicam run: one locked-off video take becomes every chosen
+        camera angle, each as its own clip as long as the take, in sync, over
+        the take's original sound, plus a highlight edit cut between them.
+
+        The server owns the run from here. It renders each angle over the
+        whole take (a take longer than one render is rendered in `parts`,
+        joined on the same points for every angle), queuing renders while
+        your plan's concurrent renders are busy. It then makes each angle's
+        own clip over the take's sound, the stacked Studio timeline
+        (`composition_id`) and the highlight edit, all free. None of it needs
+        a page to stay open: read progress with `GET /multicam/runs/{id}`.
+
+        Each angle render is an ordinary video job (`video_task: reference`,
+        the take as the reference video) billed like `POST /generate/video` at the price agreed here: every entry in
+        `shots[].pieces[].credits` must equal the current price of that
+        render (`POST /jobs/cost` on the same body) or the run is refused
+        with `409` and `code: confirmation_rejected`, and nothing is started.
+        A render is never submitted at a higher price than agreed; when the
+        price rises before a render starts, that angle stops with a message
+        and nothing is charged for it.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateMulticamRunRequest'
+      responses:
+        '201':
+          description: The run was created and has started.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MulticamRun'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        '503':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /multicam/runs/{id}:
+    get:
+      tags: [Multicam]
+      operationId: getMulticamRun
+      summary: Read a Multicam run and every angle's progress.
+      description: >-
+        Returns the run with each angle, each render and the highlight edit. Reading a run also advances it when a step is due, so an open page keeps it moving at once; the server advances it on its own either way.
+      parameters:
+        - $ref: '#/components/parameters/MulticamRunId'
+      responses:
+        '200':
+          description: The run.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MulticamRun'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /multicam/runs/{id}/shots:
+    post:
+      tags: [Multicam]
+      operationId: addMulticamShots
+      summary: Add angles to a Multicam run.
+      description: >-
+        Renders more angles over the same take, on the run's own parts, so they line up with the angles already there. Each new angle gets its own clip over the take's sound and joins the Studio timeline and the download. The highlight edit is not changed until you ask for it (`POST /multicam/runs/{id}/highlight/rebuild`). Prices are agreed exactly as on create.
+      parameters:
+        - $ref: '#/components/parameters/MulticamRunId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddMulticamShotsRequest'
+      responses:
+        '200':
+          description: The run with the new angles.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MulticamRun'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /multicam/runs/{id}/shots/{shot}/remake:
+    post:
+      tags: [Multicam]
+      operationId: remakeMulticamShot
+      summary: Render one angle of a Multicam run again.
+      description: >-
+        Renders a finished or failed angle again, from the same take, with the same words. Its new clip replaces it in the grid, the Studio timeline and the download; the previous clip stays in the Library. A highlight edit that uses the angle is made again from the new render (free). `credits` must equal the current price of the angle's renders or the remake is refused with `409`.
+      parameters:
+        - $ref: '#/components/parameters/MulticamRunId'
+        - name: shot
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 0
+          description: The angle's index in `shots`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RemakeMulticamShotRequest'
+      responses:
+        '200':
+          description: The run with the angle rendering again.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MulticamRun'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /multicam/runs/{id}/highlight/rebuild:
+    post:
+      tags: [Multicam]
+      operationId: rebuildMulticamHighlight
+      summary: Cut the finished angles the highlight edit does not use yet into it (free).
+      description: >-
+        Gives each finished angle that the highlight edit does not use a part of it (a stretch whose angle appears twice is handed over, else the longest stretch is split in two), then makes the edit again. Free: it is cut from renders that already exist. Never automatic.
+      parameters:
+        - $ref: '#/components/parameters/MulticamRunId'
+      responses:
+        '200':
+          description: The run with the highlight edit being made again.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MulticamRun'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /multicam/runs/{id}/cancel:
+    post:
+      tags: [Multicam]
+      operationId: cancelMulticamRun
+      summary: Stop a Multicam run.
+      description: |
+        Stops the run. Renders that have not started are never sent and cost
+        nothing. Renders that are running are canceled like
+        `POST /jobs/{id}/cancel`: each piece's `cancellation` says what the
+        provider did and what was refunded (a render the provider had not
+        started is refunded in full; one it stops partway is charged for the
+        part it rendered; one it finishes anyway is charged). Angles that
+        already finished keep their clips, which are still made over the
+        take's sound, and the highlight edit is cut from what finished.
+        Idempotent.
+      parameters:
+        - $ref: '#/components/parameters/MulticamRunId'
+      responses:
+        '200':
+          description: The run, canceled.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MulticamRun'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /multicam/runs/{id}/download:
+    post:
+      tags: [Multicam]
+      operationId: downloadMulticamRun
+      summary: One ZIP of every finished angle's clip, named by angle, with the original take.
+      description: >-
+        Packs the original take and every finished angle's clip into one ZIP (`00-original-take.mp4`, `01-wide.mp4`, `02-low-angle.mp4` ...) and returns a short-lived download link. The ZIP is kept and handed out again until an angle changes.
+      parameters:
+        - $ref: '#/components/parameters/MulticamRunId'
+      responses:
+        '200':
+          description: The download link.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MulticamDownload'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        '503':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
   /compositions:
     get:
       tags: [Compositions]
@@ -8719,6 +8953,14 @@ components:
       in: path
       required: true
       description: Job UUID.
+      schema:
+        type: string
+        format: uuid
+    MulticamRunId:
+      name: id
+      in: path
+      required: true
+      description: Multicam run UUID.
       schema:
         type: string
         format: uuid
@@ -17639,6 +17881,409 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ClipRender'
+    MulticamPartInput:
+      type: object
+      additionalProperties: false
+      required: [start, end, window]
+      description: >-
+        One part of the take every angle renders on. A take that fits one render has one part, the whole take. Parts are contiguous and cover the take from 0 to its end.
+      properties:
+        start:
+          type: number
+          format: double
+          minimum: 0
+          description: Where the part starts in the take, in seconds.
+        end:
+          type: number
+          format: double
+          minimum: 0
+          description: Where the part ends in the take, in seconds.
+        window:
+          $ref: '#/components/schemas/MulticamWindow'
+    MulticamWindow:
+      type: object
+      additionalProperties: false
+      required: [start, end, seconds]
+      description: >-
+        The stretch of the take a render sees. A render is whole seconds long; on a take that fits one render the window is the whole take (the take itself is the reference), otherwise the window is cut from the take (free) and the part sits inside it.
+      properties:
+        start:
+          type: number
+          format: double
+          minimum: 0
+        end:
+          type: number
+          format: double
+          minimum: 0
+        seconds:
+          type: integer
+          minimum: 1
+          maximum: 60
+          description: The render's length, the `duration_seconds` it is submitted with.
+    MulticamPieceInput:
+      type: object
+      additionalProperties: false
+      required: [prompt, credits]
+      description: One render of an angle, for one part of the take.
+      properties:
+        prompt:
+          type: string
+          minLength: 1
+          maxLength: 8000
+          description: The render's prompt. The take is `@Video1`.
+        credits:
+          type: integer
+          minimum: 1
+          description: >-
+            The price agreed for this render: what `POST /jobs/cost` quotes for it now. It must match or the request is refused with `409`.
+    MulticamShotInput:
+      type: object
+      additionalProperties: false
+      required: [label, pieces]
+      description: One camera angle to render over the whole take.
+      properties:
+        label:
+          type: string
+          minLength: 1
+          maxLength: 60
+          description: The angle's name, shown on its tile and used to name its file.
+        angle_id:
+          type: string
+          maxLength: 60
+          description: The catalog angle it came from, or `custom` for an angle in the customer's own words.
+        custom:
+          type: string
+          maxLength: 600
+          description: The customer's own words for a custom angle.
+        pieces:
+          type: array
+          minItems: 1
+          maxItems: 8
+          description: One render per part of the take, in part order.
+          items:
+            $ref: '#/components/schemas/MulticamPieceInput'
+    MulticamSegment:
+      type: object
+      additionalProperties: false
+      required: [start, end, shot]
+      description: One stretch of the highlight edit's cut list and the angle it shows.
+      properties:
+        start:
+          type: number
+          format: double
+          minimum: 0
+        end:
+          type: number
+          format: double
+          minimum: 0
+        shot:
+          type: integer
+          minimum: -1
+          description: The angle's index in `shots`, or -1 for the take itself.
+    CreateMulticamRunRequest:
+      type: object
+      additionalProperties: false
+      required: [take_asset_id, model, parts, shots]
+      properties:
+        take_asset_id:
+          type: string
+          format: uuid
+          description: The take, a ready video in the caller's Library, up to 120 seconds.
+        take_name:
+          type: string
+          maxLength: 120
+          description: The take's name for file and composition names. Defaults to the asset's title.
+        model:
+          type: string
+          minLength: 1
+          description: 'The video model every angle renders with; it must take a reference video (`video_task: reference`).'
+        quality:
+          type: string
+          description: The output quality tier, as on `POST /generate/video`.
+        aspect_ratio:
+          $ref: '#/components/schemas/AspectRatio'
+        generate_audio:
+          type: boolean
+          description: Sent with every render, as on `POST /generate/video`. Each delivered clip carries the take's own sound either way.
+        project_id:
+          type: string
+          format: uuid
+          description: A project to file the renders, the clips and the Studio timeline in.
+        parts:
+          type: array
+          minItems: 1
+          maxItems: 8
+          items:
+            $ref: '#/components/schemas/MulticamPartInput'
+        shots:
+          type: array
+          minItems: 1
+          maxItems: 16
+          items:
+            $ref: '#/components/schemas/MulticamShotInput'
+        segments:
+          type: array
+          maxItems: 60
+          description: >-
+            The highlight edit's cut list, in order, covering the take. Leave it out (or send fewer than two) for no highlight edit.
+          items:
+            $ref: '#/components/schemas/MulticamSegment'
+    AddMulticamShotsRequest:
+      type: object
+      additionalProperties: false
+      required: [shots]
+      properties:
+        shots:
+          type: array
+          minItems: 1
+          maxItems: 8
+          description: The new angles, each with one render per part of the run's take.
+          items:
+            $ref: '#/components/schemas/MulticamShotInput'
+    RemakeMulticamShotRequest:
+      type: object
+      additionalProperties: false
+      required: [credits]
+      properties:
+        credits:
+          type: integer
+          minimum: 1
+          description: The price agreed for rendering the angle again (all of its parts).
+    MulticamRunStatus:
+      type: string
+      enum: [running, finished, canceled]
+      x-enum-varnames: [MulticamRunStatusRunning, MulticamRunStatusFinished, MulticamRunStatusCanceled]
+      description: >-
+        `running` while anything is still being made, `finished` once every angle, clip and the highlight edit has settled, `canceled` after `POST /multicam/runs/{id}/cancel` (finished angles keep their clips).
+    MulticamPieceState:
+      type: string
+      enum: [preparing, waiting, queued, rendering, ready, failed, canceled]
+      x-enum-varnames: [MulticamPieceStatePreparing, MulticamPieceStateWaiting, MulticamPieceStateQueued, MulticamPieceStateRendering, MulticamPieceStateReady, MulticamPieceStateFailed, MulticamPieceStateCanceled]
+      description: >-
+        `preparing`: the part of the take is being cut (free). `waiting`: not sent yet: your plan's concurrent renders are busy, or your balance does not cover it (`message` says which). `queued` / `rendering`: the job is with the model. `ready`, `failed`, `canceled`: settled.
+    MulticamShotState:
+      type: string
+      enum: [generating, finishing, ready, failed, canceled]
+      x-enum-varnames: [MulticamShotStateGenerating, MulticamShotStateFinishing, MulticamShotStateReady, MulticamShotStateFailed, MulticamShotStateCanceled]
+      description: >-
+        `generating` while its renders run, `finishing` while its clip is put together over the take's sound (free), then `ready`, `failed` or `canceled`.
+    MulticamHighlightState:
+      type: string
+      enum: [none, waiting, making, ready, failed]
+      x-enum-varnames: [MulticamHighlightStateNone, MulticamHighlightStateWaiting, MulticamHighlightStateMaking, MulticamHighlightStateReady, MulticamHighlightStateFailed]
+      description: >-
+        `none`: the run has no cut list. `waiting`: for the angles to finish. `making`: being cut (free). `ready`, `failed`.
+    MulticamRunTake:
+      type: object
+      additionalProperties: false
+      required: [asset_id, name, seconds]
+      properties:
+        asset_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        seconds:
+          type: number
+          format: double
+        width:
+          type: integer
+          nullable: true
+        height:
+          type: integer
+          nullable: true
+    MulticamRunPiece:
+      type: object
+      additionalProperties: false
+      required: [index, shot, part, label, start, end, window, credits, attempt, state]
+      properties:
+        index:
+          type: integer
+        shot:
+          type: integer
+        part:
+          type: integer
+        label:
+          type: string
+        start:
+          type: number
+          format: double
+          description: Where the part this render covers starts in the take.
+        end:
+          type: number
+          format: double
+        window:
+          $ref: '#/components/schemas/MulticamWindow'
+        prompt:
+          type: string
+        credits:
+          type: integer
+          description: The price agreed for this render.
+        attempt:
+          type: integer
+          description: 1 for the first render, one more for each remake.
+        state:
+          $ref: '#/components/schemas/MulticamPieceState'
+        job_id:
+          type: string
+          format: uuid
+          nullable: true
+        asset_id:
+          type: string
+          format: uuid
+          nullable: true
+        message:
+          type: string
+          nullable: true
+          description: Why it is waiting, or why it failed, in words to show the customer.
+        credits_refunded:
+          type: boolean
+          nullable: true
+          description: On a failed or canceled render, whether its credits came back.
+        cancellation:
+          $ref: '#/components/schemas/JobCancellation'
+    MulticamRunShot:
+      type: object
+      additionalProperties: false
+      required: [index, label, angle_id, custom, state, parts, credits]
+      properties:
+        index:
+          type: integer
+        label:
+          type: string
+        angle_id:
+          type: string
+        custom:
+          type: string
+        state:
+          $ref: '#/components/schemas/MulticamShotState'
+        asset_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: The angle's own clip, as long as the take, over its sound.
+        file_name:
+          type: string
+          description: The clip's name in the download, e.g. `02-low-angle.mp4`.
+        message:
+          type: string
+          nullable: true
+        parts:
+          type: integer
+        credits:
+          type: integer
+          description: The price agreed for the angle's renders; also what a remake costs at today's price when unchanged.
+        in_highlight:
+          type: boolean
+          description: Whether the highlight edit's cut list uses this angle.
+    MulticamRunHighlight:
+      type: object
+      additionalProperties: false
+      required: [state, segments]
+      properties:
+        state:
+          $ref: '#/components/schemas/MulticamHighlightState'
+        asset_id:
+          type: string
+          format: uuid
+          nullable: true
+        composition_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: The highlight edit's own Studio timeline, once it has one.
+        message:
+          type: string
+          nullable: true
+        segments:
+          type: array
+          items:
+            $ref: '#/components/schemas/MulticamSegment'
+        cut_list:
+          type: string
+          description: The cut list in one timecoded line, e.g. `00:00 Wide / 00:01.6 Low angle (end 00:12.1)`.
+    MulticamRun:
+      type: object
+      additionalProperties: false
+      required: [id, status, take, model, parts, shots, pieces, highlight, credits, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/MulticamRunStatus'
+        composition_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: The Studio timeline with every angle stacked in sync over the take (open it in Studio).
+        take:
+          $ref: '#/components/schemas/MulticamRunTake'
+        model:
+          type: string
+        quality:
+          type: string
+          nullable: true
+        aspect_ratio:
+          type: string
+          nullable: true
+        generate_audio:
+          type: boolean
+          nullable: true
+          description: The generate_audio every render is sent with, when the run set it.
+        parts:
+          type: array
+          items:
+            $ref: '#/components/schemas/MulticamPartInput'
+        shots:
+          type: array
+          items:
+            $ref: '#/components/schemas/MulticamRunShot'
+        pieces:
+          type: array
+          items:
+            $ref: '#/components/schemas/MulticamRunPiece'
+        highlight:
+          $ref: '#/components/schemas/MulticamRunHighlight'
+        credits:
+          type: integer
+          description: The price agreed for every render the run has asked for, remakes included.
+        waiting:
+          type: string
+          nullable: true
+          description: >-
+            Why renders are waiting to be sent, when they are: `concurrency` (your plan's concurrent renders are busy) or `balance` (your balance does not cover the next render).
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        finished_at:
+          type: string
+          format: date-time
+          nullable: true
+    MulticamDownload:
+      type: object
+      additionalProperties: false
+      required: [url, file_name, expires_at, files, size_bytes]
+      properties:
+        url:
+          type: string
+          description: A short-lived link that downloads the ZIP.
+        file_name:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+        files:
+          type: array
+          items:
+            type: string
+          description: The files inside, in order.
+        size_bytes:
+          type: integer
+          format: int64
     SubmitAgentMessageRequest:
       type: object
       additionalProperties: false
