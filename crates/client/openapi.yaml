@@ -5835,7 +5835,8 @@ paths:
       tags: [Compositions]
       operationId: createComposition
       summary: Create an empty composition.
-      description: Composition names are unique per user; a duplicate name returns 409. An optional `project_id` links the composition to a caller-owned project; an unknown or foreign project returns 404.
+      description: >-
+        Composition names are unique per user; a duplicate name returns 409. An optional `project_id` links the composition to a caller-owned project; an unknown or foreign project returns 404. Every new composition is stamped `meta.audio_mix = "v1"`, which makes it mix-managed: its renders duck music and ambience under voice, loop and fade out beds, and normalise loudness to -14 LUFS with the true peak at or under -1 dBTP (see the `AudioMix` schema). Send `meta.audio_mix` yourself (any value, `null` included) to keep a composition unmanaged; compositions created before the stamp existed render exactly as they always did.
       requestBody:
         required: true
         content:
@@ -6308,6 +6309,17 @@ paths:
           record a warning (generic, system, and web-safe names do not warn).
           Authored CSS is NOT applied
           to either text rendering path.
+
+        - Audio mix (see the `AudioMix` schema): per-clip
+          `data-audio` / overlay `audio` (role, gainDb, fades, duckUnderVoice,
+          loop), per-track `gainDb`/`role`/`duckUnderVoice`, and the
+          composition mix (`data-audio-mix` / overlay `mix` / this request's
+          `audio_mix`). A mix-managed composition (the `meta.audio_mix`
+          stamp every new composition carries, or any mix object) ducks
+          music and ambience under detected speech, loops and fades out beds,
+          and normalises the export to -14 LUFS with the true peak at or
+          under -1 dBTP. A composition with no mix field and no stamp is
+          mixed exactly as before: every audio item summed at unity gain.
 
         The canvas size comes from `data-width`/`data-height` on the root
         container, else the composition's `meta.width`/`meta.height`, else
@@ -16332,7 +16344,8 @@ components:
         meta:
           type: object
           nullable: true
-          description: Free-form composition metadata (at most 64 KiB serialized).
+          description: >-
+            Free-form composition metadata (at most 64 KiB serialized). The server adds `audio_mix: "v1"` (the mix-managed stamp, see `AudioMix`) unless the key is already present.
     UpdateCompositionRequest:
       type: object
       additionalProperties: false
@@ -16443,10 +16456,124 @@ components:
           $ref: '#/components/schemas/RenderTarget'
         still:
           $ref: '#/components/schemas/RenderStillOptions'
+        audio_mix:
+          $ref: '#/components/schemas/AudioMix'
         params:
           type: object
           nullable: true
           description: Reserved for future render options; must be empty or omitted today.
+    AudioMix:
+      type: object
+      additionalProperties: false
+      description: |
+        Composition-level audio mix settings. As the render
+        request's `audio_mix` they are an export-level override: every field
+        set here wins over the composition's own mix, and the render becomes
+        mix-managed. Only allowed with target `video` (400 "audio_mix is only
+        allowed with target: video"); a value outside its range returns 400.
+        No schema defaults are declared on purpose (a declared default
+        generates as a REQUIRED property in openapi-typescript); the defaults
+        below are applied by the renderer.
+
+        **Where mix settings live.** Three scopes, each with an authored HTML
+        form (what the agent writes) and a `nolgia-edits.json` overlay form
+        (what Studio writes). The overlay object REPLACES the authored one
+        wholesale, like `colorGrade`/`mask`/`motion`: absent = the authored
+        value stands, `{}` clears it. Keys are camelCase.
+
+        - Clip: `data-audio='{...}'` on `<audio>`/`<video>`; overlay
+          `elements.<key>.audio` and `additions[].audio`. Fields: `role`
+          (`voice` | `music` | `sfx` | `ambience`), `gainDb` (-60..+12,
+          0.1 dB), `fadeInMs` / `fadeOutMs` (>= 0, capped at the clip
+          length), `duckUnderVoice` (boolean), `loop` (boolean). On a
+          `<video>` they apply to the clip's own sound.
+        - Track: overlay `tracks.audio.<idx>` / `tracks.video.<idx>` carry
+          `gainDb`, `role` and `duckUnderVoice` next to `muted`/`hidden`.
+          Gain adds to the clip's; the clip's own role and duck win. There is
+          no authored form: an agent folding the overlay into HTML folds
+          track settings into each clip's `data-audio`.
+        - Composition: this object, as `data-audio-mix='{...}'` on the canvas
+          element (the element carrying `data-width`/`data-height`, `<body>`
+          fallback), the overlay's top-level `mix`, then the render request's
+          `audio_mix` field-wise on top.
+
+        **Mix-managed.** A composition carrying `meta.audio_mix = "v1"` (the
+        API stamps every new composition) or ANY mix
+        object (`{}` included) is mix-managed: `normalize` and `autoDuck`
+        default to true, music/ambience beds `loop` (a bed shorter than its
+        clip repeats with a 1 s equal-power crossfade instead of going
+        silent) and fade out over 2 s (capped at a quarter of the clip) when
+        the clip cuts the music off, unless `fadeOutMs` is set. Explicit clip
+        and track fields apply in every composition. A composition that is
+        neither mix-managed nor sets any field renders byte-identically to
+        the renderer before mixing existed.
+
+        **Roles.** When neither clip nor track sets a role it is inferred:
+        from the generating model of the asset (voiceover models = `voice`,
+        music models = `music`, sound-effect models = `sfx`), else from the
+        element id, then the file name: each is lowercased and split on
+        non-alphanumerics, and the first token that matches decides
+        (`voice*`, `vo`/`vo2`, `narrat*`, `dialog*`, `speech*` = voice;
+        `music*`, `bed(s)`, `score`, `song*` = music; `sfx`, `whoosh*`,
+        `impact*` = sfx). Ambience is never inferred; set it. A video clip's
+        own sound has no inferred role: it plays as-is, is never ducked and
+        never triggers ducking.
+
+        **Ducking.** Speech is detected per voice clip (50 ms RMS windows
+        within 30 dB of the loudest window of the clip's source range and
+        above -50 dBFS), then every voice clip's speech together has pauses
+        under 0.7 s bridged and islands under 0.1 s dropped. Every source with
+        `duckUnderVoice` (default: `autoDuck` for music/ambience) dips by
+        `duckDepthDb`, ramping down over `duckAttackMs` BEFORE each speech
+        region (look-ahead) and back up over `duckReleaseMs` after it, so the
+        bed returns between lines whenever the pause exceeds attack +
+        release. The dip is a fixed envelope, not a compressor, so its depth
+        does not depend on how loud the voice is.
+
+        **Loudness.** With `normalize`, the whole mix is measured (EBU R128)
+        and moved to `loudnessTargetLufs` by a static gain (at most +-24 dB;
+        a silent mix is left alone), then a 4x-oversampled limiter holds
+        peaks 1 dB under `truePeakDbtp` so the AAC encode lands at or under
+        it. The ducking is baked only into the MP4; editing exports
+        (Premiere/Resolve XML) carry each clip's gain and fades as audio
+        level keyframes where the format allows.
+      properties:
+        normalize:
+          type: boolean
+          description: Loudness-normalise the export. Default true for a mix-managed composition, false otherwise.
+        loudnessTargetLufs:
+          type: number
+          format: double
+          minimum: -40
+          maximum: -5
+          description: Integrated loudness target in LUFS. Default -14 (web and social).
+        truePeakDbtp:
+          type: number
+          format: double
+          minimum: -9
+          maximum: 0
+          description: True-peak ceiling in dBTP. Default -1.
+        autoDuck:
+          type: boolean
+          description: Default `duckUnderVoice` for music and ambience sources that do not set it. Default true for a mix-managed composition, false otherwise.
+        duckDepthDb:
+          type: number
+          format: double
+          minimum: -40
+          maximum: -3
+          description: How far a ducked source dips while voice speaks, in dB. Default -12.
+        duckAttackMs:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 2000
+          description: Ramp-down length in ms, ending where speech starts (look-ahead). Default 200.
+        duckReleaseMs:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 5000
+          description: Ramp-up length in ms after speech ends. Default 500.
     RenderTarget:
       type: string
       enum: [video, still]
@@ -18289,6 +18416,12 @@ components:
           description: How many of those seconds are the take's own framing.
         copy:
           type: boolean
+        reference:
+          type: string
+          nullable: true
+          enum: [take, crop]
+          x-enum-varnames: [MulticamCopyCheckReferenceTake, MulticamCopyCheckReferenceCrop]
+          description: 'What the render saw as @Video1: the take (or its part), or a crop of it (a close framing on a take with no clear person).'
         refunded_credits:
           type: integer
           nullable: true
@@ -18322,6 +18455,13 @@ components:
         height:
           type: integer
           nullable: true
+        subject:
+          type: string
+          nullable: true
+          enum: [person, none, unknown]
+          x-enum-varnames: [MulticamRunTakeSubjectPerson, MulticamRunTakeSubjectNone, MulticamRunTakeSubjectUnknown]
+          description: >-
+            What the take is of, read from a few of its frames before the first render. `person`: a face in most frames; every angle renders over the take with its own words. `none`: no clear person (a product, a silhouette); the close framings render over a crop of the take and every other angle is asked with the neutral wording, which keep the model from returning the take's own framing. `unknown`: it could not be read; the angles render as for a person.
     MulticamRunPiece:
       type: object
       additionalProperties: false
