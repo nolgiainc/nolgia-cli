@@ -8685,14 +8685,17 @@ paths:
         gave. `GET /presets/{slug}/intake/context` prices the default
         run; this prices the run the customer actually set up: each
         `param:<field>` answer is applied to the target generation (a longer
-        clip costs more), and an `agent` preset with a `submit.run` plan is
+        clip costs more), each single-choice `answers` entry sets the count of
+        the plan steps whose `count_by` names it (a longer video makes more
+        scenes), and an `agent` preset with a `submit.run` plan is
         priced as a whole run (`basis: agent_run`) on the caller's own agent
         brain, so `ceiling` is the "Up to N" to show and to send as
         `credit_ceiling` with the brief.
 
         Nothing is submitted, reserved or charged. `404` exactly when the
         intake context would 404; `400` when a param is not one the intake
-        binds with `param:`.
+        binds with `param:`, or an answer is not an option of a single-choice
+        step.
       parameters:
         - $ref: '#/components/parameters/PresetSlug'
       requestBody:
@@ -20549,11 +20552,11 @@ components:
       additionalProperties: false
       required: [generations]
       description: >-
-        What one run of an `agent` preset makes, so the review card can show an honest ceiling ("Up to N") before the customer presses Create. Legal only with `kind: agent`. Every generation the preset's recipe makes is listed with its count; the card's ceiling is their price, plus the agent's own turn priced at the customer's brain for `agent_tokens`, and the run is held to that ceiling server-side.
+        What one run of an `agent` preset makes, so the review card can show an honest ceiling ("Up to N") before the customer presses Create. Legal only with `kind: agent`. Every generation the preset's recipe makes is listed with its count; the card's ceiling is their price, plus the agent's own turn priced at the customer's brain for `agent_tokens`, and the run is held to that ceiling server-side. A count can follow one of the customer's answers (`count_by`: a longer video has more scenes). A review that makes nothing (a score, a grade in Studio) lists no generations, and its ceiling is the agent's turn.
       properties:
         generations:
           type: array
-          minItems: 1
+          minItems: 0
           maxItems: 12
           items:
             $ref: '#/components/schemas/PresetIntakeRunGeneration'
@@ -20579,14 +20582,40 @@ components:
           type: string
           minLength: 1
           maxLength: 120
-          description: The model the step renders on; required unless `target` is set.
+          description: >-
+            The model the step renders on; required unless `target` is set. `gpt-4o-mini-transcribe` prices a transcript of the customer's own clip, per started minute of `params.duration_seconds`.
         count:
           type: integer
           minimum: 1
           maximum: 50
-          description: How many of this generation one run makes. Omitted means 1.
+          description: How many of this generation one run makes. Omitted means 1. Not with `count_by`.
+        count_by:
+          $ref: '#/components/schemas/PresetIntakeRunCountBy'
         params:
           $ref: '#/components/schemas/PresetIntakeRunParams'
+    PresetIntakeRunCountBy:
+      type: object
+      additionalProperties: false
+      required: [step, counts]
+      description: >-
+        The step's count follows the customer's answer to one single-choice intake step: `counts` maps EVERY option value of that step to how many of this generation the run makes for it (0 to 50; 0 means this answer makes none). An unanswered step counts at its `default`, and a step with no default at its largest count, so the card is never priced below the run the agent will make.
+      properties:
+        step:
+          type: string
+          minLength: 1
+          maxLength: 40
+          description: The `id` of a single-choice step of the same intake.
+          examples: ['length']
+        counts:
+          type: object
+          minProperties: 1
+          maxProperties: 12
+          additionalProperties:
+            type: integer
+            minimum: 0
+            maximum: 50
+          description: Option value to count, one entry per option of the step.
+          examples: [{'30': 3, '60': 6, '180': 18}]
     PresetIntakeRunParams:
       type: object
       additionalProperties: false
@@ -20614,7 +20643,7 @@ components:
       additionalProperties: false
       required: [input, output]
       description: >-
-        The model tokens the agent's own work on one run is allowed, priced on the customer's brain at its cache-aware rates. Omitted uses the platform default (4.5M prompt, 25k output), measured on a Cover reveal run.
+        The model tokens the agent's own work on one run is allowed, priced on the customer's brain at its cache-aware rates. Omitted uses the platform default (4.5M prompt, 25k output), measured on a Cover reveal run. `input_per_generation` and `output_per_generation` add that many tokens for every generation the run makes, so a run that makes more (a longer video, every size) allows the agent the work that takes.
       properties:
         input:
           type: integer
@@ -20624,6 +20653,14 @@ components:
           type: integer
           minimum: 0
           maximum: 2000000
+        input_per_generation:
+          type: integer
+          minimum: 0
+          maximum: 5000000
+        output_per_generation:
+          type: integer
+          minimum: 0
+          maximum: 200000
     PresetIntakeScene:
       type: object
       additionalProperties: false
@@ -21087,6 +21124,12 @@ components:
           additionalProperties: true
           description: >-
             The customer's `param:<field>` answers, field to value (for example `{"duration_seconds": 8}`). Fields the intake does not bind with `param:` are refused with `400`.
+        answers:
+          type: object
+          additionalProperties:
+            type: string
+          description: >-
+            The customer's single-choice answers, step id to option value (for example `{"length": "30"}`), which a run plan's `count_by` reads. A step id the intake does not have, a step that is not a single-choice step, or a value that is not one of its options is refused with `400`. An omitted step counts at its default.
     PresetRunEstimateGeneration:
       type: object
       additionalProperties: false
