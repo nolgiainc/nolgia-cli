@@ -17994,6 +17994,20 @@ components:
           type: string
           maxLength: 120
           description: The take's name for file and composition names. Defaults to the asset's title.
+        take_seconds:
+          type: number
+          format: double
+          description: 'The take''s length as the page measured it from the file (the Library can round it to whole seconds). Used when it is within a second of the stored length; the parts end here.'
+        take_width:
+          type: integer
+          minimum: 2
+          maximum: 8192
+          description: 'The take''s frame width as the page measured it, when the Library does not know it yet: every clip is made at the take''s own shape.'
+        take_height:
+          type: integer
+          minimum: 2
+          maximum: 8192
+          description: The take's frame height as the page measured it.
         model:
           type: string
           minLength: 1
