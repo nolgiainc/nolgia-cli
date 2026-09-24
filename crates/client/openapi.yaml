@@ -8663,6 +8663,61 @@ paths:
           $ref: '#/components/responses/ProblemResponse'
         default:
           $ref: '#/components/responses/ProblemResponse'
+  /presets/{slug}/intake/estimate:
+    post:
+      tags: [Presets]
+      operationId: estimatePresetIntakeRun
+      summary: Price one run of a preset for the customer's own answers (signed in).
+      description: |
+        The review card's price, recomputed for the answers the customer
+        gave. `GET /presets/{slug}/intake/context` prices the default
+        run; this prices the run the customer actually set up: each
+        `param:<field>` answer is applied to the target generation (a longer
+        clip costs more), and an `agent` preset with a `submit.run` plan is
+        priced as a whole run (`basis: agent_run`) on the caller's own agent
+        brain, so `ceiling` is the "Up to N" to show and to send as
+        `credit_ceiling` with the brief.
+
+        Nothing is submitted, reserved or charged. `404` exactly when the
+        intake context would 404; `400` when a param is not one the intake
+        binds with `param:`.
+      parameters:
+        - $ref: '#/components/parameters/PresetSlug'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PresetIntakeEstimateRequest'
+      responses:
+        '200':
+          description: The priced run.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PresetIntakeEstimate'
+              examples:
+                coverReveal:
+                  summary: Cover reveal, 8 seconds, on the default agent brain
+                  value:
+                    credits: 124
+                    ceiling: 124
+                    model: 'seedance-2.5'
+                    basis: 'agent_run'
+                    duration_seconds: 8
+                    quality: '720p'
+                    generations:
+                      - {label: 'Start frame', model: 'gpt-image-2.5-flare', count: 1, credits: 8}
+                      - {label: 'The clip', model: 'seedance-2.5', count: 1, credits: 104, duration_seconds: 8, quality: '720p'}
+                    agent_turn: {model: 'deepseek-v4-flash', rate: 10, credits: 12}
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
   /presets/{slug}/assemble:
     post:
       tags: [Presets]
@@ -18450,6 +18505,13 @@ components:
           description: >
             Create a fresh chat session for this message and file the turn under it, atomically — the session row is written in the same transaction as its first message, so it never exists empty. Mutually exclusive with `session_id` (`400` when both are set). The created session comes back as `session` on the `202`.
 
+        credit_ceiling:
+          type: integer
+          minimum: 1
+          maximum: 1000000
+          description: >
+            The most this turn may charge, in credits, as the customer was shown it: a guided preset's review card sends its "Up to N" here (see `PresetIntakeEstimate.ceiling`). The turn's own charge (its flat rate plus any metered model cost) and every generation the turn makes together never exceed it: a generation that would pass it is refused before anything is charged (`402`, `error.code: approval_required`) so the agent asks the customer first, and a metered model cost above what is left is waived. A turn sent without it bills its generations as usual and caps its own charge at the platform default of 200 credits. Ignored on a steering send that is queued behind an in-flight turn.
+
         steering:
           type: boolean
           default: false
@@ -18618,8 +18680,8 @@ components:
           description: After this the token is refused and a submit carrying it fails with `confirmation_rejected`. Re-quote.
     GenerationErrorCode:
       type: string
-      enum: [out_of_credits, rate_limit, prompt_nsfw, ip_detected, job_failed, timeout, validation, confirmation_rejected, canceled, job_not_cancellable]
-      x-enum-varnames: [GenerationErrorCodeOutOfCredits, GenerationErrorCodeRateLimit, GenerationErrorCodePromptNsfw, GenerationErrorCodeIpDetected, GenerationErrorCodeJobFailed, GenerationErrorCodeTimeout, GenerationErrorCodeValidation, GenerationErrorCodeConfirmationRejected, GenerationErrorCodeCanceled, GenerationErrorCodeJobNotCancellable]
+      enum: [out_of_credits, rate_limit, prompt_nsfw, ip_detected, job_failed, timeout, validation, confirmation_rejected, canceled, job_not_cancellable, approval_required]
+      x-enum-varnames: [GenerationErrorCodeOutOfCredits, GenerationErrorCodeRateLimit, GenerationErrorCodePromptNsfw, GenerationErrorCodeIpDetected, GenerationErrorCodeJobFailed, GenerationErrorCodeTimeout, GenerationErrorCodeValidation, GenerationErrorCodeConfirmationRejected, GenerationErrorCodeCanceled, GenerationErrorCodeJobNotCancellable, GenerationErrorCodeApprovalRequired]
       description: |
         Stable machine-readable class of a generation failure, on the
         `/generate/*` submit responses (as `error.code`) and on a failed job
@@ -18637,6 +18699,7 @@ components:
         - `confirmation_rejected`: the cost confirmation gate did not pass. Either a client showed the customer a quote and the customer declined, or a supplied confirmation token was refused. A submit that carries no confirmation token is never refused for this reason.
         - `canceled`: the job was canceled by its owner (`POST /jobs/{id}/cancel`), not broken. It is the code the SDK wait helpers raise for a `canceled` job; `cancellation` on the job says what the provider did and what was refunded. A canceled job carries no `failure`.
         - `job_not_cancellable`: `POST /jobs/{id}/cancel` refused (`409`) because the job already finished, or its finished result is already being delivered. The job will reach `succeeded` or `failed` on its own; nothing was changed.
+        - `approval_required`: refused with `402` (title `Approval Needed`) because the generation would take an agent run past the price its customer approved (the `credit_ceiling` a guided preset's review card showed, sent with the brief). Nothing was submitted and nothing was charged. The detail names the generation's cost and the new run total; the agent must ask the customer to approve that total before it continues, never retry, split the job or switch models to fit.
     AgentMessageConflict:
       type: object
       additionalProperties: false
@@ -20288,6 +20351,88 @@ components:
           description: Customer copy shown on the review screen next to the Create button.
         scene:
           $ref: '#/components/schemas/PresetIntakeScene'
+        run:
+          $ref: '#/components/schemas/PresetIntakeRun'
+    PresetIntakeRun:
+      type: object
+      additionalProperties: false
+      required: [generations]
+      description: >-
+        What one run of an `agent` preset makes, so the review card can show an honest ceiling ("Up to N") before the customer presses Create. Legal only with `kind: agent`. Every generation the preset's recipe makes is listed with its count; the card's ceiling is their price, plus the agent's own turn priced at the customer's brain for `agent_tokens`, and the run is held to that ceiling server-side.
+      properties:
+        generations:
+          type: array
+          minItems: 1
+          maxItems: 12
+          items:
+            $ref: '#/components/schemas/PresetIntakeRunGeneration'
+        agent_tokens:
+          $ref: '#/components/schemas/PresetIntakeRunTokens'
+    PresetIntakeRunGeneration:
+      type: object
+      additionalProperties: false
+      required: [label]
+      description: >-
+        One generation step of a preset's recipe. `target: true` is the preset's own `create_*` target, priced with its baked parameters and the customer's `param:` answers; any other step names its `model` and is priced at its `params` and the model's defaults.
+      properties:
+        label:
+          type: string
+          minLength: 1
+          maxLength: 80
+          description: Customer copy for the review card's breakdown (no em dash).
+          examples: ['Start frame']
+        target:
+          type: boolean
+          description: This step is the preset's target generation. At most one step sets it, and only on a `create_*` target.
+        model:
+          type: string
+          minLength: 1
+          maxLength: 120
+          description: The model the step renders on; required unless `target` is set.
+        count:
+          type: integer
+          minimum: 1
+          maximum: 50
+          description: How many of this generation one run makes. Omitted means 1.
+        params:
+          $ref: '#/components/schemas/PresetIntakeRunParams'
+    PresetIntakeRunParams:
+      type: object
+      additionalProperties: false
+      description: The settings a non-target step is priced at; omitted fields take the model's defaults.
+      properties:
+        duration_seconds:
+          type: integer
+          minimum: 1
+          maximum: 600
+        quality:
+          type: string
+          maxLength: 32
+        render_quality:
+          type: string
+          maxLength: 32
+        generate_audio:
+          type: boolean
+        characters:
+          type: integer
+          minimum: 1
+          maximum: 100000
+          description: Text length an audio step is priced for (text to speech is metered per character).
+    PresetIntakeRunTokens:
+      type: object
+      additionalProperties: false
+      required: [input, output]
+      description: >-
+        The model tokens the agent's own work on one run is allowed, priced on the customer's brain at its cache-aware rates. Omitted uses the platform default (4.5M prompt, 25k output), measured on a Cover reveal run.
+      properties:
+        input:
+          type: integer
+          minimum: 0
+          maximum: 50000000
+        output:
+          type: integer
+          minimum: 0
+          maximum: 2000000
     PresetIntakeScene:
       type: object
       additionalProperties: false
@@ -20721,14 +20866,68 @@ components:
           description: The model (or `agent-turn`) the estimate is priced on.
         basis:
           type: string
-          enum: [one_generation, agent_turn, set_run]
-          x-enum-varnames: [PresetIntakeEstimateBasisOneGeneration, PresetIntakeEstimateBasisAgentTurn, PresetIntakeEstimateBasisSetRun]
+          enum: [one_generation, agent_turn, set_run, agent_run]
+          x-enum-varnames: [PresetIntakeEstimateBasisOneGeneration, PresetIntakeEstimateBasisAgentTurn, PresetIntakeEstimateBasisSetRun, PresetIntakeEstimateBasisAgentRun]
+          description: >-
+            `agent_run` prices a whole guided agent run from the preset's `submit.run` plan: `credits` equals `ceiling`, the most the run may charge, and `generations` plus `agent_turn` break it down.
         duration_seconds:
           type: integer
           description: The clip length the estimate assumes (video targets).
         quality:
           type: string
           description: The quality tier the estimate assumes, when the model has one.
+        ceiling:
+          type: integer
+          description: >-
+            `agent_run` only: the most the run may charge, shown as "Up to N". Send it as `credit_ceiling` with the brief; the platform holds the run to it.
+        generations:
+          type: array
+          description: '`agent_run` only: each generation the recipe makes, priced.'
+          items:
+            $ref: '#/components/schemas/PresetRunEstimateGeneration'
+        agent_turn:
+          $ref: '#/components/schemas/PresetRunEstimateTurn'
+    PresetIntakeEstimateRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        params:
+          type: object
+          additionalProperties: true
+          description: >-
+            The customer's `param:<field>` answers, field to value (for example `{"duration_seconds": 8}`). Fields the intake does not bind with `param:` are refused with `400`.
+    PresetRunEstimateGeneration:
+      type: object
+      additionalProperties: false
+      required: [label, model, count, credits]
+      properties:
+        label:
+          type: string
+        model:
+          type: string
+        count:
+          type: integer
+        credits:
+          type: integer
+          description: The step's price for all `count` generations.
+        duration_seconds:
+          type: integer
+        quality:
+          type: string
+    PresetRunEstimateTurn:
+      type: object
+      additionalProperties: false
+      required: [model, rate, credits]
+      description: >-
+        The agent's own turn on the run: `rate` is the brain's published per-turn minimum, `credits` what the card allows for it (the metered price of the plan's token allowance, never below `rate`).
+      properties:
+        model:
+          type: string
+          description: The brain the caller's agent runs on.
+        rate:
+          type: integer
+        credits:
+          type: integer
     PresetIntakeContext:
       type: object
       additionalProperties: false
