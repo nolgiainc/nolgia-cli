@@ -7562,6 +7562,8 @@ paths:
       operationId: createPat
       summary: Create a Personal Access Token. The plaintext token is returned ONCE.
       description: >
+        Every new token expires. `expires_in_days` sets the lifetime from 1 to 365 days; omitted or null means 365. From `expires_at` on, the token is refused with the same 401 as a revoked one, so mint a replacement before then. Tokens created before token expiry was introduced (September 2026) have `expires_at: null`: they keep working, and rotating them is recommended. An `expires_in_days` outside 1..365 is a 422.
+
         Callers using agent PATs, turn tokens, or the legacy `X-Nolgia-Surface: hermes` header receive 403 with code `agent_cannot_create_personal_access_token` and detail "The NOLGIA Agent cannot create personal access tokens. Do it in the app."
 
       requestBody:
@@ -17653,7 +17655,7 @@ components:
     PAT:
       type: object
       additionalProperties: false
-      required: [id, name, prefix, created_at]
+      required: [id, name, prefix, created_at, expires_at]
       properties:
         id:
           type: string
@@ -17680,6 +17682,13 @@ components:
           type: string
           nullable: true
           format: date-time
+        expires_at:
+          type: string
+          nullable: true
+          format: date-time
+          description: >
+            When the token stops authenticating; from this instant it is refused with 401. null means no expiry: only tokens created before token expiry was introduced (September 2026) and tokens issued to OAuth connectors have none, and rotating a null-expiry token is recommended. A listed token whose `expires_at` has passed is expired: it no longer authenticates and no longer counts toward the 10-active-token limit; revoke it to remove it from the list.
+
     PatPage:
       type: object
       additionalProperties: false
@@ -17707,6 +17716,10 @@ components:
           nullable: true
           minimum: 1
           maximum: 365
+          description: >
+            Lifetime of the token in days from now, 1 to 365. Omitted or null: 365 days. New tokens always expire.
+
+          examples: [90]
     CreatePatResponse:
       type: object
       additionalProperties: false

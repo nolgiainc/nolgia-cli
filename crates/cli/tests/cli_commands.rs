@@ -2974,6 +2974,105 @@ async fn pat_list_outputs_tokens() {
         .stdout(predicate::str::contains("never"));
 }
 
+/// NOL-1213: `--expires-in-days` reaches the API, and the created token's
+/// expiry is printed next to the one-time plaintext.
+#[tokio::test]
+async fn pat_create_sends_expiry_and_prints_it() {
+    let api = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/pat"))
+        .and(body_json(json!({"name": "ci-bot", "expires_in_days": 30})))
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({
+            "pat": pat_json(),
+            "token": "nol_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6"
+        })))
+        .expect(1)
+        .mount(&api)
+        .await;
+    run_ok(
+        &api,
+        &[
+            "pat",
+            "create",
+            "--name",
+            "ci-bot",
+            "--expires-in-days",
+            "30",
+        ],
+    )
+    .stdout(predicate::str::contains(
+        "\nexpires 2099-06-13T00:00:00+00:00\ntoken: ",
+    ));
+}
+
+/// Without the flag the body carries no expiry: the server applies its
+/// 365-day default.
+#[tokio::test]
+async fn pat_create_without_expiry_leaves_the_default_to_the_server() {
+    let api = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/pat"))
+        .and(body_json(json!({"name": "ci-bot"})))
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({
+            "pat": pat_json(),
+            "token": "nol_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6"
+        })))
+        .expect(1)
+        .mount(&api)
+        .await;
+    run_ok(&api, &["pat", "create", "--name", "ci-bot"]);
+}
+
+#[test]
+fn pat_create_refuses_an_expiry_outside_1_to_365() {
+    for days in ["0", "366"] {
+        Command::cargo_bin("nolgia")
+            .unwrap()
+            .args([
+                "pat",
+                "create",
+                "--name",
+                "ci-bot",
+                "--expires-in-days",
+                days,
+            ])
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains("expires-in-days"));
+    }
+}
+
+/// `nolgia pat list` shows each token's expiry: a date, EXPIRED, or never for
+/// a token created before tokens expired.
+#[tokio::test]
+async fn pat_list_shows_expiry_states() {
+    let api = MockServer::start().await;
+    let mut expired = pat_json();
+    expired["name"] = json!("old-ci");
+    expired["expires_at"] = json!("2020-01-01T00:00:00Z");
+    let mut legacy = pat_json();
+    legacy["name"] = json!("legacy");
+    legacy["expires_at"] = json!(null);
+    Mock::given(method("GET"))
+        .and(path("/v1/pat"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({"items": [pat_json(), expired, legacy]})),
+        )
+        .mount(&api)
+        .await;
+    run_ok(&api, &["pat", "list"])
+        .stdout(predicate::str::contains(
+            "expires 2099-06-13T00:00:00+00:00",
+        ))
+        .stdout(predicate::str::contains(
+            "EXPIRED 2020-01-01T00:00:00+00:00",
+        ))
+        .stdout(predicate::str::contains(
+            "expires never (created before tokens expired; rotate recommended)",
+        ));
+}
+
 #[tokio::test]
 async fn pat_revoke_deletes_token() {
     let api = MockServer::start().await;
@@ -4091,7 +4190,8 @@ fn credit_balance_json() -> serde_json::Value {
 fn pat_json() -> serde_json::Value {
     json!({
         "id": PAT_ID, "name": "ci-bot", "prefix": "nol_a1b2",
-        "created_at": "2026-06-13T00:00:00Z", "last_used_at": null, "revoked_at": null
+        "created_at": "2026-06-13T00:00:00Z", "last_used_at": null, "revoked_at": null,
+        "expires_at": "2099-06-13T00:00:00Z"
     })
 }
 
