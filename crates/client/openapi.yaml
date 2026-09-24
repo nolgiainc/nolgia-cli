@@ -18246,16 +18246,57 @@ components:
         `running` while anything is still being made, `finished` once every angle, clip and the highlight edit has settled, `canceled` after `POST /multicam/runs/{id}/cancel` (finished angles keep their clips).
     MulticamPieceState:
       type: string
-      enum: [preparing, waiting, queued, rendering, ready, failed, canceled]
-      x-enum-varnames: [MulticamPieceStatePreparing, MulticamPieceStateWaiting, MulticamPieceStateQueued, MulticamPieceStateRendering, MulticamPieceStateReady, MulticamPieceStateFailed, MulticamPieceStateCanceled]
+      enum: [preparing, waiting, queued, rendering, ready, failed, canceled, copy]
+      x-enum-varnames: [MulticamPieceStatePreparing, MulticamPieceStateWaiting, MulticamPieceStateQueued, MulticamPieceStateRendering, MulticamPieceStateReady, MulticamPieceStateFailed, MulticamPieceStateCanceled, MulticamPieceStateCopy]
       description: >-
-        `preparing`: the part of the take is being cut (free). `waiting`: not sent yet: your plan's concurrent renders are busy, or your balance does not cover it (`message` says which). `queued` / `rendering`: the job is with the model. `ready`, `failed`, `canceled`: settled.
+        `preparing`: the part of the take is being cut (free). `waiting`: not sent yet: your plan's concurrent renders are busy, or your balance does not cover it (`message` says which). `queued` / `rendering`: the job is with the model (a render that came back as a copy of the take is re-rolled once for free and reads `queued` / `rendering` again, with `rerolled`). `ready`, `failed`, `canceled`: settled. `copy`: settled; the render came back as the take's own framing even after its free re-roll, so its credits were refunded (`credits_refunded`) and it is kept out of the highlight edit.
     MulticamShotState:
       type: string
-      enum: [generating, finishing, ready, failed, canceled]
-      x-enum-varnames: [MulticamShotStateGenerating, MulticamShotStateFinishing, MulticamShotStateReady, MulticamShotStateFailed, MulticamShotStateCanceled]
+      enum: [generating, finishing, ready, failed, canceled, copy]
+      x-enum-varnames: [MulticamShotStateGenerating, MulticamShotStateFinishing, MulticamShotStateReady, MulticamShotStateFailed, MulticamShotStateCanceled, MulticamShotStateCopy]
       description: >-
-        `generating` while its renders run, `finishing` while its clip is put together over the take's sound (free), then `ready`, `failed` or `canceled`.
+        `generating` while its renders run, `finishing` while its clip is put together over the take's sound (free), then `ready`, `failed`, `canceled` or `copy`: the angle came back as the take's own framing even after its free re-roll, so it was refunded and left out of the highlight edit (`message` says so).
+    MulticamCopyCheck:
+      type: object
+      additionalProperties: false
+      required: [attempt, wording, scores, master_seconds, copy]
+      description: >-
+        One finished render measured against the stretch of the take it was made from: every second of the render against the take at the same take time (both 480x270 greyscale, one frame a second, whole-frame SSIM). A second scoring 0.65 or more is the take's own framing; a render with at least half its seconds like that is a copy.
+      properties:
+        attempt:
+          type: integer
+        wording:
+          type: string
+          enum: [angle, neutral]
+          x-enum-varnames: [MulticamCopyCheckWordingAngle, MulticamCopyCheckWordingNeutral]
+          description: '`angle`: asked with the angle''s own words. `neutral`: the subject-neutral wording that names the camera position against the take''s own camera, used for the free re-roll of a copy.'
+        job_id:
+          type: string
+          format: uuid
+          nullable: true
+        asset_id:
+          type: string
+          format: uuid
+          nullable: true
+        scores:
+          type: array
+          items:
+            type: number
+            format: double
+          description: SSIM against the take, one per second of the render.
+        master_seconds:
+          type: integer
+          description: How many of those seconds are the take's own framing.
+        copy:
+          type: boolean
+        refunded_credits:
+          type: integer
+          nullable: true
+          description: What was given back for this render.
+        unmeasured:
+          type: string
+          nullable: true
+          description: Why the render could not be measured; it was delivered unmeasured.
     MulticamHighlightState:
       type: string
       enum: [none, waiting, making, ready, failed]
@@ -18331,6 +18372,16 @@ components:
           description: On a failed or canceled render, whether its credits came back.
         cancellation:
           $ref: '#/components/schemas/JobCancellation'
+        rerolled:
+          type: boolean
+          nullable: true
+          description: The current attempt is the free re-roll of a render that came back as a copy of the take.
+        copy_checks:
+          type: array
+          nullable: true
+          items:
+            $ref: '#/components/schemas/MulticamCopyCheck'
+          description: Every finished attempt of this render measured against the take, oldest first.
     MulticamRunShot:
       type: object
       additionalProperties: false
