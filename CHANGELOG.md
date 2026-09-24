@@ -5,6 +5,16 @@ the matching GitHub release.
 
 ## Unreleased
 
+- **Personal access tokens expire, and `nolgia pat` shows when.** `nolgia pat
+  create --expires-in-days <1..365>` sets a token's lifetime; without it the
+  server gives new tokens 365 days (until now the API ignored the setting and
+  every token lived forever). `nolgia pat create` prints the expiry under the
+  new token, and `nolgia pat list` ends each line with `expires <date>`,
+  `EXPIRED <date>` (the token is refused; revoke it and create a new one) or
+  `expires never` for a token created before tokens expired, which keeps
+  working and is worth rotating. An expired token is refused with the same
+  401 as a revoked one.
+
 ## v0.2.33
 
 - **`nolgia jobs cancel <JOB_ID>` really stops a job.** Until now nothing in
