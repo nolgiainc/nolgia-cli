@@ -11298,7 +11298,11 @@ components:
           (a swapped product, garment, character or location). Takes exactly
           one reference video; the output keeps the source's length and
           aspect ratio (`aspect_ratio` is ignored), so `duration_seconds` is
-          the source clip's length rounded up: omit it or supply that value.
+          the source clip's length rounded to the nearest whole second (the
+          unit the provider renders and bills: a 5.04 s or a 5.3 s source is
+          a 5 s edit): omit it or supply that value. The source's length
+          rounded up, the rule before 2026-09-25, is still accepted as the
+          same request and billed the same.
           Requires a video asset with a known stored duration of 4-30 seconds;
           raw video URLs and assets without duration metadata are refused.
           Billed at the source length on the selected quality tier.
@@ -11346,6 +11350,17 @@ components:
             price impact (the price is identical with or without audio) or the
             model cannot toggle audio.
           examples: [11]
+        video_input_credits:
+          type: integer
+          nullable: true
+          minimum: 1
+          description: |
+            `credits` for a request that carries a reference video, at the
+            model's default tier, when the provider bills a video input at a
+            different rate. See `QualityOption.video_input_credits` for the
+            per-tier value and how the reference's length is counted. Absent
+            when a reference video does not change the rate.
+          examples: [78]
         baseline_seconds:
           type: integer
           nullable: true
@@ -11440,6 +11455,25 @@ components:
             generate_audio=false request charges `credits - audio_surcharge`.
             Absent when audio has no price impact on this tier.
           examples: [11]
+        video_input_credits:
+          type: integer
+          nullable: true
+          minimum: 1
+          description: |
+            Credits per `baseline_seconds` clip at this tier when the request
+            carries a reference video (`video_asset_ids` / `video_urls`), for
+            a model whose provider bills a video input at a different rate
+            than a text or image render. Every render with a reference video
+            (a `reference`, `edit` or `extend` run) is priced at this rate
+            instead of `credits`. The reference's own length is billed too,
+            counted to the nearest whole second the way the provider counts
+            it, so a reference no longer than the output bills at the output
+            length, and a longer one never at more than its own length: a
+            client showing `ceil(video_input_credits * max(duration_seconds,
+            round(reference_seconds)) / baseline_seconds)` before the quote
+            lands never shows less than the charge. Absent when a reference
+            video does not change the rate.
+          examples: [78]
         premium:
           type: boolean
           description: |
