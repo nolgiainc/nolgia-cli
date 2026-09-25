@@ -5,6 +5,8 @@ the matching GitHub release.
 
 ## Unreleased
 
+## v0.2.34
+
 - **Personal access tokens expire, and `nolgia pat` shows when.** `nolgia pat
   create --expires-in-days <1..365>` sets a token's lifetime; without it the
   server gives new tokens 365 days (until now the API ignored the setting and
@@ -14,6 +16,14 @@ the matching GitHub release.
   `expires never` for a token created before tokens expired, which keeps
   working and is worth rotating. An expired token is refused with the same
   401 as a revoked one.
+- **API spec refreshed.** The Rust client's types are regenerated from the
+  current spec: besides the PAT expiry fields above, it gains Multicam
+  (turning one locked-off take into every chosen camera angle plus a
+  highlight edit), the platform's on-demand quality check for a stored video,
+  copying one of NOLGIA's own examples into your Library
+  (`POST /samples/{slug}/use`), and a model's `video_input_credits` price
+  field for a reference-video render billed at its own rate. Nothing you
+  already wrote changes: these are additions.
 
 ## v0.2.33
 
