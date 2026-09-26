@@ -13121,6 +13121,20 @@ components:
             `generate_audio: false` is refused with a 400. The delivered asset
             records the resolved outcome as
             `generation.generate_audio_effective`.
+        strip_audio:
+          type: boolean
+          nullable: true
+          description: |
+            Deliver the clip with NO audio stream at all: every audio track the
+            model rendered is removed on delivery by a stream copy (the video
+            stream is untouched), and the asset records `has_audio: false`.
+            Use it for footage that ships silent by design, such as B roll an
+            editor cuts under their own song or dialogue, on a model whose
+            audio is native (`video.audio` `always`, where
+            `generate_audio: false` is refused). It changes neither the price
+            nor the render. It is not a mute: a muted clip still carries a
+            silent track, and a stripped one carries none. Omitted or false
+            delivers the model's audio as usual.
         quality:
           type: string
           nullable: true
