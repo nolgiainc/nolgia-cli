@@ -40,6 +40,8 @@ tags:
     description: Generated media stored in GCS with signed URLs.
   - name: Characters
     description: User-owned reusable subjects (name, description, reference images) for generation.
+  - name: Voices
+    description: Custom voices cloned from your own recordings with ElevenLabs Instant Voice Cloning, spoken on POST /generate/audio by every model whose `audio.custom_voices` is true.
   - name: Locations
     description: User-owned reusable places (name, canonical description, reference images) for generation; the place-twin of a character.
   - name: Products
@@ -3645,6 +3647,114 @@ paths:
         '401':
           $ref: '#/components/responses/ProblemResponse'
         '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /voices:
+    get:
+      tags: [Voices]
+      operationId: listVoices
+      summary: List your custom voices, newest first, with the limit and price for creating one.
+      description: |
+        Custom voices are library items: personal in your own space, shared
+        with the team in an organization (every member can speak them). The
+        list carries what the create form needs, so a client never hardcodes
+        a price or limit: `max_voices` per library, `credits_per_voice`, and
+        whether this caller may create one now (`create_allowed`, with the
+        reason when not).
+      responses:
+        '200':
+          description: The caller's custom voices and the create allowance.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomVoiceList'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+    post:
+      tags: [Voices]
+      operationId: createVoice
+      summary: Clone a custom voice from your own recordings.
+      description: |
+        Clones a voice with ElevenLabs Instant Voice Cloning from one to five
+        of your audio assets. Their measured lengths must add up to 10
+        seconds to 5 minutes; ElevenLabs recommends one to two minutes of one
+        speaker, with no music or background noise. The recordings are sent
+        to ElevenLabs once, to build the voice; the voice's name stays here.
+
+        Charges `credits_per_voice` (50) once, when the voice is created; a
+        failed clone charges nothing. Speaking with the voice afterwards
+        costs the model's normal text to speech price. Custom voices are
+        included with every paid plan (a free account gets 402 `Upgrade
+        Required`), and a library holds at most `max_voices` (10) at once
+        (409); deleting one frees its place.
+
+        `speaker_consent` must be true, and it must come from the person
+        using NOLGIA: the NOLGIA Agent is refused with 403. A voice the
+        provider will not clone without its own verification step is not
+        created and not charged (422).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCustomVoiceRequest'
+      responses:
+        '201':
+          description: Voice created and ready to speak.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomVoice'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '402':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        '422':
+          $ref: '#/components/responses/ProblemResponse'
+        '502':
+          $ref: '#/components/responses/ProblemResponse'
+        '503':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /voices/{id}:
+    delete:
+      tags: [Voices]
+      operationId: deleteVoice
+      summary: Delete one of your custom voices, here and at ElevenLabs.
+      description: |
+        Deletes the voice at ElevenLabs first, then here, which frees its
+        place in your library's limit. The credits paid to create it are not
+        refunded. Your recordings stay in your library. In an organization,
+        owners and admins may delete any team voice and members their own.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Voice deleted.
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '502':
+          $ref: '#/components/responses/ProblemResponse'
+        '503':
           $ref: '#/components/responses/ProblemResponse'
         default:
           $ref: '#/components/responses/ProblemResponse'
@@ -11745,6 +11855,13 @@ components:
           allOf:
             - $ref: '#/components/schemas/SpeedRange'
           description: Accepted speaking-rate range for `speed` on POST /generate/audio. Absent when the model ignores speed.
+        custom_voices:
+          type: boolean
+          description: |
+            True when this model speaks your custom voices (GET /voices): pass
+            a custom voice's `voice_id` as `voice` on POST /generate/audio.
+            Absent on every other model, which refuses a custom voice with a
+            400.
         max_prompt_chars:
           type: integer
           examples: [2000]
@@ -12861,7 +12978,11 @@ components:
           type: string
           nullable: true
           maxLength: 128
-          description: TTS voice id (model-specific).
+          description: |
+            TTS voice id (model-specific): one of the model's `audio.voices`,
+            or the `voice_id` of one of your custom voices (GET /voices) on a
+            model whose `audio.custom_voices` is true. A custom voice that is
+            not in your library, or was deleted, is refused with a 400.
           examples: ['af_bella']
         speed:
           type: number
@@ -14266,6 +14387,107 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Character'
+    CustomVoice:
+      type: object
+      additionalProperties: false
+      required: [id, voice_id, name, source_asset_ids, source_seconds, speaker_consent, consented_at, created_at]
+      description: A custom voice cloned from your recordings, ready to speak.
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: The voice's id in NOLGIA (DELETE /voices/{id}).
+        voice_id:
+          type: string
+          description: What to send as `voice` on POST /generate/audio, with a model whose `audio.custom_voices` is true.
+          examples: ['c38kUX8pkfYO2kHyqfFy']
+        name:
+          type: string
+          minLength: 1
+          maxLength: 60
+          description: Your name for the voice.
+        source_asset_ids:
+          type: array
+          description: The audio assets the voice was cloned from, in the order given.
+          items:
+            type: string
+            format: uuid
+        source_seconds:
+          type: number
+          format: double
+          description: Their measured length added up, in seconds.
+        sample:
+          $ref: '#/components/schemas/Asset'
+          description: The first source recording still in your library, with a fresh signed URL, for hearing the voice before you generate. Omitted when every source recording was deleted.
+        speaker_consent:
+          type: boolean
+          description: Always true; recorded when the voice was created.
+        consented_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+    CustomVoiceList:
+      type: object
+      additionalProperties: false
+      required: [voices, max_voices, credits_per_voice, create_allowed]
+      properties:
+        voices:
+          type: array
+          items:
+            $ref: '#/components/schemas/CustomVoice'
+        max_voices:
+          type: integer
+          description: How many custom voices one library (your personal space, or an organization) may hold at once.
+          examples: [10]
+        credits_per_voice:
+          type: integer
+          description: Credits charged once when a voice is created.
+          examples: [50]
+        create_allowed:
+          type: boolean
+          description: Whether this caller may create a voice now.
+        create_blocked_reason:
+          type: string
+          nullable: true
+          enum: [plan, read_only_role, limit_reached, unavailable]
+          x-enum-varnames: [CustomVoiceCreateBlockedPlan, CustomVoiceCreateBlockedReadOnlyRole, CustomVoiceCreateBlockedLimitReached, CustomVoiceCreateBlockedUnavailable]
+          description: |
+            Why `create_allowed` is false: `plan` (custom voices come with a
+            paid plan), `read_only_role` (viewer or billing role in the
+            organization), `limit_reached` (the library holds `max_voices`),
+            `unavailable` (voice cloning is not configured on this server).
+            Null when creating is allowed.
+    CreateCustomVoiceRequest:
+      type: object
+      additionalProperties: false
+      required: [name, audio_asset_ids, speaker_consent]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 60
+          description: Your name for the voice, trimmed.
+          examples: ['My narrator voice']
+        audio_asset_ids:
+          type: array
+          minItems: 1
+          maxItems: 5
+          description: |
+            One to five of your audio assets, each ready (not uploading) with a
+            measured length. Together they must last 10 seconds to 5 minutes
+            and be at most 50 MB.
+          items:
+            type: string
+            format: uuid
+        speaker_consent:
+          type: boolean
+          description: 'REQUIRED true: "this is my voice, or I have the speaker''s permission to clone it". Must come from the person using NOLGIA; the NOLGIA Agent is refused.'
+        remove_background_noise:
+          type: boolean
+          default: false
+          description: Ask ElevenLabs to clean background noise out of the recordings before cloning.
     CreateCharacterRequest:
       type: object
       additionalProperties: false
