@@ -101,6 +101,7 @@ jobs:
   detect:
     name: Detect changed paths
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
     outputs:
@@ -187,6 +188,7 @@ jobs:
     if: ${{ !cancelled() }}
     needs: [detect]
     runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 30
     permissions:
       contents: read
     steps:
@@ -299,6 +301,7 @@ jobs:
     if: ${{ !cancelled() }}
     needs: [detect]
     runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 15
     permissions:
       contents: read
     steps:
