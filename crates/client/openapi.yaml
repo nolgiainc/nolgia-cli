@@ -7793,7 +7793,7 @@ paths:
       operationId: listAgentModels
       summary: Selectable agent brains (reasoning models) with their flat per-turn credit rates.
       description: >-
-        Every entry is a model the platform can actually serve for an agent's reasoning loop — routed through the LLM proxy with a provider-outage fallback group — priced as a flat credit rate per chat turn. The default brain is included; premium brains cost more per turn. `gpt-6-astra` is the top tier at 170 credits a turn: OpenAI's hardest reasoning model, for long-horizon reasoning, coding and long documents. Retired brains are NOT listed: `glm-5.2` (superseded by `glm-5.3`) and `kimi-k3` left the catalogue on 2026-09-09, and an agent still pinned to one keeps running and keeps billing at its own rate — GET /agent carries a `model_advisory` for that case. Treat this catalogue as the source of truth for both the selectable ids and their rates rather than hard-coding either — it is served from the same table that prices the turn.
+        Every entry is a model the platform can actually serve for an agent's reasoning loop — routed through the LLM proxy with a provider-outage fallback group — priced as a flat credit rate per chat turn. The default brain is included; premium brains cost more per turn. `gpt-6-astra` is the top tier at 170 credits a turn: OpenAI's hardest reasoning model, for long-horizon reasoning, coding and long documents. Retired brains are NOT listed: `glm-5.2` and `kimi-k3` left the catalogue on 2026-09-09 and `glm-5.3` was replaced by `claude-opus-5-5` on 2026-09-28, and an agent still pinned to one keeps running and keeps billing at its own rate — GET /agent carries a `model_advisory` for that case. Treat this catalogue as the source of truth for both the selectable ids and their rates rather than hard-coding either — it is served from the same table that prices the turn.
       responses:
         '200':
           description: The selectable brains, default first, then by ascending per-turn rate.
@@ -18057,7 +18057,7 @@ components:
           nullable: true
           description: >-
             The brain (reasoning model) this agent is configured to run, when explicitly selected via PUT /agent/model or pinned by the deploy pipeline. Omitted/null means the platform default brain, billed at the default flat per-turn rate. The next newly executing chat turn uses and bills this brain (see GET /agent/models). Existing turns retain their durable execution model and billing rate, including when resumed or retried. Other pod surfaces follow this pin on subsequent convergence rolls. `glm-5.2` and `kimi-k3` are RETIRED: they are still accepted here on reads and still bill at their own rate for agents already pinned to them, but they can no longer be selected — see `model_advisory`.
-          examples: ['glm-5.3']
+          examples: ['claude-opus-5-5']
         model_advisory:
           nullable: true
           allOf:
@@ -18087,7 +18087,7 @@ components:
           type: string
           description: >-
             A currently selectable brain to suggest instead, always present in GET /agent/models. It is a suggestion, not a migration — the customer must select it themselves via PUT /agent/model.
-          examples: ['glm-5.3']
+          examples: ['claude-opus-5-5']
         detail:
           type: string
           description: Human-readable copy safe to show as-is.
@@ -18116,7 +18116,7 @@ components:
         model:
           type: string
           description: Model identifier, as accepted by PUT /agent/model.
-          examples: ['glm-5.3', 'gpt-6-astra']
+          examples: ['claude-opus-5-5', 'gpt-6-astra']
         turn_credits:
           type: integer
           description: >-
@@ -18145,7 +18145,7 @@ components:
         to:
           type: string
           description: The selected brain for the next newly executing chat turn (the fleet default brain's id after DELETE /agent/model).
-          examples: ['glm-5.3']
+          examples: ['claude-opus-5-5']
         status:
           $ref: '#/components/schemas/AgentModelSwitchStatus'
         started_at:
@@ -18167,7 +18167,7 @@ components:
           minLength: 1
           description: >-
             One of the selectable models from GET /agent/models. Anything else is rejected with 400, including models the proxy routes but the platform does not sell, and RETIRED brains — `glm-5.2` and `kimi-k3` are no longer selectable as of 2026-09-09 and are rejected here, though agents already pinned to them keep running and keep billing at their own rate. `gpt-6-astra` (170 credits a turn) is OpenAI's hardest reasoning model — long-horizon reasoning, coding and long documents; the cheaper brains are better value for routine turns.
-          examples: ['glm-5.3', 'gpt-6-astra']
+          examples: ['claude-opus-5-5', 'gpt-6-astra']
     ProvisionAgentRequest:
       type: object
       additionalProperties: false
