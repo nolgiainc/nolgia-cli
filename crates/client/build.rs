@@ -641,7 +641,27 @@ fn strip_non_success_responses(value: &mut Value) {
             };
 
             responses.retain(|status, _| is_success_status(status));
+            drop_empty_success_alternatives(responses);
         }
+    }
+}
+
+/// progenitor generates ONE success type per operation and panics
+/// (`response_types.len() <= 1`) when an operation offers a typed 2xx body next
+/// to an empty one, e.g. a long-poll that answers 200 with a command or 204
+/// when there is none (`GET /bridge/sessions/{id}/next`). The generated client
+/// keeps the typed response; the empty alternative surfaces as an unexpected
+/// response, which is right for the CLI, which never long-polls. An operation
+/// whose ONLY success responses are empty is left alone.
+fn drop_empty_success_alternatives(responses: &mut serde_yaml::Mapping) {
+    let has_content = |response: &Value| {
+        response
+            .as_mapping()
+            .and_then(|map| map.get(Value::from("content")))
+            .is_some()
+    };
+    if responses.values().any(has_content) {
+        responses.retain(|_, response| has_content(response));
     }
 }
 
