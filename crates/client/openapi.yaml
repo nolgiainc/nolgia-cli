@@ -9979,6 +9979,27 @@ components:
           allOf:
             - $ref: '#/components/schemas/GenerationLimits'
           description: Current shared generation concurrency across image, audio, and video.
+        connector:
+          allOf:
+            - $ref: '#/components/schemas/ConnectorCredential'
+          description: >-
+            Present only when this request authenticated with a token an OAuth connector obtained through NOLGIA's authorization server (an AI assistant connecting to mcp.nolgia.ai). Absent for a browser session, a token a person created by hand, and the CLI.
+    ConnectorCredential:
+      type: object
+      additionalProperties: false
+      required: [platform]
+      description: The OAuth connector the calling token was issued to.
+      properties:
+        platform:
+          type: string
+          enum: [chatgpt, other]
+          x-enum-varnames: [ConnectorPlatformChatgpt, ConnectorPlatformOther]
+          description: >-
+            `chatgpt` when the connector is ChatGPT: its registered redirect URI is on chatgpt.com or chat.openai.com (an authorization code can only ever be delivered to a registered redirect URI), or it registered under the name ChatGPT (a token minted before the connector was recorded on it counts when it carries that name). `other` for every other connector. The hosted MCP server reads it to decide which tools a connection is offered.
+        client_name:
+          type: string
+          description: The name the connector registered with, as shown on the consent screen.
+          examples: ['ChatGPT']
     GenerationLimits:
       type: object
       additionalProperties: false
@@ -11454,6 +11475,11 @@ components:
           items:
             $ref: '#/components/schemas/VideoCapabilityTag'
           examples: [['lip_sync']]
+        unavailable_reason:
+          type: string
+          description: >-
+            Present only when a generate request for this model from THIS caller would be refused before any quote or charge, saying why and which models to use instead. Today that is the uploaded-video editing region rule: `omni-1.1-flash-edit` is withheld from customers in the EEA, the UK and Switzerland, and whenever the customer's region cannot be determined, which includes every request relayed by the hosted MCP server (mcp.nolgia.ai), because that hop only knows its own location. A picker should list the model as unavailable, or leave it out, rather than let the person submit and be refused. Absent when the model runs for this caller.
+          examples: ['model "omni-1.1-flash-edit" cannot edit uploaded footage unless the customer''s region is known.']
     ThreeDCapabilities:
       type: object
       additionalProperties: false
