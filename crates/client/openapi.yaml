@@ -1670,7 +1670,7 @@ paths:
         Form-encoded per RFC 6749; a JSON body is also accepted because some MCP clients send one. The `authorization_code` grant requires `code` and a PKCE `code_verifier` matching the challenge recorded at authorization time. The `refresh_token` grant requires `refresh_token` instead, without a code or PKCE verifier. Identify the client with `client_id` in the body or the HTTP Basic username.
 
 
-        The issued access token is a normal personal API token (`nol_...`), using the same billing channel, per-user cap and revocation UI as one created by hand. There is no `expires_in`: the access token remains valid until revoked, including replacement during refresh rotation. When the account is already at its active token limit, the exchange still succeeds: it revokes the least recently used token a connector was issued (the same client's first), together with that connection's refresh tokens. Tokens created by hand are never revoked this way; if they alone fill the limit, the exchange answers `access_denied`.
+        The issued access token is a personal API token (`nol_...`) with the same per-user cap and revocation UI as one created by hand. Its billing differs: a connector is the customer using NOLGIA through another assistant, so its token spends like the app, subscription credits first and then top-up credits, where a token created by hand spends top-up credits only. There is no `expires_in`: the access token remains valid until revoked, including replacement during refresh rotation. When the account is already at its active token limit, the exchange still succeeds: it revokes the least recently used token a connector was issued (the same client's first), together with that connection's refresh tokens. Tokens created by hand are never revoked this way; if they alone fill the limit, the exchange answers `access_denied`.
 
 
         Both successful grants return an access token, plus a refresh token when the client registered for the `refresh_token` grant, issued atomically with consumption of the code or refresh token. A client registered for `authorization_code` alone is refused the refresh grant with `unauthorized_client`. A temporary issuance failure returns `503 temporarily_unavailable` with `Retry-After`, without issuing a PAT or consuming the code or refresh token. Retry the same grant after the indicated delay.
@@ -3864,6 +3864,13 @@ paths:
         answers as soon as a command arrives. Every call counts as a check
         in and keeps the session live.
 
+        Only the newest poll of a session takes commands. Opening a poll
+        supersedes any older one of the same session that is still open
+        (one the plugin abandoned when it was paused, restarted or lost its
+        connection), which then answers `204` within about half a second and
+        never takes a command. So a plugin can drop a poll and open a new one
+        at once: from then on, commands go to the new one.
+
         The plugin runs the command in the app and posts the outcome to
         `POST /bridge/commands/{id}/result` before the command's
         `expires_at`. Commands are free: they cost no credits.
@@ -3921,11 +3928,18 @@ paths:
 
         Every plugin runs `info` (a summary of the open document) and `run`
         (code in the app); the other kinds a session supports are listed in
-        its `capabilities`. The server does not interpret `kind` or `args`.
+        its `capabilities`. The server passes `args` to the plugin as sent
+        and does not interpret them, with one exception: a `run` must be in
+        the language the app runs, `args.language` `python` for Blender,
+        DaVinci Resolve Studio and TouchDesigner, `extendscript` for After
+        Effects, Premiere Pro and Illustrator, `uxp` for Photoshop. Leave
+        `language` out to use the app's own.
 
         Refusals, each with a `code`:
         - `409 app_not_connected`: no live session of `app` (or the named
           session is not live). The detail says how to connect.
+        - `422 language_not_supported`: a `run` in a language the app does
+          not run. The detail names the right one.
         - `422 capability_not_supported`: the session's plugin does not run
           this `kind`.
         - `403 agent_not_allowed`: the NOLGIA Agent sent it and the session
@@ -9910,7 +9924,7 @@ components:
         code:
           type: string
           description: >
-            Machine-readable error code. Agent endpoints (`/agent/chat`, `/agent/messages*`, `/agent/sessions*`, `/agent/steps`) set one of the `AgentErrorCode` values. The generation endpoints (`/generate/image`, `/generate/video`, `/generate/audio`, `/generate/3d`, `/generate/set`) set one of the `GenerationErrorCode` values when the refusal has one; a `409` duplicate-submission refusal carries no code, because the status and the named existing job already say what happened. `POST /jobs/{id}/cancel` sets `job_not_cancellable` on its `409`. The `/bridge/*` endpoints set `app_not_connected`, `capability_not_supported`, `agent_not_allowed`, `organization_key_not_allowed`, `session_disconnected`, `command_not_running` or `command_finished`. Absent otherwise.
+            Machine-readable error code. Agent endpoints (`/agent/chat`, `/agent/messages*`, `/agent/sessions*`, `/agent/steps`) set one of the `AgentErrorCode` values. The generation endpoints (`/generate/image`, `/generate/video`, `/generate/audio`, `/generate/3d`, `/generate/set`) set one of the `GenerationErrorCode` values when the refusal has one; a `409` duplicate-submission refusal carries no code, because the status and the named existing job already say what happened. `POST /jobs/{id}/cancel` sets `job_not_cancellable` on its `409`. The `/bridge/*` endpoints set `app_not_connected`, `language_not_supported`, `capability_not_supported`, `agent_not_allowed`, `organization_key_not_allowed`, `session_disconnected`, `command_not_running` or `command_finished`. Absent otherwise.
 
         type:
           type: string
@@ -17929,7 +17943,9 @@ components:
           format: date-time
     CreditWalletType:
       type: string
-      description: Launch credit buckets. App uses subscription first, then shared top-up overflow; API uses shared top-up only.
+      description: >
+        Launch credit buckets. The app channel (browser and device sessions, the NOLGIA Agent, organization API keys and OAuth connector tokens such as ChatGPT's) uses subscription first, then shared top-up overflow; the API channel (personal access tokens created by hand) uses shared top-up only.
+
       enum: [app_subscription, shared_topup]
     CreditRedeemRequest:
       type: object
@@ -17989,6 +18005,13 @@ components:
         available_for_api:
           type: integer
           description: API prepaid credits; shared top-up only at launch.
+        credential_channel:
+          $ref: '#/components/schemas/CreditChannel'
+        available_for_credential:
+          type: integer
+          description: >
+            What the credential that made this request can spend: `available_for_app` on the app channel, `available_for_api` on the API channel (see `credential_channel`). Set on `GET /billing/credits`. A single request is billed from one pool, so the largest request that can succeed may be smaller than this sum.
+
         buckets:
           type: array
           items:
@@ -18017,6 +18040,13 @@ components:
           description: >
             What the caller has spent from the organization's pool this UTC calendar month (held plus consumed reservations); organization scope only.
 
+    CreditChannel:
+      type: string
+      description: >
+        The billing channel a credential spends on. `app`: subscription credits first, then shared top-up (browser and device sessions, the NOLGIA Agent, organization API keys, and OAuth connector tokens such as ChatGPT's or Claude's). `api`: shared top-up only (a personal access token created by hand with `POST /pat`).
+
+      enum: [app, api]
+      x-enum-varnames: [CreditChannelApp, CreditChannelApi]
     BillingScope:
       type: string
       description: >
