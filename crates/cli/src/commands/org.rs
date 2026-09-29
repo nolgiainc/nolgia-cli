@@ -734,6 +734,7 @@ mod tests {
             active.and_then(|slug| organizations.iter().find(|org| org.slug == slug).cloned());
         User {
             active_organization,
+            connector: None,
             created_at: chrono::Utc::now(),
             email: "ada@nolgia.ai".into(),
             generation_limits: None,
