@@ -42,6 +42,9 @@ tags:
     description: User-owned reusable subjects (name, description, reference images) for generation.
   - name: Voices
     description: Custom voices cloned from your own recordings with ElevenLabs Instant Voice Cloning, spoken on POST /generate/audio by every model whose `audio.custom_voices` is true.
+  - name: Bridge
+    description: >-
+      Connect NOLGIA to desktop apps on your computer (Blender first). A NOLGIA plugin inside the app signs in and picks up commands; you or your agent send them here or through the NOLGIA MCP server (nolgia_app_status, nolgia_app_run and the other app tools). Commands are free. Only your own credentials reach your apps, so an organization API key is refused with 403 `organization_key_not_allowed`.
   - name: Locations
     description: User-owned reusable places (name, canonical description, reference images) for generation; the place-twin of a character.
   - name: Products
@@ -3755,6 +3758,339 @@ paths:
         '502':
           $ref: '#/components/responses/ProblemResponse'
         '503':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /bridge/sessions:
+    get:
+      tags: [Bridge]
+      operationId: listBridgeSessions
+      summary: List your desktop apps connected to NOLGIA right now.
+      description: |
+        The caller's live sessions, most recently seen first. A session is a
+        NOLGIA plugin inside a desktop app on your computer (Blender first)
+        that is signed in and switched on. It is live while the plugin has
+        checked in within the last 60 seconds and has not disconnected.
+
+        Only your own credentials see your sessions. An empty list means no
+        app is connected: install the NOLGIA plugin for your app from
+        https://nolgia.ai/plugins, sign in, and switch it on.
+      responses:
+        '200':
+          description: The caller's live sessions.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BridgeSessionList'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+    post:
+      tags: [Bridge]
+      operationId: registerBridgeSession
+      summary: Register a desktop app plugin, or check in again (heartbeat).
+      description: |
+        Called by the NOLGIA plugin inside a desktop app when it connects and
+        then about every 20 seconds, and whenever the open document changes.
+        Upserts the session by the signed-in user and `instance_id` (a
+        stable id the plugin generates once per install), sets its last seen
+        time, and reconnects a session that was disconnected. Send the full
+        state every time: fields you leave out go back to their defaults.
+
+        The answer carries `poll_wait_seconds` (25), the longest `wait` the
+        plugin should ask for on `GET /bridge/sessions/{id}/next`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterBridgeSessionRequest'
+      responses:
+        '200':
+          description: The session, live.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BridgeSession'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /bridge/sessions/{id}:
+    delete:
+      tags: [Bridge]
+      operationId: disconnectBridgeSession
+      summary: Disconnect a desktop app session.
+      description: |
+        Called by the plugin when the person switches it off or signs out.
+        The session stops being live at once, so new commands are refused
+        with `409 app_not_connected`. Commands still queued or running on it
+        end as `expired`, with an error saying the app disconnected. The
+        plugin's next register reconnects the same session.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Disconnected.
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /bridge/sessions/{id}/next:
+    get:
+      tags: [Bridge]
+      operationId: nextBridgeCommand
+      summary: Long poll for the next command for this app (plugin side).
+      description: |
+        Hands the plugin the oldest queued command of this session, now
+        `running` with `claimed_at` set, or answers `204` when `wait` seconds
+        pass with none. The server holds the request while it waits and
+        answers as soon as a command arrives. Every call counts as a check
+        in and keeps the session live.
+
+        The plugin runs the command in the app and posts the outcome to
+        `POST /bridge/commands/{id}/result` before the command's
+        `expires_at`. Commands are free: they cost no credits.
+
+        A session that was disconnected answers `409` with code
+        `session_disconnected`: register again to reconnect.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: wait
+          in: query
+          required: false
+          description: Seconds to hold the request while no command is queued, 0 to 25.
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 25
+            default: 25
+      responses:
+        '200':
+          description: The next command, now running.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BridgeCommand'
+        '204':
+          description: No command arrived within `wait` seconds. Poll again.
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /bridge/commands:
+    post:
+      tags: [Bridge]
+      operationId: createBridgeCommand
+      summary: Send a command to one of your connected desktop apps.
+      description: |
+        Queues a command for a desktop app on your computer. Without
+        `session_id` it goes to the most recently seen live session of `app`
+        (for the NOLGIA Agent, the most recent one that allows it). The
+        plugin picks it up within moments; follow it with
+        `GET /bridge/commands/{id}?wait=25`.
+
+        Every plugin runs `info` (a summary of the open document) and `run`
+        (code in the app); the other kinds a session supports are listed in
+        its `capabilities`. The server does not interpret `kind` or `args`.
+
+        Refusals, each with a `code`:
+        - `409 app_not_connected`: no live session of `app` (or the named
+          session is not live). The detail says how to connect.
+        - `422 capability_not_supported`: the session's plugin does not run
+          this `kind`.
+        - `403 agent_not_allowed`: the NOLGIA Agent sent it and the session
+          has "Allow NOLGIA Agent" switched off.
+        - `429`: more than 120 commands in a minute.
+
+        `args` is at most 256 KB. `timeout_seconds` (5 to 900, default 120)
+        sets `expires_at`: a command still queued or running then becomes
+        `expired`. Commands are free: they cost no credits.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateBridgeCommandRequest'
+      responses:
+        '201':
+          description: The command, queued.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BridgeCommand'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        '413':
+          $ref: '#/components/responses/ProblemResponse'
+        '422':
+          $ref: '#/components/responses/ProblemResponse'
+        '429':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /bridge/commands/{id}:
+    get:
+      tags: [Bridge]
+      operationId: getBridgeCommand
+      summary: Read a command, optionally waiting for it to finish.
+      description: |
+        Returns the command with its status and, once it finished, its
+        `result` or `error`. With `wait`, the server holds the request until
+        the command finishes or `wait` seconds pass, then answers with the
+        command as it is. A command still queued or running past its
+        `expires_at` reads as `expired`.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: wait
+          in: query
+          required: false
+          description: Seconds to hold the request while the command is unfinished, 0 to 25.
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 25
+            default: 0
+      responses:
+        '200':
+          description: The command.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BridgeCommand'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /bridge/commands/{id}/result:
+    post:
+      tags: [Bridge]
+      operationId: postBridgeCommandResult
+      summary: Report the outcome of a command (plugin side).
+      description: |
+        The plugin posts `succeeded` with the command's `result`, or `failed`
+        with an `error` (a code error's traceback, for example). Only a
+        `running` command of your own session takes a result. One that was
+        cancelled or expired meanwhile answers `409` with code
+        `command_not_running`, and the plugin drops its outcome.
+
+        `result` is at most 1 MB; a larger one answers `413` and the command
+        ends as `failed` with an error saying so. Upload big outputs as
+        assets (`POST /assets/uploads`) and return their ids instead.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BridgeCommandResultRequest'
+      responses:
+        '200':
+          description: The finished command.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BridgeCommand'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        '413':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /bridge/commands/{id}/cancel:
+    post:
+      tags: [Bridge]
+      operationId: cancelBridgeCommand
+      summary: Cancel a queued or running command.
+      description: |
+        A queued or running command becomes `cancelled` at once. A plugin
+        already running it finds out when it posts its result (`409`). The
+        app may already have made changes by then; cancelling does not undo
+        them. Cancelling a cancelled command answers it again; a command
+        that already finished answers `409` with code `command_finished`.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The cancelled command.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BridgeCommand'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
           $ref: '#/components/responses/ProblemResponse'
         default:
           $ref: '#/components/responses/ProblemResponse'
@@ -7793,7 +8129,7 @@ paths:
       operationId: listAgentModels
       summary: Selectable agent brains (reasoning models) with their flat per-turn credit rates.
       description: >-
-        Every entry is a model the platform can actually serve for an agent's reasoning loop — routed through the LLM proxy with a provider-outage fallback group — priced as a flat credit rate per chat turn. The default brain is included; premium brains cost more per turn. `gpt-6-astra` is the top tier at 170 credits a turn: OpenAI's hardest reasoning model, for long-horizon reasoning, coding and long documents. Retired brains are NOT listed: `glm-5.2` and `kimi-k3` left the catalogue on 2026-09-09 and `glm-5.3` was replaced by `claude-opus-5-5` on 2026-09-28, and an agent still pinned to one keeps running and keeps billing at its own rate — GET /agent carries a `model_advisory` for that case. Treat this catalogue as the source of truth for both the selectable ids and their rates rather than hard-coding either — it is served from the same table that prices the turn.
+        Every entry is a model the platform can actually serve for an agent's reasoning loop — routed through the LLM proxy with a provider-outage fallback group — priced as a flat credit rate per chat turn. The default brain is included; premium brains cost more per turn. `gpt-6-astra` is the top tier at 170 credits a turn: OpenAI's hardest reasoning model, for long-horizon reasoning, coding and long documents. Retired brains are NOT listed and are REPLACED rather than kept running: `glm-5.3`, `glm-5.2` and `kimi-k3` all resolve to `claude-opus-5-5`, so an agent pinned to one runs and bills as Opus 5.5 and GET /agent reports `claude-opus-5-5` as its model. Treat this catalogue as the source of truth for both the selectable ids and their rates rather than hard-coding either — it is served from the same table that prices the turn.
       responses:
         '200':
           description: The selectable brains, default first, then by ascending per-turn rate.
@@ -7811,7 +8147,7 @@ paths:
       operationId: setAgentModel
       summary: Choose which brain the user's agent runs; turns bill that brain's flat per-turn rate.
       description: >-
-        Pins the agent's reasoning model to one of the selectable brains from GET /agent/models. The selected brain takes effect on the next newly executing chat turn, billed at that brain's flat per-turn credit rate. Existing turns keep their durable execution model and billing rate, including when resumed or retried. A running agent stays `running`: the switch does not roll or restart the pod or queue turns. The switch record is immediately `ready` with `expected_seconds: 0`, exposed via `model_switch` in the response and subsequent GET /agent responses. Selecting the brain the agent already runs is a no-op that returns the current state. Other pod surfaces, such as the dashboard UI and Telegram bot, follow the durable model pin on subsequent convergence rolls triggered by changes that require a restart.
+        Pins the agent's reasoning model to one of the selectable brains from GET /agent/models. The selected brain takes effect on the next newly executing chat turn, billed at that brain's flat per-turn credit rate. Existing turns keep their durable execution model and billing rate, including when resumed or retried. The one exception is a replaced brain (`glm-5.3`, `glm-5.2`, `kimi-k3`): a queued turn pinned to it that no worker had claimed when it was replaced runs and bills as `claude-opus-5-5`. A running agent stays `running`: the switch does not roll or restart the pod or queue turns. The switch record is immediately `ready` with `expected_seconds: 0`, exposed via `model_switch` in the response and subsequent GET /agent responses. Selecting the brain the agent already runs is a no-op that returns the current state. Other pod surfaces, such as the dashboard UI and Telegram bot, follow the durable model pin on subsequent convergence rolls triggered by changes that require a restart.
       requestBody:
         required: true
         content:
@@ -7838,7 +8174,7 @@ paths:
       operationId: clearAgentModel
       summary: Clear the agent's model pin to use the platform default brain and rate.
       description: >-
-        Removes an explicit model selection so the next newly executing chat turn uses the fleet default brain and its flat per-turn credit rate. Existing turns keep their durable execution model and billing rate, including when resumed or retried. A running agent stays `running`: the switch does not roll or restart the pod or queue turns. As with PUT /agent/model, the switch record is immediately `ready` with `expected_seconds: 0`. Other pod surfaces, such as the dashboard UI and Telegram bot, follow the cleared pin on subsequent convergence rolls triggered by changes that require a restart. A no-op when the agent already uses the default brain, returning the current state.
+        Removes an explicit model selection so the next newly executing chat turn uses the fleet default brain and its flat per-turn credit rate. Existing turns keep their durable execution model and billing rate, including when resumed or retried. The one exception is a replaced brain (`glm-5.3`, `glm-5.2`, `kimi-k3`): a queued turn pinned to it that no worker had claimed when it was replaced runs and bills as `claude-opus-5-5`. A running agent stays `running`: the switch does not roll or restart the pod or queue turns. As with PUT /agent/model, the switch record is immediately `ready` with `expected_seconds: 0`. Other pod surfaces, such as the dashboard UI and Telegram bot, follow the cleared pin on subsequent convergence rolls triggered by changes that require a restart. A no-op when the agent already uses the default brain, returning the current state.
       responses:
         '200':
           description: The updated agent.
@@ -8902,7 +9238,9 @@ paths:
         quotes the flat agent-turn rate; its generations bill separately).
 
         Signed in only (JWT or PAT). `404` when the preset does not exist, is
-        private and the caller is not an admin, or has no intake to resolve.
+        private and the caller is not an admin, or has no intake to resolve
+        (a `desktop_app` preset never has one: its workflow runs in an app on
+        the person's computer and has no credit estimate of its own).
       parameters:
         - $ref: '#/components/parameters/PresetSlug'
       responses:
@@ -9003,8 +9341,8 @@ paths:
       description: |
         Signed-in JWT or PAT callers can assemble a create_image, create_video
         or create_audio preset, including one whose intake submits through an
-        agent. Studio-intent targets and targets without a model return 400;
-        private presets return 404 to non-admin callers.
+        agent. Studio-intent and desktop-app targets and targets without a
+        model return 400; private presets return 404 to non-admin callers.
 
         Uses the resolved intake (own, otherwise parent's), its published model
         limits, prompt slots and card options to decode and validate answers.
@@ -9103,7 +9441,9 @@ paths:
         with a floor of 1 credit, refunded if the provider fails. The ledger
         row reads "Preset suggestions · {slug}". Rate limited to 20 calls per
         minute per account (`429`). Private presets `404` for non-admins, as
-        on `GET /presets/{slug}`.
+        on `GET /presets/{slug}`. A `desktop_app` preset answers `400` before
+        any hold: its workflow runs in an app, so there are no directions to
+        write.
       parameters:
         - $ref: '#/components/parameters/PresetSlug'
       requestBody:
@@ -9570,7 +9910,7 @@ components:
         code:
           type: string
           description: >
-            Machine-readable error code. Agent endpoints (`/agent/chat`, `/agent/messages*`, `/agent/sessions*`, `/agent/steps`) set one of the `AgentErrorCode` values. The generation endpoints (`/generate/image`, `/generate/video`, `/generate/audio`, `/generate/3d`, `/generate/set`) set one of the `GenerationErrorCode` values when the refusal has one; a `409` duplicate-submission refusal carries no code, because the status and the named existing job already say what happened. `POST /jobs/{id}/cancel` sets `job_not_cancellable` on its `409`. Absent otherwise.
+            Machine-readable error code. Agent endpoints (`/agent/chat`, `/agent/messages*`, `/agent/sessions*`, `/agent/steps`) set one of the `AgentErrorCode` values. The generation endpoints (`/generate/image`, `/generate/video`, `/generate/audio`, `/generate/3d`, `/generate/set`) set one of the `GenerationErrorCode` values when the refusal has one; a `409` duplicate-submission refusal carries no code, because the status and the named existing job already say what happened. `POST /jobs/{id}/cancel` sets `job_not_cancellable` on its `409`. The `/bridge/*` endpoints set `app_not_connected`, `capability_not_supported`, `agent_not_allowed`, `organization_key_not_allowed`, `session_disconnected`, `command_not_running` or `command_finished`. Absent otherwise.
 
         type:
           type: string
@@ -14488,6 +14828,225 @@ components:
           type: boolean
           default: false
           description: Ask ElevenLabs to clean background noise out of the recordings before cloning.
+    BridgeApp:
+      type: string
+      enum: [blender, after_effects, premiere, illustrator, photoshop, resolve, touchdesigner]
+      x-enum-varnames: [BridgeAppBlender, BridgeAppAfterEffects, BridgeAppPremiere, BridgeAppIllustrator, BridgeAppPhotoshop, BridgeAppResolve, BridgeAppTouchdesigner]
+      description: |
+        A desktop app a NOLGIA plugin connects: Blender, After Effects,
+        Premiere Pro, Illustrator, Photoshop, DaVinci Resolve Studio or
+        TouchDesigner.
+    BridgeDocument:
+      type: object
+      additionalProperties: false
+      description: The document open in the app. Empty when nothing is open.
+      properties:
+        name:
+          type: string
+          maxLength: 512
+          description: The document's file name, or empty for an unsaved one.
+          examples: ['shot_010.blend']
+        path:
+          type: string
+          maxLength: 4096
+          description: Where the document is saved on the computer, when it is saved.
+          examples: ['/Users/ada/projects/shot_010.blend']
+    BridgeSession:
+      type: object
+      additionalProperties: false
+      required: [id, instance_id, app, app_version, plugin_version, machine_name, document, capabilities, allow_agent, created_at, last_seen_at]
+      description: A NOLGIA plugin inside a desktop app, signed in as you.
+      properties:
+        id:
+          type: string
+          format: uuid
+        instance_id:
+          type: string
+          description: The plugin install's own stable id.
+        app:
+          $ref: '#/components/schemas/BridgeApp'
+        app_version:
+          type: string
+          examples: ['4.2.3']
+        plugin_version:
+          type: string
+          examples: ['1.0.0']
+        machine_name:
+          type: string
+          description: The computer's name, as the plugin reports it.
+          examples: ['ada-macbook']
+        document:
+          $ref: '#/components/schemas/BridgeDocument'
+        capabilities:
+          type: array
+          description: Command kinds the plugin runs, as it listed them. `info` and `run` are implied, listed or not.
+          items:
+            type: string
+          examples: [['preview', 'import_asset', 'export', 'save', 'open']]
+        allow_agent:
+          type: boolean
+          description: False when the person switched off "Allow NOLGIA Agent" in the plugin; the NOLGIA Agent's commands are then refused.
+        created_at:
+          type: string
+          format: date-time
+        last_seen_at:
+          type: string
+          format: date-time
+          description: The plugin's latest check in. The session is live while this is within 60 seconds.
+        poll_wait_seconds:
+          type: integer
+          description: Set on `POST /bridge/sessions` only. The longest `wait` to ask for on `GET /bridge/sessions/{id}/next`.
+          examples: [25]
+    BridgeSessionList:
+      type: object
+      additionalProperties: false
+      required: [sessions]
+      properties:
+        sessions:
+          type: array
+          description: Live sessions, most recently seen first.
+          items:
+            $ref: '#/components/schemas/BridgeSession'
+    RegisterBridgeSessionRequest:
+      type: object
+      additionalProperties: false
+      required: [instance_id, app]
+      properties:
+        instance_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: A stable id the plugin generates once per install and keeps in the app's preferences.
+          examples: ['4f7d2c1e-blender-ada-macbook']
+        app:
+          $ref: '#/components/schemas/BridgeApp'
+        app_version:
+          type: string
+          maxLength: 64
+        plugin_version:
+          type: string
+          maxLength: 64
+        machine_name:
+          type: string
+          maxLength: 128
+        document:
+          $ref: '#/components/schemas/BridgeDocument'
+        capabilities:
+          type: array
+          maxItems: 32
+          description: Command kinds the plugin runs. `info` and `run` are implied, so listing them is optional. Each is lowercase letters, digits and underscores, starting with a letter, at most 64 characters.
+          items:
+            type: string
+            pattern: '^[a-z][a-z0-9_]{0,63}$'
+        allow_agent:
+          type: boolean
+          default: true
+          description: Whether the NOLGIA Agent may send commands to this session.
+    BridgeCommandStatus:
+      type: string
+      enum: [queued, running, succeeded, failed, expired, cancelled]
+      x-enum-varnames: [BridgeCommandStatusQueued, BridgeCommandStatusRunning, BridgeCommandStatusSucceeded, BridgeCommandStatusFailed, BridgeCommandStatusExpired, BridgeCommandStatusCancelled]
+      description: |
+        `queued` until the plugin picks it up, `running` while the app runs
+        it, then `succeeded` or `failed`. `cancelled` when the caller
+        cancelled it, `expired` when `expires_at` passed before it finished
+        or the app disconnected.
+    BridgeCommand:
+      type: object
+      additionalProperties: false
+      required: [id, session_id, kind, args, status, caller, created_at, expires_at]
+      description: A command for a desktop app, and its outcome once it finished.
+      properties:
+        id:
+          type: string
+          format: uuid
+        session_id:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          description: What to do, as the plugin defines it (`info`, `run`, `preview`, `import_asset`, `export`, `save`, `open`, ...).
+          examples: ['run']
+        args:
+          type: object
+          additionalProperties: true
+          description: The command's arguments, passed to the plugin as sent.
+          examples: [{language: python, code: "import bpy\nresult = [o.name for o in bpy.data.objects]"}]
+        status:
+          $ref: '#/components/schemas/BridgeCommandStatus'
+        result:
+          type: object
+          nullable: true
+          additionalProperties: true
+          description: What the plugin returned, once `succeeded`.
+        error:
+          type: string
+          nullable: true
+          description: Why it did not succeed, once `failed`, `expired` or `cancelled`.
+        caller:
+          type: string
+          enum: [user, agent]
+          x-enum-varnames: [BridgeCommandCallerUser, BridgeCommandCallerAgent]
+          description: '`agent` when the NOLGIA Agent sent it, `user` for any of your own credentials.'
+        created_at:
+          type: string
+          format: date-time
+        claimed_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the plugin picked it up.
+        finished_at:
+          type: string
+          format: date-time
+          nullable: true
+        expires_at:
+          type: string
+          format: date-time
+          description: A command still queued or running at this time becomes `expired`.
+    CreateBridgeCommandRequest:
+      type: object
+      additionalProperties: false
+      required: [app, kind]
+      properties:
+        app:
+          $ref: '#/components/schemas/BridgeApp'
+        session_id:
+          type: string
+          format: uuid
+          description: A live session of `app` to send it to. Default is the most recently seen live one.
+        kind:
+          type: string
+          pattern: '^[a-z][a-z0-9_]{0,63}$'
+          description: '`info`, `run`, or one of the session''s `capabilities`.'
+          examples: ['run']
+        args:
+          type: object
+          additionalProperties: true
+          description: The command's arguments, at most 256 KB as JSON. Default `{}`.
+          examples: [{language: python, code: "import bpy\nresult = bpy.context.scene.name"}]
+        timeout_seconds:
+          type: integer
+          minimum: 5
+          maximum: 900
+          default: 120
+          description: Seconds until the command expires if the app has not finished it.
+    BridgeCommandResultRequest:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [succeeded, failed]
+          x-enum-varnames: [BridgeCommandResultSucceeded, BridgeCommandResultFailed]
+        result:
+          type: object
+          additionalProperties: true
+          description: The command's output, at most 1 MB as JSON. For `run`, `{value, stdout, stderr}`.
+        error:
+          type: string
+          description: Why it failed. Kept up to 64 KB.
     CreateCharacterRequest:
       type: object
       additionalProperties: false
@@ -17525,7 +18084,7 @@ components:
         model:
           type: string
           description: >
-            Catalog model id when the row charges or refunds a generation, and the agent brain (for example `kimi-k3`) when it charges or refunds an agent turn. Label it client-side.
+            Catalog model id when the row charges or refunds a generation, and the agent brain (for example `claude-opus-5-5`) when it charges or refunds an agent turn. Label it client-side.
 
         preset:
           type: string
@@ -18056,20 +18615,20 @@ components:
           type: string
           nullable: true
           description: >-
-            The brain (reasoning model) this agent is configured to run, when explicitly selected via PUT /agent/model or pinned by the deploy pipeline. Omitted/null means the platform default brain, billed at the default flat per-turn rate. The next newly executing chat turn uses and bills this brain (see GET /agent/models). Existing turns retain their durable execution model and billing rate, including when resumed or retried. Other pod surfaces follow this pin on subsequent convergence rolls. `glm-5.2` and `kimi-k3` are RETIRED: they are still accepted here on reads and still bill at their own rate for agents already pinned to them, but they can no longer be selected — see `model_advisory`.
+            The brain (reasoning model) this agent is configured to run, when explicitly selected via PUT /agent/model or pinned by the deploy pipeline. Omitted/null means the platform default brain, billed at the default flat per-turn rate. The next newly executing chat turn uses and bills this brain (see GET /agent/models). Existing turns retain their durable execution model and billing rate, including when resumed or retried, except that a queued turn pinned to a replaced brain (`glm-5.3`, `glm-5.2`, `kimi-k3`) that no worker had claimed when it was replaced runs and bills as `claude-opus-5-5`; an agent pinned to a replaced brain reads as `claude-opus-5-5` here. Other pod surfaces follow this pin on subsequent convergence rolls.
           examples: ['claude-opus-5-5']
         model_advisory:
           nullable: true
           allOf:
             - $ref: '#/components/schemas/AgentModelAdvisory'
           description: >-
-            Present only when `model` pins a brain the platform has RETIRED (`glm-5.2`, `kimi-k3` as of 2026-09-09); omitted/null otherwise. Purely advisory: nothing is migrated, the agent keeps running on the pinned brain and keeps billing at that brain's own per-turn rate. Surface it so the customer can pick a replacement themselves — a brain change alters both an agent's behaviour and its price, so the platform will not make that choice for them.
+            Present only when `model` pins a brain the platform has retired to LEGACY; omitted/null otherwise. No brain is legacy today: every retired brain is REPLACED (see `model`), so this is currently always absent and is kept for a future retirement that keeps existing pins. Purely advisory: nothing is migrated, the agent keeps running on the pinned brain and keeps billing at that brain's own per-turn rate. Surface it so the customer can pick a replacement themselves — a brain change alters both an agent's behaviour and its price, so the platform will not make that choice for them.
         model_switch:
           nullable: true
           allOf:
             - $ref: '#/components/schemas/AgentModelSwitch'
           description: >-
-            The agent's brain change record, when one is in flight or settled within the last few minutes; omitted/null otherwise. Present on GET /agent and on the PUT / DELETE /agent/model responses. New hot switches are immediately `ready` with `expected_seconds: 0`: the next newly executing chat turn uses `to`, with no pod roll or switch-induced queueing, and a running agent stays `running`. Existing turns retain their durable execution model and billing rate. Clients can show "Now running on `to`" rather than a rollout countdown. This does not signal convergence of other pod surfaces, which follow the pin on subsequent rolls.
+            The agent's brain change record, when one is in flight or settled within the last few minutes; omitted/null otherwise. Present on GET /agent and on the PUT / DELETE /agent/model responses. New hot switches are immediately `ready` with `expected_seconds: 0`: the next newly executing chat turn uses `to`, with no pod roll or switch-induced queueing, and a running agent stays `running`. Existing turns retain their durable execution model and billing rate, except that a queued turn pinned to a replaced brain (`glm-5.3`, `glm-5.2`, `kimi-k3`) that no worker had claimed when it was replaced runs and bills as `claude-opus-5-5`. Clients can show "Now running on `to`" rather than a rollout countdown. This does not signal convergence of other pod surfaces, which follow the pin on subsequent rolls.
     AgentModelAdvisory:
       type: object
       description: >-
@@ -18082,7 +18641,6 @@ components:
         model:
           type: string
           description: The retired brain the agent is still pinned to.
-          examples: ['kimi-k3']
         recommended:
           type: string
           description: >-
@@ -18134,7 +18692,7 @@ components:
     AgentModelSwitch:
       type: object
       description: >-
-        Records a brain selection. New hot switches are immediately `ready` with `expected_seconds: 0`; a running agent stays `running`, with no pod roll or switch-induced queueing. The next newly executing chat turn uses the selected brain and rate. Existing turns retain their durable execution model and billing rate, including on resume or retry. Other pod surfaces follow the durable pin on subsequent convergence rolls triggered by changes that require a restart.
+        Records a brain selection. New hot switches are immediately `ready` with `expected_seconds: 0`; a running agent stays `running`, with no pod roll or switch-induced queueing. The next newly executing chat turn uses the selected brain and rate. Existing turns retain their durable execution model and billing rate, including on resume or retry, except that a queued turn pinned to a replaced brain (`glm-5.3`, `glm-5.2`, `kimi-k3`) that no worker had claimed when it was replaced runs and bills as `claude-opus-5-5`. Other pod surfaces follow the durable pin on subsequent convergence rolls triggered by changes that require a restart.
       additionalProperties: false
       required: [from, to, status, started_at, expected_seconds]
       properties:
@@ -18166,7 +18724,7 @@ components:
           type: string
           minLength: 1
           description: >-
-            One of the selectable models from GET /agent/models. Anything else is rejected with 400, including models the proxy routes but the platform does not sell, and RETIRED brains — `glm-5.2` and `kimi-k3` are no longer selectable as of 2026-09-09 and are rejected here, though agents already pinned to them keep running and keep billing at their own rate. `gpt-6-astra` (170 credits a turn) is OpenAI's hardest reasoning model — long-horizon reasoning, coding and long documents; the cheaper brains are better value for routine turns.
+            One of the selectable models from GET /agent/models. Anything else is rejected with 400, including models the proxy routes but the platform does not sell, and RETIRED brains (`glm-5.3`, `glm-5.2`, `kimi-k3`), which are replaced by `claude-opus-5-5`. `gpt-6-astra` (170 credits a turn) is OpenAI's hardest reasoning model — long-horizon reasoning, coding and long documents; the cheaper brains are better value for routine turns.
           examples: ['claude-opus-5-5', 'gpt-6-astra']
     ProvisionAgentRequest:
       type: object
@@ -19941,7 +20499,7 @@ components:
 
         model:
           type: string
-          description: The brain the turn ran on, for example `kimi-k3`. Label it client-side.
+          description: The brain the turn ran on, for example `claude-opus-5-5`. Label it client-side.
         metered:
           type: boolean
           description: >
@@ -21082,14 +21640,15 @@ components:
       description: Primary media type the preset produces.
     PresetTargetKind:
       type: string
-      enum: [create_image, create_video, create_audio, studio_intent, set]
-      x-enum-varnames: [PresetTargetKindCreateImage, PresetTargetKindCreateVideo, PresetTargetKindCreateAudio, PresetTargetKindStudioIntent, PresetTargetKindSet]
-      description: How a preset card links out. `create_*` deep-links into a one-shot creation endpoint; `studio_intent` hands off to the Studio agent lane; `set` submits labelled image Outputs through POST /generate/set.
+      enum: [create_image, create_video, create_audio, studio_intent, set, desktop_app]
+      x-enum-varnames: [PresetTargetKindCreateImage, PresetTargetKindCreateVideo, PresetTargetKindCreateAudio, PresetTargetKindStudioIntent, PresetTargetKindSet, PresetTargetKindDesktopApp]
+      description: >-
+        How a preset card links out. `create_*` deep-links into a one-shot creation endpoint; `studio_intent` hands off to the Studio agent lane; `set` submits labelled image Outputs through POST /generate/set; `desktop_app` is a Film assistant preset whose work happens in a desktop app on the person's own computer (Blender, After Effects, Premiere Pro, Illustrator, Photoshop, DaVinci Resolve Studio or TouchDesigner): NOLGIA generates nothing and charges nothing when one runs, it hands the agent the preset's `instructions`, and the agent carries them out in the app through the NOLGIA plugin (the `nolgia_app_*` MCP tools). Such a preset has no intake and no credit estimate of its own; NOLGIA generation used inside the workflow is priced as usual.
     PresetPageCategory:
       type: string
-      enum: ['', 'video', 'image', 'assets']
+      enum: ['', 'video', 'image', 'assets', 'film-assistant']
       description: >-
-        The /presets page section a preset files under (round 39, TASK 7): the page groups into VIDEO, IMAGE, and ASSETS. Empty means uncategorized — clients group those by output_type as a fallback.
+        The /presets page section a preset files under (round 39, TASK 7): the page groups into VIDEO, IMAGE, and ASSETS, plus FILM ASSISTANT (`film-assistant`) for the presets that run in a desktop app on the person's computer (target kind `desktop_app`). Empty means uncategorized — clients group those by output_type as a fallback.
     PresetOption:
       type: object
       additionalProperties: false
@@ -21118,7 +21677,7 @@ components:
           $ref: '#/components/schemas/PresetTargetKind'
         params:
           type: object
-          description: 'Kind-specific link parameters. For `create_image`/`create_video`/`create_audio`: `{"prompt": "...", "model": "..."}` (a starter prompt the user edits before submitting plus a recommended model id). For `studio_intent`: `{"intent": "..."}` (the Studio lane consumes it as `?intent=`). For `set`: `{"model": "<image model id>", "kind": "pack"|"variants", "axis"?: "...", "members": [{"label": "...", "prompt": "..."}] (2 to 8), "shared"?: {aspect_ratio, quality, render_quality, negative_prompt}}`. Any `create_*` target may also carry `style_key`: `{"name": "...", "prompt_fragment": "..."}`, the default style the agent saves once per customer as a saved style (`POST /styles`, with the run''s style key image as `swatch_asset_id`) and reuses through `style_id` on every clip of the run. `name` is 1 to 80 characters, `prompt_fragment` up to 1000.'
+          description: 'Kind-specific link parameters. For `create_image`/`create_video`/`create_audio`: `{"prompt": "...", "model": "..."}` (a starter prompt the user edits before submitting plus a recommended model id). For `studio_intent`: `{"intent": "..."}` (the Studio lane consumes it as `?intent=`). For `set`: `{"model": "<image model id>", "kind": "pack"|"variants", "axis"?: "...", "members": [{"label": "...", "prompt": "..."}] (2 to 8), "shared"?: {aspect_ratio, quality, render_quality, negative_prompt}}`. Any `create_*` target may also carry `style_key`: `{"name": "...", "prompt_fragment": "..."}`, the default style the agent saves once per customer as a saved style (`POST /styles`, with the run''s style key image as `swatch_asset_id`) and reuses through `style_id` on every clip of the run. `name` is 1 to 80 characters, `prompt_fragment` up to 1000. For `desktop_app`: `{"app": "blender"|"after_effects"|"premiere"|"illustrator"|"photoshop"|"resolve"|"touchdesigner", "min_app_version"?: "4.2", "beta"?: false}`, the app the workflow runs in (the same list as the NOLGIA Bridge''s apps), the oldest app version it supports and whether it is marked beta; no other key is accepted, and the stored params always carry `beta`.'
     Preset:
       type: object
       additionalProperties: false
@@ -21195,6 +21754,15 @@ components:
             ADMIN ONLY. Style/scope constraints phrased as instructions to a creative agent (what style to hold, what output type to produce, what to decline as out of scope). The server injects them into the relayed turn preamble of chat sessions created under this preset, so a client never needs to send or read them. Emitted only to an admin caller (the catalog list, the detail read and the write responses); absent for anonymous and customer callers and on the agent manifest. Empty for an admin when the preset defines none.
         target:
           $ref: '#/components/schemas/PresetTarget'
+        instructions:
+          type: string
+          description: >-
+            The workflow a `desktop_app` preset hands the agent, markdown: the app's shared rules (every workflow for that app follows them: check the app is connected, read the open document, make a safety copy, keep the work editable, preview every change, say the credit cost before generating, how to finish) followed by this preset's own steps. Not secret: any caller, and any customer's agent, receives it. Emitted on the catalog list, the detail read and the write responses for `desktop_app` presets only; absent for every other kind. When saving, send only the preset's own steps (a copy that starts with the app's shared rules has them removed before it is stored).
+        starter_prompt:
+          type: string
+          description: >-
+            The sentence or two a person pastes into their agent to start this preset, shown on the preset page and used as the MCP prompt text (in Claude Code the preset appears as `/mcp__nolgia__<slug>`). Always present on a `desktop_app` preset; absent when a preset has none. Customer copy: the no-em-dash rule applies.
+          examples: ['Use NOLGIA to break something apart in my open Blender scene: fracture it, simulate the debris and dust, and give me a camera that shows the moment clearly.']
         page_category:
           $ref: '#/components/schemas/PresetPageCategory'
         options:
