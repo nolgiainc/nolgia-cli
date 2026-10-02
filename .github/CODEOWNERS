@@ -1,0 +1,20 @@
+# Founder approval paths. Source of truth for the "sensitive paths" in
+# nolgiainc/infra docs/security/change-management.md (section 5.4).
+#
+# A change to any path below needs an approving review from a founder before
+# it merges, once the change-control ruleset is active on this repository.
+# Paths not listed have no owner and merge on required CI alone.
+# AI identities (nolgiaai, GitHub Apps) must never be added as owners.
+# Later lines win; a pattern with no owner un-owns what it matches.
+
+# CI/CD, release workflow and this file
+/.github/                                   @blackflame007 @coffeepizza7
+
+# Code that runs on users' machines at install or update time
+/install.sh                                 @blackflame007 @coffeepizza7
+/npm/bin/                                   @blackflame007 @coffeepizza7
+/npm/scripts/                               @blackflame007 @coffeepizza7
+/crates/cli/src/update_check.rs             @blackflame007 @coffeepizza7
+
+# Credential handling
+/crates/cli/src/auth.rs                     @blackflame007 @coffeepizza7

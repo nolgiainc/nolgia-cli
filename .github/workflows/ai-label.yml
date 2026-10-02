@@ -1,0 +1,73 @@
+name: AI involvement label
+
+# Change management (nolgiainc/infra docs/security/change-management.md,
+# section 5.2): every PR declares AI involvement. This applies the
+# `ai-authored` label when
+#   - the author is an AI identity (nolgiaai, nolgia-app[bot]), or
+#   - the body carries an agent marker ("Generated with [Claude Code]" etc.), or
+#   - the author is anyone else except Dependabot and the body does NOT say
+#     `AI-assisted: no` (AI involvement is the default for founder PRs).
+# It only ever adds the label; removing it is a human decision.
+#
+# Safe under pull_request_target: nothing from the PR is checked out or run.
+# The body is read from the event file with jq, never interpolated into the
+# script. Not a required check.
+
+on:
+  pull_request_target:
+    types: [opened, reopened, edited]
+
+permissions: {}
+
+concurrency:
+  group: ai-label-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  label:
+    name: Declare AI involvement
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Apply the ai-authored label
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          ev="$GITHUB_EVENT_PATH"
+          number=$(jq -r '.pull_request.number' "$ev")
+          author=$(jq -r '.pull_request.user.login' "$ev")
+          already=$(jq -r '[.pull_request.labels[].name] | index("ai-authored") != null' "$ev")
+          jq -r '.pull_request.body // ""' "$ev" > body.txt
+
+          reason=""
+          case "$author" in
+            nolgiaai|nolgia-app\[bot\]|nolgia-ai\[bot\])
+              reason="author ${author} is an AI identity" ;;
+            dependabot\[bot\])
+              reason="" ;;
+            *)
+              if grep -qiE 'Generated with \[?Claude Code|Co-authored-by: (Claude|Codex|Cursor)|Generated (by|with) (Codex|Cursor|Copilot)' body.txt; then
+                reason="the body carries an AI agent marker"
+              elif grep -qiE '^[[:space:]]*AI-assisted:[[:space:]]*no[[:space:]]*$' body.txt; then
+                reason=""
+              else
+                reason="no 'AI-assisted: no' declaration (AI involvement is the default)"
+              fi ;;
+          esac
+
+          if [ -z "$reason" ]; then
+            echo "Not labelled: author ${author} declared no AI involvement or is Dependabot." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if [ "$already" = "true" ]; then
+            echo "Already labelled ai-authored (${reason})." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          gh api --method POST "repos/${REPO}/issues/${number}/labels" \
+            -f 'labels[]=ai-authored' --silent
+          echo "Labelled ai-authored: ${reason}." | tee -a "$GITHUB_STEP_SUMMARY"

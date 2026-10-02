@@ -1,0 +1,65 @@
+name: Security scan
+
+# Vulnerability-management policy (nolgiainc/infra
+# docs/security/vulnerability-management.md). `cargo audit` checks Cargo.lock
+# against the RustSec advisory database. REPORT-ONLY for now: findings go to
+# the job summary and a warning annotation, and the job stays green. Not a
+# required check. It becomes a failing check once its first baseline is
+# cleared.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "41 14 * * 1" # Mondays, so new advisories show up without a PR
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-scan-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cargo-audit:
+    name: cargo audit (report-only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@83ac0ad63c0167e6f06796fab0fce28db1bf3db0 # v2.87.22
+        with:
+          tool: cargo-audit@0.22.2
+
+      - name: Run cargo audit
+        run: |
+          set -uo pipefail
+          rc=0
+          cargo audit > audit.txt 2>&1 || rc=$?
+          {
+            echo "## cargo audit"
+            echo
+            if [ "$rc" -eq 0 ]; then
+              echo "No advisories affecting Cargo.lock."
+            else
+              grep -E '^(Crate|Version|Title|ID|Solution|Severity):' audit.txt | sed 's/^/    /' || true
+              echo
+              echo '<details><summary>Full output</summary>'
+              echo
+              echo '```'
+              tail -n 400 audit.txt
+              echo '```'
+              echo '</details>'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$rc" -ne 0 ]; then
+            echo "::warning title=cargo audit::cargo audit reported advisories (report-only; see the job summary)"
+          fi
+          exit 0
