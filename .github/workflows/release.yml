@@ -17,6 +17,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Least privilege by default; jobs that need more grant it themselves.
+permissions:
+  contents: read
+
 jobs:
   # GATE EVERYTHING ON THE TAG BEING TRUTHFUL (NOL-328).
   #

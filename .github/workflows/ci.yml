@@ -72,6 +72,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Least privilege by default; jobs that need more grant it themselves.
+permissions:
+  contents: read
+
 jobs:
   # NOL-488: the path filter that used to live in `on: pull_request:
   # paths-ignore`. It lives here instead because a suppressed WORKFLOW posts no

@@ -11,3 +11,17 @@ Essentials for working in this repo:
 - The nolgia-agent film pipeline drives this CLI as its only platform client (`--json` subprocess). Changing JSON output shapes or flag names of `gen video`, `wait`, `status`, `assets upload/get`, `models list` breaks `nolgia_pipeline/api.py` in nolgiainc/nolgia-agent — update it in the same change.
 - Release: bump `[workspace.package]` version + `crates/client` version + the workspace `nolgia-client` dep pin + `npm/package.json` version (the publish-npm job fails on tag mismatch), add a `## vX.Y.Z` section to CHANGELOG.md (it becomes the release notes), tag `vX.Y.Z`, push. CI builds binaries, creates the GitHub release, publishes both crates. The Homebrew tap (`nolgiainc/homebrew-nolgia`) bumps ITSELF — do not edit the formula by hand. The `notify-tap` job dispatches `cli-released` to the tap, whose `Update Formula` workflow re-downloads the darwin and linux binaries, rewrites the version + sha256, and pushes to its main; a 6-hourly schedule there is the backstop if the dispatch never fires, and a daily `Formula drift check` fails loudly if the tap ever falls behind a release.
 - Agent-facing conventions: costly commands carry agent-phrased help (estimate with `--cost-only`, confirm >~2k credits); requests self-identify via `X-Nolgia-Surface` (detection in `main.rs::detect_surface`, override `NOLGIA_SURFACE`).
+
+## Change control (SOC 2 CC8.1 / ISO 27001 A.8.32)
+
+Policy: `docs/security/change-management.md` in `nolgiainc/infra`.
+
+- AI agents author changes; they never approve them. Never run
+  `gh pr review` (approve, request changes or comment-as-review), never dismiss
+  a review, never edit branch protection, rulesets, CODEOWNERS ownership or
+  environment reviewers, and never merge with `--admin`.
+- A PR that touches a path in `.github/CODEOWNERS` needs a founder's approving
+  review in GitHub before it can merge. Say so in the PR body and report it as
+  "waiting on founder review"; do not look for a way around it.
+- PRs are labelled `ai-authored` automatically. Only a PR written entirely by a
+  human carries the line `AI-assisted: no` in its body.
