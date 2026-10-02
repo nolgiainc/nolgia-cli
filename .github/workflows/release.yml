@@ -34,7 +34,7 @@ jobs:
   # it, so a mislabelled tag produces no artifacts at all.
   verify-version:
     name: Manifests match the tag
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
       contents: read
@@ -57,7 +57,7 @@ jobs:
   test:
     name: Test, Lint & Format
     needs: [verify-version]
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
       contents: read
@@ -256,7 +256,7 @@ jobs:
     # graph must not be able to un-gate it.
     needs: [verify-version, test, build-release]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
       contents: write
@@ -335,7 +335,7 @@ jobs:
     # removes the precondition for that vacuous pass.
     needs: [verify-version, test]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
       contents: read
@@ -384,24 +384,11 @@ jobs:
     name: Publish to npm
     needs: [verify-version, release]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    # NOT blacksmith-*: npm provenance requires a github-hosted runner (NOL-327).
-    #
-    # Blacksmith runners register with GitHub as `self-hosted`. npm >= 11.5.1
-    # auto-detects the OIDC environment and attaches build provenance without
-    # being asked, and npm's sigstore verifier then rejects the publish:
-    #
-    #   npm error code E422
-    #   422 Unprocessable Entity - PUT https://registry.npmjs.org/@nolgia%2fcli
-    #   Error verifying sigstore provenance bundle: Unsupported GitHub Actions
-    #   runner environment: "self-hosted". Only "github-hosted" runners are
-    #   supported when publishing with provenance.
-    #
-    # So this job could not succeed on Blacksmith at any version. Moving it back
-    # to a github-hosted runner keeps BOTH tokenless OIDC Trusted Publishing and
-    # the provenance attestation. The alternative — staying on Blacksmith and
-    # disabling provenance — trades away the supply-chain attestation, which is
-    # the more valuable half. `notify-tap` also runs on Blacksmith but publishes
-    # nothing, so it is unaffected.
+    # Must stay on a GitHub-hosted runner: npm provenance (NOL-327). npm >=
+    # 11.5.1 auto-attaches build provenance under OIDC, and npm's sigstore
+    # verifier rejects publishes from `self-hosted` runners (E422 "Unsupported
+    # GitHub Actions runner environment"). Never move this job to a
+    # self-hosted pool.
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -446,7 +433,7 @@ jobs:
     name: Notify Homebrew tap
     needs: [release]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
       contents: read

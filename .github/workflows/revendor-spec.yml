@@ -41,7 +41,7 @@ permissions:
 jobs:
   revendor:
     name: Re-vendor spec and open PR
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - name: Checkout repository
