@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use clap::{Args, Subcommand};
-use nolgia_client::types::{ImportProductRequest, Product};
+use nolgia_client::types::{ImportProductRequest, ImportProductRequestUrl, Product};
 use uuid::Uuid;
 
 use crate::output::{OutputFormat, print_json};
@@ -66,8 +66,11 @@ async fn list(ctx: &CommandContext) -> Result<()> {
 }
 
 async fn import(args: ImportProductArgs, ctx: &CommandContext) -> Result<()> {
+    // The spec caps the link at 2048 characters; the generated newtype checks
+    // that locally so an over-long URL fails before the request is sent.
+    let url = ImportProductRequestUrl::try_from(args.url).context("invalid product URL")?;
     let body = ImportProductRequest {
-        url: args.url,
+        url,
         project_id: args.project_id,
     };
     // Import is the one product call whose failures carry a reason the caller
