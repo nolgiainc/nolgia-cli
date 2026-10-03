@@ -257,7 +257,7 @@ fn relax_request_model_selectors(value: &mut Value) {
 /// `/oauth/token` and `/oauth/revoke` each accept RFC 6749/7009
 /// `application/x-www-form-urlencoded` OR an equivalent `application/json`
 /// body (some MCP clients send JSON) — a deliberate, spec-correct dual
-/// encoding on the SERVER side. progenitor-impl 0.14.0 has no support for a
+/// encoding on the SERVER side. progenitor-impl (0.14 and 0.15) has no support for a
 /// requestBody with more than one media type and panics at codegen time:
 ///
 /// ```text

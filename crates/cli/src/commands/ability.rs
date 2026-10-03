@@ -140,7 +140,7 @@ async fn show(args: SlugArgs, ctx: &CommandContext) -> Result<()> {
     let ability = ctx
         .client()
         .get_ability()
-        .slug(&args.slug)
+        .slug(args.slug.as_str())
         .send()
         .await
         .context("fetching ability")?
@@ -221,7 +221,7 @@ async fn install(args: SlugArgs, ctx: &CommandContext) -> Result<()> {
 async fn uninstall(args: SlugArgs, ctx: &CommandContext) -> Result<()> {
     ctx.client()
         .uninstall_agent_ability()
-        .slug(&args.slug)
+        .slug(args.slug.as_str())
         .send()
         .await
         .context("uninstalling ability")?;
@@ -275,7 +275,7 @@ async fn sync(args: SyncArgs, ctx: &CommandContext) -> Result<()> {
         let content = match ctx
             .client()
             .get_ability_content()
-            .slug(&ability.slug)
+            .slug(ability.slug.as_str())
             .send()
             .await
         {
