@@ -27,7 +27,7 @@ prettyplease = "0.2"
 progenitor = "0.14"
 reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "gzip", "rustls"] }
 serde_yaml = "0.9"
-syn = { version = "2", features = ["full"] }
+syn = { version = "3", features = ["full"] }
 regex = "1"
 
 [dev-dependencies]
