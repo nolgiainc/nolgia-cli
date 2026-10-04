@@ -10349,6 +10349,9 @@ components:
         actor_email:
           type: string
           nullable: true
+          description: >
+            Who acted: the member's email at the time of the event, the literal value `NOLGIA staff` for an action NOLGIA's own operators took on the organization (support or administration), or null when the actor is not resolvable. No individual staff member's email is ever shown, here or in the CSV export.
+
         actor_api_key_id:
           type: string
           format: uuid
