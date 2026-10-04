@@ -3664,7 +3664,9 @@ paths:
         list carries what the create form needs, so a client never hardcodes
         a price or limit: `max_voices` per library, `credits_per_voice`, and
         whether this caller may create one now (`create_allowed`, with the
-        reason when not).
+        reason when not). A voice ElevenLabs locked after it was created is
+        listed with `status: locked` so you can see it and delete it; only
+        `ready` voices speak.
       responses:
         '200':
           description: The caller's custom voices and the create allowance.
@@ -14773,8 +14775,8 @@ components:
     CustomVoice:
       type: object
       additionalProperties: false
-      required: [id, voice_id, name, source_asset_ids, source_seconds, speaker_consent, consented_at, created_at]
-      description: A custom voice cloned from your recordings, ready to speak.
+      required: [id, voice_id, name, status, source_asset_ids, source_seconds, speaker_consent, consented_at, created_at]
+      description: A custom voice cloned from your recordings.
       properties:
         id:
           type: string
@@ -14789,6 +14791,18 @@ components:
           minLength: 1
           maxLength: 60
           description: Your name for the voice.
+        status:
+          type: string
+          enum: [ready, locked]
+          x-enum-varnames: [CustomVoiceReady, CustomVoiceLocked]
+          description: >
+            `ready` speaks on POST /generate/audio. `locked` means ElevenLabs refused to speak it after it was created: its safeguards flagged the recording (for example as sounding like a public figure) and it now needs ElevenLabs' own voice verification, which NOLGIA cannot complete for you. A locked voice is refused on POST /generate/audio, does not count against `max_voices`, and can still be deleted. Offer only `ready` voices in a picker.
+
+        locked_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: When ElevenLabs' refusal locked the voice; present only when `status` is `locked`.
         source_asset_ids:
           type: array
           description: The audio assets the voice was cloned from, in the order given.
