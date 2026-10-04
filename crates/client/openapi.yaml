@@ -560,6 +560,59 @@ paths:
           $ref: '#/components/responses/ProblemResponse'
         default:
           $ref: '#/components/responses/ProblemResponse'
+  /organizations/{id}/security-policy:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationId'
+    get:
+      tags: [Organizations]
+      operationId: getOrganizationSecurityPolicy
+      summary: Get the organization's security policy (any member).
+      description: >
+        The organization's share-link controls and its two-step sign-in requirement for members who sign in with a password. An organization that never set a policy answers the defaults: public share links on, no password required, no maximum lifetime, two-step sign-in not required.
+
+      responses:
+        '200':
+          description: The organization's security policy.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrganizationSecurityPolicy'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+    put:
+      tags: [Organizations]
+      operationId: updateOrganizationSecurityPolicy
+      summary: Replace the organization's security policy (owner or admin).
+      description: >
+        Replaces the whole policy (every field is required, so a client cannot clear a control by leaving it out). Share-link rules apply to links created from now on, except `share_links_disabled`, which also stops every existing public link on the organization's media from resolving (`410`) for as long as it is on; turning it off again restores them. The two-step requirement applies at each member's next password sign-in. Recorded in the organization audit log as `org.security_policy.updated` with the values before and after. Callers using agent PATs, turn tokens, or the legacy `X-Nolgia-Surface: hermes` header receive 403 with code `agent_cannot_change_organization` and detail "The NOLGIA Agent cannot change your organization. Do it in the app."
+
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrganizationSecurityPolicy'
+      responses:
+        '200':
+          description: The policy as stored.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrganizationSecurityPolicy'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/OrganizationMutationForbidden'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
   /organizations/{id}/members:
     parameters:
       - $ref: '#/components/parameters/OrganizationId'
@@ -7161,8 +7214,26 @@ paths:
         token together with the public `url` to hand out (the nolgia.ai share
         page, which renders link previews and plays or downloads the media)
         and its `expires_at`. Default lifetime is 30 days; pass
-        `expires_in_days` (1..365) to change it. The token and URL are
-        returned ONLY by this call.
+        `expires_in_days` (1..365) to change it, or `never_expires: true` for
+        a link with no end date where the organization allows it. The token
+        and URL are returned ONLY by this call.
+
+        Optional controls: `password` (8..128 characters, stored only as an
+        argon2id hash) makes viewers enter it on the share page before the
+        media is served (see `unlockShareLink`); `view_only: true` turns
+        downloads off for the link. Settings are fixed at creation: to change
+        them, revoke the link and create a new one.
+
+        The organization's security policy (`getOrganizationSecurityPolicy`)
+        governs links on organization media: when public share links are
+        turned off the call answers `403` with code
+        `share_links_disabled_by_organization`; when a password is required
+        and none is given, `400` with code
+        `share_password_required_by_organization`; when the requested
+        lifetime (or "never") exceeds the organization's maximum, `400` with
+        code `share_expiry_exceeds_organization_limit`. `GET
+        /me/share-links/policy` returns the rules that apply to the caller's
+        current space so a client can offer only allowed choices.
 
         Authority follows the library scope rules: the asset must be visible
         in the caller's scope (`404` otherwise), read-only roles (viewer,
@@ -7264,7 +7335,9 @@ paths:
         authority rules: the render must be visible in the caller's scope
         (`404`), read-only roles get `403 Read-only role`, and in an
         organization a member may share only renders they requested while
-        owners and admins may share any (`403 Forbidden`).
+        owners and admins may share any (`403 Forbidden`). The password,
+        view-only, "never expires" options and the organization's share-link
+        policy apply exactly as on `createAssetShareLink`.
       requestBody:
         required: false
         content:
@@ -7336,6 +7409,25 @@ paths:
           $ref: '#/components/responses/ProblemResponse'
         default:
           $ref: '#/components/responses/ProblemResponse'
+  /me/share-links/policy:
+    get:
+      tags: [Sharing]
+      operationId: getShareLinkPolicy
+      summary: The share-link rules that apply in the caller's current space.
+      description: >
+        What a new share link may be in the caller's current space: whether public links are allowed at all, whether a password is required, the longest lifetime allowed and whether "never expires" is allowed. In the personal space everything is allowed; in an organization the answer follows the organization's security policy. Clients use it to offer only the choices the create call will accept; the create call enforces the same rules regardless.
+
+      responses:
+        '200':
+          description: The share-link rules for the caller's current space.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShareLinkPolicy'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
   /share/{token}:
     parameters:
       - $ref: '#/components/parameters/ShareToken'
@@ -7350,13 +7442,19 @@ paths:
         share URL itself is the durable thing. Pass `download=true` to make
         the signed URL a download (Content-Disposition attachment).
 
-        Unknown tokens answer `404`. Revoked and expired links, and links
-        whose media has since been trashed or deleted, answer `410` with a
-        detail that says which. The endpoint is rate limited per client IP
+        Unknown tokens answer `404`. Revoked and expired links, links whose
+        media has since been trashed or deleted, and links on the media of an
+        organization that has turned public share links off answer `410` with
+        a detail that says which. A password-protected link answers `401`
+        with code `share_password_required` until the request carries a valid
+        `X-Nolgia-Share-Access` grant from `unlockShareLink`. On a view-only
+        link `download=true` answers `403` with code
+        `share_download_disabled`. The endpoint is rate limited per client IP
         (`429`) so tokens cannot be enumerated. Each successful redirect
         counts as one access on the link.
       security: []
       parameters:
+        - $ref: '#/components/parameters/ShareAccessHeader'
         - name: download
           in: query
           required: false
@@ -7373,6 +7471,10 @@ paths:
               schema:
                 type: string
                 format: uri
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
         '404':
           $ref: '#/components/responses/ProblemResponse'
         '410':
@@ -7389,9 +7491,11 @@ paths:
       operationId: getShareLinkMeta
       summary: Public metadata (no authentication) for a share link's preview page.
       description: >
-        What the nolgia.ai share page and link-preview crawlers need: the title, an optional description, the media's modality and MIME type, a freshly signed short-lived `media_url` (about 15 minutes; play or embed it, never store it), an optional signed `thumbnail_url`, duration and size when known, and the link's expiry. Same `404`, `410` and per-IP `429` semantics as `resolveShareLink`; reading the metadata does not count as an access.
+        What the nolgia.ai share page and link-preview crawlers need: the title, an optional description, the media's modality and MIME type, a freshly signed short-lived `media_url` (about 15 minutes; play or embed it, never store it), an optional signed `thumbnail_url`, duration and size when known, and the link's expiry. Same `404`, `410` and per-IP `429` semantics as `resolveShareLink`; reading the metadata does not count as an access. A password-protected link answers `401` with code `share_password_required` and nothing about the media (no title, poster or expiry) until the request carries a valid `X-Nolgia-Share-Access` grant.
 
       security: []
+      parameters:
+        - $ref: '#/components/parameters/ShareAccessHeader'
       responses:
         '200':
           description: Preview metadata.
@@ -7399,9 +7503,53 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ShareLinkMeta'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
         '404':
           $ref: '#/components/responses/ProblemResponse'
         '410':
+          $ref: '#/components/responses/ProblemResponse'
+        '429':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /share/{token}/unlock:
+    parameters:
+      - $ref: '#/components/parameters/ShareToken'
+    post:
+      tags: [Sharing]
+      operationId: unlockShareLink
+      summary: Trade a share link's password for a short-lived viewing grant (no authentication).
+      description: |
+        For a password-protected link: checks the password and answers with
+        an `access_token` to send as the `X-Nolgia-Share-Access` header on
+        `resolveShareLink` and `getShareLinkMeta`, valid for 12 hours or
+        until the link is revoked or expires, whichever comes first. Keep it
+        out of URLs (the nolgia.ai share page holds it in an httpOnly cookie
+        scoped to the link).
+
+        Every refusal is the same `401` with the same detail, whether the
+        password is wrong, the token is unknown, revoked or expired, or the
+        link has no password, so the endpoint reveals nothing about a link
+        to someone who does not hold its password. Attempts are rate limited
+        per client IP and per link (`429`).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ShareLinkUnlockRequest'
+      responses:
+        '200':
+          description: The password was right; the grant to send with the share reads.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShareLinkUnlock'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
           $ref: '#/components/responses/ProblemResponse'
         '429':
           $ref: '#/components/responses/ProblemResponse'
@@ -9744,6 +9892,14 @@ components:
         type: string
         minLength: 16
         maxLength: 128
+    ShareAccessHeader:
+      name: X-Nolgia-Share-Access
+      in: header
+      required: false
+      description: The `access_token` from `unlockShareLink`, for a password-protected link. Ignored on links without a password.
+      schema:
+        type: string
+        maxLength: 128
     InviteToken:
       name: token
       in: path
@@ -9926,7 +10082,7 @@ components:
         code:
           type: string
           description: >
-            Machine-readable error code. Agent endpoints (`/agent/chat`, `/agent/messages*`, `/agent/sessions*`, `/agent/steps`) set one of the `AgentErrorCode` values. The generation endpoints (`/generate/image`, `/generate/video`, `/generate/audio`, `/generate/3d`, `/generate/set`) set one of the `GenerationErrorCode` values when the refusal has one; a `409` duplicate-submission refusal carries no code, because the status and the named existing job already say what happened. `POST /jobs/{id}/cancel` sets `job_not_cancellable` on its `409`. The `/bridge/*` endpoints set `app_not_connected`, `language_not_supported`, `capability_not_supported`, `agent_not_allowed`, `organization_key_not_allowed`, `session_disconnected`, `command_not_running` or `command_finished`. Absent otherwise.
+            Machine-readable error code. Agent endpoints (`/agent/chat`, `/agent/messages*`, `/agent/sessions*`, `/agent/steps`) set one of the `AgentErrorCode` values. The generation endpoints (`/generate/image`, `/generate/video`, `/generate/audio`, `/generate/3d`, `/generate/set`) set one of the `GenerationErrorCode` values when the refusal has one; a `409` duplicate-submission refusal carries no code, because the status and the named existing job already say what happened. `POST /jobs/{id}/cancel` sets `job_not_cancellable` on its `409`. The `/bridge/*` endpoints set `app_not_connected`, `language_not_supported`, `capability_not_supported`, `agent_not_allowed`, `organization_key_not_allowed`, `session_disconnected`, `command_not_running` or `command_finished`. The share-link endpoints set `share_password_required`, `share_download_disabled`, `share_links_disabled_by_organization`, `share_password_required_by_organization` or `share_expiry_exceeds_organization_limit`. Absent otherwise.
 
         type:
           type: string
@@ -11032,11 +11188,86 @@ components:
           minimum: 1
           maximum: 365
           default: 30
-          description: Lifetime of the link in days from now. Defaults to 30.
+          description: Lifetime of the link in days from now. Defaults to 30. Ignored when `never_expires` is true.
+        never_expires:
+          type: boolean
+          default: false
+          description: A link with no end date. Refused (`400`, code `share_expiry_exceeds_organization_limit`) when the organization sets a maximum lifetime.
+        password:
+          type: string
+          minLength: 8
+          maxLength: 128
+          description: Viewers must enter this password before the media is served. Stored only as an argon2id hash; never returned.
+        view_only:
+          type: boolean
+          default: false
+          description: Turn downloads off for this link. The share page offers no Download and the resolver refuses `download=true`. A viewer who can play media can still capture it, so treat this as a deterrent, not copy protection.
+    ShareLinkPolicy:
+      type: object
+      additionalProperties: false
+      required: [enabled, require_password, allow_never, max_expiry_days]
+      description: The share-link rules for the caller's current space.
+      properties:
+        enabled:
+          type: boolean
+          description: False when the organization has turned public share links off.
+        require_password:
+          type: boolean
+          description: New links must carry a password.
+        max_expiry_days:
+          type: integer
+          nullable: true
+          minimum: 1
+          maximum: 365
+          description: Longest lifetime a new link may have, in days; `null` = no maximum.
+        allow_never:
+          type: boolean
+          description: Whether a new link may never expire (true exactly when there is no maximum).
+    OrganizationSecurityPolicy:
+      type: object
+      additionalProperties: false
+      required: [share_links_disabled, share_links_require_password, share_links_max_expiry_days, require_two_step_for_password_members]
+      properties:
+        share_links_disabled:
+          type: boolean
+          description: Turn public share links off for the organization. New links are refused, and existing links on the organization's media stop resolving while this is on.
+        share_links_require_password:
+          type: boolean
+          description: New share links must carry a password. Existing links are unchanged.
+        share_links_max_expiry_days:
+          type: integer
+          nullable: true
+          minimum: 1
+          maximum: 365
+          description: Longest lifetime a new share link may have, in days. `null` = no maximum, which also allows links that never expire. Existing links are unchanged.
+        require_two_step_for_password_members:
+          type: boolean
+          description: Members who sign in with an email and password must use two-step sign-in (an authenticator app or a passkey); members without it set it up at their next sign-in. Members who sign in with Google, Apple or the organization's single sign-on follow that provider's own two-step policy.
+    ShareLinkUnlockRequest:
+      type: object
+      additionalProperties: false
+      required: [password]
+      properties:
+        password:
+          type: string
+          minLength: 1
+          maxLength: 128
+    ShareLinkUnlock:
+      type: object
+      additionalProperties: false
+      required: [access_token, expires_at]
+      properties:
+        access_token:
+          type: string
+          description: Send as the `X-Nolgia-Share-Access` header on the share reads. Keep it out of URLs.
+        expires_at:
+          type: string
+          format: date-time
+          description: When the grant stops working (12 hours, or the link's own expiry if sooner).
     ShareLink:
       type: object
       additionalProperties: false
-      required: [id, kind, target_id, token_prefix, expires_at, created_at, created_by, access_count]
+      required: [id, kind, target_id, token_prefix, created_at, created_by, access_count]
       description: >
         One durable public share link. `token` and `url` are present ONLY on the create response: tokens are stored hashed, so no later read can return them.
 
@@ -11063,6 +11294,13 @@ components:
         expires_at:
           type: string
           format: date-time
+          description: When the link stops resolving. Absent for a link that never expires.
+        has_password:
+          type: boolean
+          description: Viewers must enter a password.
+        view_only:
+          type: boolean
+          description: Downloads are turned off for this link.
         created_at:
           type: string
           format: date-time
@@ -11093,7 +11331,7 @@ components:
     MyShareLink:
       type: object
       additionalProperties: false
-      required: [id, kind, target_id, title, token_prefix, access_count, expires_at, created_at]
+      required: [id, kind, target_id, title, token_prefix, access_count, created_at]
       description: >
         One active share link as the creator-side listing shows it: the link, what it points at, and its view figures. Never carries the token or the URL.
 
@@ -11127,6 +11365,13 @@ components:
         expires_at:
           type: string
           format: date-time
+          description: When the link stops resolving. Absent for a link that never expires.
+        has_password:
+          type: boolean
+          description: Viewers must enter a password.
+        view_only:
+          type: boolean
+          description: Downloads are turned off for this link.
         created_at:
           type: string
           format: date-time
@@ -11142,7 +11387,7 @@ components:
     ShareLinkMeta:
       type: object
       additionalProperties: false
-      required: [kind, title, modality, media_url, media_expires_at, expires_at, created_at]
+      required: [kind, title, modality, media_url, media_expires_at, created_at]
       description: Everything a share page or link-preview crawler needs to render the shared media.
       properties:
         kind:
@@ -11183,7 +11428,10 @@ components:
         expires_at:
           type: string
           format: date-time
-          description: When the share link itself stops resolving.
+          description: When the share link itself stops resolving. Absent for a link that never expires.
+        view_only:
+          type: boolean
+          description: Downloads are turned off for this link; offer no Download.
         created_at:
           type: string
           format: date-time
