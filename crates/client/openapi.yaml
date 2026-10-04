@@ -12104,6 +12104,28 @@ components:
             per-tier value and how the reference's length is counted. Absent
             when a reference video does not change the rate.
           examples: [78]
+        input_image_credits:
+          type: integer
+          nullable: true
+          minimum: 1
+          description: |
+            Extra credits for each input image past `free_input_images`, on a
+            model that charges for input images. Input images
+            are the reference images plus the start and end frames. The
+            surcharge is added once per request, at every tier, and is NOT
+            scaled by duration. A request carrying N input images is charged
+            the clip price plus `max(0, N - free_input_images) *
+            input_image_credits`. Absent when input images have no price
+            impact.
+          examples: [5]
+        free_input_images:
+          type: integer
+          nullable: true
+          minimum: 0
+          description: |
+            Present with `input_image_credits`: how many input images a
+            request carries before the surcharge starts.
+          examples: [2]
         baseline_seconds:
           type: integer
           nullable: true
