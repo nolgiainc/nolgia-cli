@@ -1,4 +1,11 @@
-//! The Rust client for the [Nolgia](https://nolgia.ai) API.
+//! The Rust client the [Nolgia](https://nolgia.ai) CLI is built on.
+//!
+//! **Deprecated as a public client.** For your own programs, use the official
+//! Rust SDK, the [`nolgia`](https://crates.io/crates/nolgia) crate
+//! (`cargo add nolgia`, docs at <https://docs.rs/nolgia>): it is generated from
+//! the same API contract and adds typed errors, retries, idempotency keys and
+//! helpers for waiting, uploads, downloads, streams and pagination.
+//! `nolgia-client` stays published only because `nolgia-cli` depends on it.
 //!
 //! `cargo add nolgia-client` is the whole install. The crate carries its own
 //! async runtime, JSON macro and HTTP stack and re-exports what a first
