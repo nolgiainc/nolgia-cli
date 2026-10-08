@@ -740,6 +740,7 @@ mod tests {
             generation_limits: None,
             id: Uuid::nil(),
             image_url: None,
+            insider: None,
             name: None,
             organizations,
         }
