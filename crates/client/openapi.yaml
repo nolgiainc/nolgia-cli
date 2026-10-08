@@ -7914,6 +7914,92 @@ paths:
           $ref: '#/components/responses/ProblemResponse'
         default:
           $ref: '#/components/responses/ProblemResponse'
+  /billing/trial:
+    get:
+      tags: [Billing]
+      operationId: getPlanTrial
+      summary: The account's free trial state and whether it can start one.
+      description: >
+        Seven days of Studio plan features (premium models, video, Multicam, Drive, custom voices, Studio abilities and a NOLGIA Agent on the shared trial pool) with no card and no extra credits: everything still spends the account's own credits at normal prices. One trial per person, ever. `eligible` says whether `POST /billing/trial` would start one now; `ineligible_reason` says why not. Personal accounts only: inside an organization the organization's plan applies.
+
+      responses:
+        '200':
+          description: The trial state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlanTrial'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+    post:
+      tags: [Billing]
+      operationId: startPlanTrial
+      summary: Start the account's seven-day free trial.
+      description: >
+        Starts the trial now, with no card. Answers `201` with the started trial. An account no identity provider has verified (an email and password sign-up) gets `202` instead: a confirmation link is emailed and the trial starts when it is opened (`POST /billing/trial/confirm`). `409` when the account is not eligible (the problem detail says why), `503` when trials are switched off.
+
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StartPlanTrialRequest'
+      responses:
+        '201':
+          description: The trial started.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlanTrial'
+        '202':
+          description: A confirmation link was emailed; the trial starts when it is opened.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlanTrial'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        '429':
+          $ref: '#/components/responses/ProblemResponse'
+        '503':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /billing/trial/confirm:
+    post:
+      tags: [Billing]
+      operationId: confirmPlanTrial
+      summary: Start the free trial from an emailed confirmation link.
+      description: >
+        The token from the link `POST /billing/trial` emailed. Single use and valid for 24 hours; it must be redeemed by the signed-in account it was sent to. `400` when the token is unknown, used or expired, `409` when the account is no longer eligible.
+
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfirmPlanTrialRequest'
+      responses:
+        '200':
+          description: The trial started.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlanTrial'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        '503':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
   /billing/portal-link:
     post:
       tags: [Billing]
@@ -18207,6 +18293,96 @@ components:
           type: integer
           nullable: true
           description: The organization's seat cap (`null` = unlimited); absent for personal plans.
+    PlanTrialStatus:
+      type: string
+      description: >
+        `none` the account never started a trial; `active` the trial is running (`ends_at` is in the future); `ended` it is over (see `end_reason`).
+
+      enum: [none, active, ended]
+      x-enum-varnames: [PlanTrialStatusNone, PlanTrialStatusActive, PlanTrialStatusEnded]
+    PlanTrialEndReason:
+      type: string
+      description: >
+        `expired` the seven days ran out; `converted` the account moved to a paid plan; `ended_by_staff` support ended it early.
+
+      enum: [expired, converted, ended_by_staff]
+      x-enum-varnames: [PlanTrialEndReasonExpired, PlanTrialEndReasonConverted, PlanTrialEndReasonEndedByStaff]
+    PlanTrialIneligibleReason:
+      type: string
+      description: >
+        Why `POST /billing/trial` would not start a trial now: `already_used` this account or this email address already had one; `already_subscribed` a paid plan is active; `previous_subscriber` the account paid for a plan before; `organization_context` the caller is working inside an organization (switch to the personal workspace); `unavailable` trials are switched off.
+
+      enum: [already_used, already_subscribed, previous_subscriber, organization_context, unavailable]
+      x-enum-varnames:
+        - PlanTrialIneligibleAlreadyUsed
+        - PlanTrialIneligibleAlreadySubscribed
+        - PlanTrialIneligiblePreviousSubscriber
+        - PlanTrialIneligibleOrganizationContext
+        - PlanTrialIneligibleUnavailable
+    PlanTrial:
+      type: object
+      additionalProperties: false
+      required: [status, eligible, tier, duration_days, requires_email_confirmation, confirmation_pending]
+      properties:
+        status:
+          $ref: '#/components/schemas/PlanTrialStatus'
+        eligible:
+          type: boolean
+          description: Whether `POST /billing/trial` would start (or email the confirmation for) a trial now.
+        ineligible_reason:
+          $ref: '#/components/schemas/PlanTrialIneligibleReason'
+        tier:
+          $ref: '#/components/schemas/SubscriptionTier'
+        duration_days:
+          type: integer
+          description: Length of a trial in days (7).
+          examples: [7]
+        requires_email_confirmation:
+          type: boolean
+          description: >
+            True when starting needs the emailed confirmation link first (an account no identity provider has verified).
+
+        confirmation_pending:
+          type: boolean
+          description: True when a confirmation link was emailed in the last 24 hours and not used yet.
+        started_at:
+          type: string
+          format: date-time
+        ends_at:
+          type: string
+          format: date-time
+          description: When the trial's access ends (or ended, for an expired trial).
+        ended_at:
+          type: string
+          format: date-time
+        end_reason:
+          $ref: '#/components/schemas/PlanTrialEndReason'
+        agent_retention_until:
+          type: string
+          format: date-time
+          description: >
+            After the trial ends without a plan that includes the agent, the trial agent and its memory are kept until this time, then deleted.
+
+    StartPlanTrialRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        source:
+          type: string
+          minLength: 1
+          maxLength: 40
+          pattern: '^[a-z0-9_-]+$'
+          description: Where the trial was started from (for the trial funnel), e.g. `pricing`, `paywall_video`, `agent`, `signup`.
+          examples: ['pricing']
+    ConfirmPlanTrialRequest:
+      type: object
+      additionalProperties: false
+      required: [token]
+      properties:
+        token:
+          type: string
+          minLength: 16
+          maxLength: 200
     PortalLinkRequest:
       type: object
       additionalProperties: false
@@ -18940,6 +19116,10 @@ components:
         auto_provisioned:
           type: boolean
           description: True when the agent was pre-provisioned automatically for a top-tier plan.
+        trial:
+          type: boolean
+          description: >-
+            True when this is a free-trial agent on the shared trial pool: no dedicated disk (its workspace files are scratch), lower scheduling priority, and it sleeps when idle, so the first message after a pause can take a few minutes. Memory and chat history carry over when the account upgrades to a plan that includes the agent.
         created_at:
           type: string
           format: date-time
