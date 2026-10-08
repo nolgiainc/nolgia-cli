@@ -26,6 +26,12 @@ servers:
 tags:
   - name: Arena
     description: Public creative challenges; entries are the submitter's own finished Outputs shared through a public share link; community votes and admin moderation.
+  - name: Feedback
+    description: >-
+      Bug reports, feature requests and the Ideas board: file feedback with screenshots, follow its status and staff replies, and vote on ideas.
+  - name: Insiders
+    description: >-
+      The NOLGIA Insiders creator program: public profiles at nolgia.ai/@handle, personal codes, the application, and an Insider's own dashboard, referrals and earnings.
   - name: Auth
     description: Sign-in flows for CLI/MCP (device code) and current-user info.
   - name: Sets
@@ -8000,6 +8006,733 @@ paths:
           $ref: '#/components/responses/ProblemResponse'
         default:
           $ref: '#/components/responses/ProblemResponse'
+  /insiders/directory:
+    get:
+      tags: [Insiders]
+      operationId: listInsiderDirectory
+      summary: Public directory of NOLGIA Insiders (no authentication).
+      description: >
+        Every active Insider, Elite first, then Rising, then Insider, newest last within a level. Public: this is what nolgia.ai/insiders renders. Paginated with an opaque `cursor`.
+
+      security: []
+      parameters:
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 200
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 48
+      responses:
+        '200':
+          description: One page of the directory.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InsiderDirectory'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /insiders/profiles/{handle}:
+    get:
+      tags: [Insiders]
+      operationId: getInsiderProfile
+      summary: An Insider's public profile (no authentication).
+      description: >
+        What nolgia.ai/@handle renders: the badge, bio, social links, the personal code and the offer it carries, and the creations the Insider chose to feature. A former handle answers `200` with the CURRENT `handle`, so the page can redirect. `404` for an unknown handle or an Insider who is not active.
+
+      security: []
+      parameters:
+        - name: handle
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 40
+      responses:
+        '200':
+          description: The public profile.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InsiderProfile'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /insiders/codes/{code}:
+    get:
+      tags: [Insiders]
+      operationId: getInsiderCode
+      summary: Look up an Insider code (no authentication).
+      description: >
+        Whether a personal code (or an Insider's handle) is valid and what it offers: a percentage off the FIRST month of a MONTHLY plan, for accounts that have never paid. Answers only public profile facts. `404` when the code is unknown or its Insider is not active. Rate limited per IP (`429`).
+
+      security: []
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 40
+      responses:
+        '200':
+          description: The code and its offer.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InsiderCodeLookup'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '429':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /feedback/attachments:
+    post:
+      tags: [Feedback]
+      operationId: createFeedbackAttachment
+      summary: Reserve an upload for a screenshot or recording to attach to feedback.
+      description: >
+        Returns a short-lived signed URL the client PUTs the file to, with the exact `Content-Type` it declared. The file stays private: only NOLGIA staff can open it. It is attached by passing the returned `id` in `attachment_ids` when the feedback is submitted; metadata (EXIF, location, comments) is stripped at that point. Images (PNG, JPEG, WebP, GIF) up to 10 MB, videos (MP4, QuickTime, WebM) up to 50 MB. Unused uploads are deleted after a day. `429` past 30 uploads an hour.
+
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FeedbackAttachmentRequest'
+      responses:
+        '201':
+          description: The upload slot.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FeedbackAttachmentUpload'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '429':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /feedback:
+    post:
+      tags: [Feedback]
+      operationId: createFeedback
+      summary: Report a bug, request a feature, or send other feedback.
+      description: >
+        Files feedback with NOLGIA staff. Bugs carry what was expected and a severity. `context` is what the client captured with the person's consent (the page address with secrets removed, app version, browser, OS, screen size, recent job ids and recent client errors); the plan is added by the server. The last prompt is stored only when `include_last_prompt` is true. Feature requests appear on the Ideas board unless `show_on_ideas` is false. `429` past 10 submissions an hour.
+
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FeedbackCreateRequest'
+      responses:
+        '201':
+          description: The filed feedback.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FeedbackItem'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '429':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /me/feedback:
+    get:
+      tags: [Feedback]
+      operationId: listMyFeedback
+      summary: The caller's feedback, newest first, with status and replies.
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: One page of the caller's feedback and their contribution totals.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyFeedbackList'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /me/feedback/{id}:
+    get:
+      tags: [Feedback]
+      operationId: getMyFeedback
+      summary: One of the caller's feedback items with the conversation and status history.
+      parameters:
+        - $ref: '#/components/parameters/FeedbackID'
+      responses:
+        '200':
+          description: The item.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FeedbackItemDetail'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /me/feedback/{id}/comments:
+    post:
+      tags: [Feedback]
+      operationId: addMyFeedbackComment
+      summary: Reply to NOLGIA staff on one of the caller's feedback items.
+      parameters:
+        - $ref: '#/components/parameters/FeedbackID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FeedbackCommentRequest'
+      responses:
+        '201':
+          description: The reply.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FeedbackComment'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '429':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /feedback/ideas:
+    get:
+      tags: [Feedback]
+      operationId: listFeedbackIdeas
+      summary: The Ideas board, the feature requests people can vote on.
+      description: >
+        Feature requests shared on the board, with vote counts and the weighted total (an Insider's vote counts more, by level). Authors are shown by their Insider handle, otherwise as "A NOLGIA member"; email addresses and attachments are never shown. `status` filters: `open` (new and triaged), `planned`, `in_progress`, `shipped`, or `all` (the default).
+
+      parameters:
+        - name: sort
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [top, new]
+            x-enum-varnames: [FeedbackIdeasSortTop, FeedbackIdeasSortNew]
+            default: top
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [all, open, planned, in_progress, shipped]
+            x-enum-varnames: [FeedbackIdeasStatusAll, FeedbackIdeasStatusOpen, FeedbackIdeasStatusPlanned, FeedbackIdeasStatusInProgress, FeedbackIdeasStatusShipped]
+            default: all
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: One page of ideas.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FeedbackIdeaList'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /feedback/ideas/{id}:
+    get:
+      tags: [Feedback]
+      operationId: getFeedbackIdea
+      summary: One idea with its public comments.
+      parameters:
+        - $ref: '#/components/parameters/FeedbackID'
+      responses:
+        '200':
+          description: The idea.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FeedbackIdeaDetail'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /feedback/ideas/{id}/vote:
+    put:
+      tags: [Feedback]
+      operationId: voteFeedbackIdea
+      summary: Upvote an idea (idempotent).
+      description: >
+        One vote per account. Voting on your own idea is refused (`409`). Voters hear by email when the idea is planned, started or shipped.
+
+      parameters:
+        - $ref: '#/components/parameters/FeedbackID'
+      responses:
+        '200':
+          description: The idea with the vote counted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FeedbackIdea'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        '429':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+    delete:
+      tags: [Feedback]
+      operationId: unvoteFeedbackIdea
+      summary: Withdraw the caller's vote (idempotent).
+      parameters:
+        - $ref: '#/components/parameters/FeedbackID'
+      responses:
+        '200':
+          description: The idea without the vote.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FeedbackIdea'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /feedback/ideas/{id}/comments:
+    post:
+      tags: [Feedback]
+      operationId: commentFeedbackIdea
+      summary: Comment on an idea (Insiders and the idea's author).
+      description: >
+        Public on the board. `403` unless the caller is an active Insider or the person who suggested the idea.
+
+      parameters:
+        - $ref: '#/components/parameters/FeedbackID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FeedbackCommentRequest'
+      responses:
+        '201':
+          description: The comment.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FeedbackComment'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '429':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /insiders/me:
+    get:
+      tags: [Insiders]
+      operationId: getInsiderAccount
+      summary: The caller's Insider state, dashboard and profile.
+      description: >
+        `status` says where the account stands: `none` (never applied), `applied` (an application is waiting for review), `rejected`, `active`, `suspended` or `removed`. An active Insider also gets their profile, code, links, stats, level progress and, once staff have set it, the invite link to the Insiders channel. Personal accounts only: the program belongs to the person, not an organization.
+
+      responses:
+        '200':
+          description: The caller's Insider state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InsiderAccount'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+    patch:
+      tags: [Insiders]
+      operationId: updateInsiderProfile
+      summary: Update the caller's public Insider profile.
+      description: >
+        Display name, bio, social handles and featured creations. Every property is optional and replaces the stored value. Featuring an asset publishes it on the profile through a view-only share link that never expires; removing it from the list revokes that link. At most 12 featured assets, all from the caller's personal library. `403` unless the caller is an active Insider.
+
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InsiderProfileUpdate'
+      responses:
+        '200':
+          description: The updated state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InsiderAccount'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /insiders/applications:
+    post:
+      tags: [Insiders]
+      operationId: applyInsider
+      summary: Apply to the NOLGIA Insiders program.
+      description: >
+        Submits an application for staff review. The requested handle becomes nolgia.ai/@handle once approved: 3 to 30 characters, lowercase letters, digits, `_` and `.`, starting and ending with a letter or a digit. At least one social handle is required. An invite token from a staff invite link marks the application as invited. `409` when the handle is taken or reserved, when an application is already waiting, when the account is already an Insider, or within 30 days of a rejection. Personal accounts only.
+
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InsiderApplicationRequest'
+      responses:
+        '201':
+          description: The application was received.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InsiderAccount'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        '429':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /insiders/me/referrals:
+    get:
+      tags: [Insiders]
+      operationId: listInsiderReferrals
+      summary: The accounts the caller referred.
+      description: >
+        Newest first, without names or email addresses: a referral is shown by its sign-up date, its status and what it earned. `403` unless the caller is an Insider.
+
+      responses:
+        '200':
+          description: The referrals.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InsiderReferralList'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /insiders/me/rewards:
+    get:
+      tags: [Insiders]
+      operationId: listInsiderRewards
+      summary: The caller's Insider earnings ledger.
+      description: >
+        Referral rewards (pending through the 30-day hold, then posted as credits), monthly grants and adjustments, newest first, at most 200. `403` unless the caller is an Insider.
+
+      responses:
+        '200':
+          description: The ledger.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InsiderRewardList'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /insiders/me/posts:
+    get:
+      tags: [Insiders]
+      operationId: listInsiderPosts
+      summary: The caller's posts and tracked links.
+      description: >
+        Every post the Insider created, newest first: tracked links waiting for a post (`draft`) and submitted posts with their automatic checks, review state, public metrics and the clicks and sign-ups that came through their tracked link. `403` unless the caller is an Insider.
+
+      responses:
+        '200':
+          description: The posts.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InsiderPostList'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+    post:
+      tags: [Insiders]
+      operationId: createInsiderPost
+      summary: Create a tracked link, or submit a live post.
+      description: >
+        Without `url`: creates a tracked link (nolgia.ai/@handle?p=<id>) to put in a post before publishing it; submit the post's URL later with `POST /insiders/me/posts/{post_id}/submit`. With `url`: submits a live post at once. A submitted post is checked automatically: the URL is a supported platform (Instagram, TikTok, X, YouTube, Threads, LinkedIn), the post is public, its author is the handle registered for that platform, it was not submitted before, and a snapshot (thumbnail and caption) is kept; the public metrics the platform shows without sign-in are read now and again after 7 days. A Super Insider's post counts toward the current deal month. Browser sessions only. `403` unless the caller is an active Insider; `409` for a duplicate.
+
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InsiderPostCreateRequest'
+      responses:
+        '201':
+          description: The tracked link or the submitted post.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InsiderPost'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /insiders/me/posts/{post_id}/submit:
+    post:
+      tags: [Insiders]
+      operationId: submitInsiderPost
+      summary: Submit the live post for a tracked link.
+      description: >
+        The URL of the post that carries this tracked link. Checked as for `POST /insiders/me/posts`. A post that failed its checks may be submitted again with a corrected URL. `404` for another Insider's post; `409` when it was already approved or the URL is a duplicate.
+
+      parameters:
+        - name: post_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InsiderPostSubmitRequest'
+      responses:
+        '200':
+          description: The submitted post.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InsiderPost'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /insiders/me/requests:
+    get:
+      tags: [Insiders]
+      operationId: listInsiderAssignments
+      summary: The deliverable requests sent to the caller.
+      description: >
+        Every request staff sent the Insider (and, for a Super Insider, each deal month's quota), newest due first, with the brief, required elements, due date and the posts submitted per platform. `403` unless the caller is an Insider.
+
+      responses:
+        '200':
+          description: The requests.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InsiderAssignmentList'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /insiders/me/requests/{assignment_id}/respond:
+    post:
+      tags: [Insiders]
+      operationId: respondInsiderAssignment
+      summary: Accept or decline a deliverable request.
+      description: >
+        A request can be answered while it is `requested` (and accepted again after a decline, until it is due). A decline reason is optional. Browser sessions only. `404` for another Insider's request, `409` when it can no longer be answered.
+
+      parameters:
+        - name: assignment_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InsiderAssignmentResponse'
+      responses:
+        '200':
+          description: The request after the answer.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InsiderAssignment'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /insiders/me/notifications:
+    get:
+      tags: [Insiders]
+      operationId: listInsiderNotifications
+      summary: The caller's Insider notifications.
+      description: >
+        New requests, due-soon and overdue reminders, and post decisions, newest first, at most 100. `403` unless the caller is an Insider.
+
+      responses:
+        '200':
+          description: The notifications.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InsiderNotificationList'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+    post:
+      tags: [Insiders]
+      operationId: readInsiderNotifications
+      summary: Mark notifications read.
+      description: Marks the listed notifications (or `all`) read. Browser sessions only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InsiderNotificationsRead'
+      responses:
+        '200':
+          description: The notifications after the change.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InsiderNotificationList'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /insiders/brand-kit:
+    get:
+      tags: [Insiders]
+      operationId: getInsiderBrandKit
+      summary: The Insiders brand kit.
+      description: >
+        Logos and the badge, sample prompts, approved talking points and the disclosure rules, as staff last edited them. `403` unless the caller is an active Insider.
+
+      responses:
+        '200':
+          description: The brand kit.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InsiderBrandKit'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
   /billing/portal-link:
     post:
       tags: [Billing]
@@ -9917,6 +10650,14 @@ components:
       bearerFormat: PAT
       description: Personal Access Token (prefix `nol_`) for CLI and MCP clients.
   parameters:
+    FeedbackID:
+      name: id
+      in: path
+      required: true
+      description: The feedback item id.
+      schema:
+        type: string
+        format: uuid
     ArenaChallengeSlug:
       name: slug
       in: path
@@ -10265,6 +11006,11 @@ components:
             - $ref: '#/components/schemas/ConnectorCredential'
           description: >-
             Present only when this request authenticated with a token an OAuth connector obtained through NOLGIA's authorization server (an AI assistant connecting to mcp.nolgia.ai). Absent for a browser session, a token a person created by hand, and the CLI.
+        insider:
+          allOf:
+            - $ref: '#/components/schemas/InsiderBadge'
+          description: >-
+            Present only when the user is an active NOLGIA Insider: the badge the app shows under the logo. Absent for everyone else.
     ConnectorCredential:
       type: object
       additionalProperties: false
@@ -11155,7 +11901,7 @@ components:
           minimum: 0
     ArenaEntry:
       description: >
-        Public media for exactly one submitted Output. No field carries an asset id, a user id, an organization id or the prompt behind the Output. `media_url` and `thumbnail_url` are short-lived signed storage URLs, exactly what a share page serves, so like every signed URL in this API their PATH is the storage object key and reveals nothing more than a shared link already does; an opaque delivery path for public media is a platform follow-up. Share URLs are included only while their links are live. Status and view_count appear only on your entries and creation responses. Rank appears only on the leaderboard and top-sorted pages. Signed media responses use Cache-Control no-store.
+        Public media for exactly one submitted Output. No field carries an asset id, a user id, an organization id or the prompt behind the Output; only an Insider, who chose a public profile, is named (`creator_insider`). `media_url` and `thumbnail_url` are short-lived signed storage URLs, exactly what a share page serves, so like every signed URL in this API their PATH is the storage object key and reveals nothing more than a shared link already does; an opaque delivery path for public media is a platform follow-up. Share URLs are included only while their links are live. Status and view_count appear only on your entries and creation responses. Rank appears only on the leaderboard and top-sorted pages. Signed media responses use Cache-Control no-store.
 
       type: object
       additionalProperties: false
@@ -11204,6 +11950,11 @@ components:
         view_count:
           type: integer
           minimum: 0
+        creator_insider:
+          allOf:
+            - $ref: '#/components/schemas/InsiderBadge'
+          description: >-
+            Present only when the entry's submitter is an active NOLGIA Insider (who chose a public profile): their badge, linking to nolgia.ai/@handle. Absent for everyone else.
     ArenaEntryPage:
       type: object
       additionalProperties: false
@@ -11544,6 +12295,11 @@ components:
         created_at:
           type: string
           format: date-time
+        creator_insider:
+          allOf:
+            - $ref: '#/components/schemas/InsiderBadge'
+          description: >-
+            Present only when the link's owner is an active NOLGIA Insider (who chose a public profile) and the link is a personal one: their badge, linking to nolgia.ai/@handle. Absent for everyone else.
     ShareLinkPreset:
       type: object
       additionalProperties: false
@@ -18316,6 +19072,1407 @@ components:
           type: integer
           nullable: true
           description: The organization's seat cap (`null` = unlimited); absent for personal plans.
+    InsiderLevel:
+      type: string
+      description: >
+        Insider level, by paying referrals: `insider` (0 to 4), `rising` (5 to 24), `elite` (25 or more).
+
+      enum: [insider, rising, elite]
+      x-enum-varnames: [InsiderLevelInsider, InsiderLevelRising, InsiderLevelElite]
+    InsiderStatus:
+      type: string
+      description: >
+        `active` in the program; `suspended` paused by staff (no badge, no grants, rewards held); `removed` out of the program.
+
+      enum: [active, suspended, removed]
+      x-enum-varnames: [InsiderStatusActive, InsiderStatusSuspended, InsiderStatusRemoved]
+    InsiderBadge:
+      type: object
+      additionalProperties: false
+      required: [handle, level]
+      description: The Insider badge of a person shown on a page; links to nolgia.ai/@handle.
+      properties:
+        handle:
+          type: string
+          examples: ['maya']
+        level:
+          $ref: '#/components/schemas/InsiderLevel'
+    InsiderSocialLinks:
+      type: object
+      additionalProperties: false
+      description: Handles (not URLs) on each supported platform, without a leading `@`.
+      properties:
+        instagram:
+          type: string
+          maxLength: 60
+        tiktok:
+          type: string
+          maxLength: 60
+        x:
+          type: string
+          maxLength: 60
+        youtube:
+          type: string
+          maxLength: 100
+        threads:
+          type: string
+          maxLength: 60
+        linkedin:
+          type: string
+          maxLength: 100
+    InsiderOffer:
+      type: object
+      additionalProperties: false
+      required: [percent_off, description]
+      description: What an Insider's code gives the person who uses it.
+      properties:
+        percent_off:
+          type: integer
+          description: Percent off the first month of a monthly plan (20, or 25 for an Elite Insider).
+          examples: [20]
+        description:
+          type: string
+          examples: ['20% off your first month of any monthly plan']
+    InsiderFeaturedItem:
+      type: object
+      additionalProperties: false
+      required: [asset_id, title, share_url, share_token]
+      description: A creation the Insider features on their profile, published through a view-only share link.
+      properties:
+        asset_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        share_url:
+          type: string
+          format: uri
+        share_token:
+          type: string
+          description: The share token; `GET /share/{token}/meta` serves the media.
+    InsiderProfile:
+      type: object
+      additionalProperties: false
+      required: [handle, display_name, level, social, code, offer, featured, profile_url, joined_at]
+      properties:
+        handle:
+          type: string
+        display_name:
+          type: string
+        bio:
+          type: string
+        image_url:
+          type: string
+          nullable: true
+        level:
+          $ref: '#/components/schemas/InsiderLevel'
+        social:
+          $ref: '#/components/schemas/InsiderSocialLinks'
+        code:
+          type: string
+          description: The personal code people can type at checkout.
+          examples: ['MAYA']
+        offer:
+          $ref: '#/components/schemas/InsiderOffer'
+        featured:
+          type: array
+          maxItems: 12
+          items:
+            $ref: '#/components/schemas/InsiderFeaturedItem'
+        profile_url:
+          type: string
+          format: uri
+          examples: ['https://nolgia.ai/@maya']
+        joined_at:
+          type: string
+          format: date-time
+    InsiderDirectoryEntry:
+      type: object
+      additionalProperties: false
+      required: [handle, display_name, level, profile_url]
+      properties:
+        handle:
+          type: string
+        display_name:
+          type: string
+        bio:
+          type: string
+        image_url:
+          type: string
+          nullable: true
+        level:
+          $ref: '#/components/schemas/InsiderLevel'
+        profile_url:
+          type: string
+          format: uri
+    InsiderDirectory:
+      type: object
+      additionalProperties: false
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/InsiderDirectoryEntry'
+        total:
+          type: integer
+          description: Active Insiders in the directory.
+        next_cursor:
+          type: string
+          nullable: true
+    InsiderCodeLookup:
+      type: object
+      additionalProperties: false
+      required: [code, handle, display_name, level, offer]
+      properties:
+        code:
+          type: string
+        handle:
+          type: string
+        display_name:
+          type: string
+        level:
+          $ref: '#/components/schemas/InsiderLevel'
+        offer:
+          $ref: '#/components/schemas/InsiderOffer'
+    InsiderPlatform:
+      type: string
+      enum: [instagram, tiktok, x, youtube, threads, linkedin, facebook, pinterest, twitch, other]
+      x-enum-varnames: [InsiderPlatformInstagram, InsiderPlatformTiktok, InsiderPlatformX, InsiderPlatformYoutube, InsiderPlatformThreads, InsiderPlatformLinkedin, InsiderPlatformFacebook, InsiderPlatformPinterest, InsiderPlatformTwitch, InsiderPlatformOther]
+    InsiderApplicationStatus:
+      type: string
+      enum: [pending, approved, rejected, withdrawn]
+      x-enum-varnames: [InsiderApplicationStatusPending, InsiderApplicationStatusApproved, InsiderApplicationStatusRejected, InsiderApplicationStatusWithdrawn]
+    InsiderApplicationRequest:
+      type: object
+      additionalProperties: false
+      required: [handle, display_name, social, audience_size, primary_platform, pitch]
+      properties:
+        handle:
+          type: string
+          minLength: 3
+          maxLength: 30
+        display_name:
+          type: string
+          minLength: 1
+          maxLength: 60
+        social:
+          $ref: '#/components/schemas/InsiderSocialLinks'
+        audience_size:
+          type: integer
+          minimum: 0
+          maximum: 1000000000
+          description: Total followers across platforms, as the applicant reports it.
+        primary_platform:
+          $ref: '#/components/schemas/InsiderPlatform'
+        pitch:
+          type: string
+          minLength: 1
+          maxLength: 1000
+          description: What the applicant makes and why they want to be an Insider.
+        invite_token:
+          type: string
+          maxLength: 200
+    InsiderApplication:
+      type: object
+      additionalProperties: false
+      required: [id, status, handle, display_name, social, audience_size, primary_platform, pitch, invited, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/InsiderApplicationStatus'
+        handle:
+          type: string
+        display_name:
+          type: string
+        social:
+          $ref: '#/components/schemas/InsiderSocialLinks'
+        audience_size:
+          type: integer
+        primary_platform:
+          $ref: '#/components/schemas/InsiderPlatform'
+        pitch:
+          type: string
+        invited:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        decided_at:
+          type: string
+          format: date-time
+          nullable: true
+    InsiderAccountStatus:
+      type: string
+      enum: [none, applied, rejected, active, suspended, removed]
+      x-enum-varnames: [InsiderAccountStatusNone, InsiderAccountStatusApplied, InsiderAccountStatusRejected, InsiderAccountStatusActive, InsiderAccountStatusSuspended, InsiderAccountStatusRemoved]
+    InsiderStats:
+      type: object
+      additionalProperties: false
+      required: [signups, paying_referrals, credits_earned, credits_pending, credits_granted]
+      properties:
+        signups:
+          type: integer
+          description: Accounts attributed to the Insider.
+        paying_referrals:
+          type: integer
+          description: Referred accounts that count toward the level (first payment past its 30-day hold, still paying).
+        credits_earned:
+          type: integer
+          description: Referral reward credits posted to the Insider's wallet (net of reversals).
+        credits_pending:
+          type: integer
+          description: Referral reward credits still in their 30-day hold (or held for review).
+        credits_granted:
+          type: integer
+          description: Monthly Insider credits granted so far.
+    InsiderLevelProgress:
+      type: object
+      additionalProperties: false
+      required: [level, paying_referrals, monthly_credits]
+      properties:
+        level:
+          $ref: '#/components/schemas/InsiderLevel'
+        paying_referrals:
+          type: integer
+        next_level:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/InsiderLevel'
+        next_level_at:
+          type: integer
+          nullable: true
+          description: Paying referrals the next level needs (5 or 25); null at Elite.
+        monthly_credits:
+          type: integer
+          description: Credits granted each month at the current level.
+        next_grant_at:
+          type: string
+          format: date-time
+          nullable: true
+        downgrade_on:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the level drops if paying referrals stay below the threshold (the grace month).
+    InsiderSelf:
+      type: object
+      additionalProperties: false
+      required: [handle, display_name, level, status, social, code, offer, profile_url, referral_url, featured, progress, joined_at]
+      properties:
+        handle:
+          type: string
+        display_name:
+          type: string
+        bio:
+          type: string
+        level:
+          $ref: '#/components/schemas/InsiderLevel'
+        status:
+          $ref: '#/components/schemas/InsiderStatus'
+        social:
+          $ref: '#/components/schemas/InsiderSocialLinks'
+        code:
+          type: string
+        offer:
+          $ref: '#/components/schemas/InsiderOffer'
+        profile_url:
+          type: string
+          format: uri
+        referral_url:
+          type: string
+          format: uri
+          description: The share-anywhere link (nolgia.ai/?ref=code); the profile URL works as a referral link too.
+        featured:
+          type: array
+          items:
+            $ref: '#/components/schemas/InsiderFeaturedItem'
+        progress:
+          $ref: '#/components/schemas/InsiderLevelProgress'
+        slack_invite_url:
+          type: string
+          nullable: true
+          description: The invite to the private Insiders channel; null until staff set it, and for an Insider who is not active.
+        joined_at:
+          type: string
+          format: date-time
+    InsiderAccount:
+      type: object
+      additionalProperties: false
+      required: [status, can_apply]
+      properties:
+        status:
+          $ref: '#/components/schemas/InsiderAccountStatus'
+        can_apply:
+          type: boolean
+          description: Whether `POST /insiders/applications` would accept an application now.
+        reapply_after:
+          type: string
+          format: date-time
+          nullable: true
+          description: After a rejection, when the account may apply again.
+        application:
+          $ref: '#/components/schemas/InsiderApplication'
+        insider:
+          $ref: '#/components/schemas/InsiderSelf'
+        stats:
+          $ref: '#/components/schemas/InsiderStats'
+        deal:
+          $ref: '#/components/schemas/InsiderDeal'
+        requests_open:
+          type: integer
+          description: Deliverable requests waiting for an answer or for posts.
+        notifications_unread:
+          type: integer
+    InsiderProfileUpdate:
+      type: object
+      additionalProperties: false
+      properties:
+        display_name:
+          type: string
+          minLength: 1
+          maxLength: 60
+        bio:
+          type: string
+          maxLength: 280
+        social:
+          $ref: '#/components/schemas/InsiderSocialLinks'
+        featured_asset_ids:
+          type: array
+          maxItems: 12
+          items:
+            type: string
+            format: uuid
+    InsiderReferralStatus:
+      type: string
+      description: >
+        `signed_up` no payment yet; `paying` counts toward the level; `pending` paid, first payment still in its 30-day hold; `lapsed` paid before but not in the last 35 days; `under_review` held for a staff check; `blocked` excluded (no rewards).
+
+      enum: [signed_up, pending, paying, lapsed, under_review, blocked]
+      x-enum-varnames: [InsiderReferralStatusSignedUp, InsiderReferralStatusPending, InsiderReferralStatusPaying, InsiderReferralStatusLapsed, InsiderReferralStatusUnderReview, InsiderReferralStatusBlocked]
+    InsiderReferral:
+      type: object
+      additionalProperties: false
+      required: [id, signed_up_at, status, credits_earned, credits_pending]
+      properties:
+        id:
+          type: string
+          description: An opaque id for this referral (not the account id).
+        signed_up_at:
+          type: string
+          format: date-time
+        status:
+          $ref: '#/components/schemas/InsiderReferralStatus'
+        first_paid_at:
+          type: string
+          format: date-time
+          nullable: true
+        reward_until:
+          type: string
+          format: date-time
+          nullable: true
+          description: Payments until this time earn rewards (12 months from the first payment).
+        credits_earned:
+          type: integer
+        credits_pending:
+          type: integer
+    InsiderReferralList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/InsiderReferral'
+    InsiderRewardKind:
+      type: string
+      description: >
+        `referral_payment` a share of a referred customer's payment; `monthly_grant` the Insider level's monthly credits; `deal_grant` a Super Insider deal's monthly plan credits and stipend; `adjustment` a staff correction.
+
+      enum: [referral_payment, monthly_grant, deal_grant, adjustment]
+      x-enum-varnames: [InsiderRewardKindReferralPayment, InsiderRewardKindMonthlyGrant, InsiderRewardKindDealGrant, InsiderRewardKindAdjustment]
+    InsiderRewardStatus:
+      type: string
+      description: >
+        `pending` in the 30-day hold; `held` waiting for a staff review; `posted` credited; `void` cancelled before posting (refund, dispute, blocked referral); `reversed` taken back after posting.
+
+      enum: [pending, held, posted, void, reversed]
+      x-enum-varnames: [InsiderRewardStatusPending, InsiderRewardStatusHeld, InsiderRewardStatusPosted, InsiderRewardStatusVoid, InsiderRewardStatusReversed]
+    InsiderReward:
+      type: object
+      additionalProperties: false
+      required: [id, kind, credits, status, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          $ref: '#/components/schemas/InsiderRewardKind'
+        credits:
+          type: integer
+          description: Credits this entry grants (or granted). Reversals are reported in `reversed_credits`.
+        status:
+          $ref: '#/components/schemas/InsiderRewardStatus'
+        paid_cents:
+          type: integer
+          nullable: true
+          description: For a referral payment, what the customer paid, net of refunds, in US cents.
+        rate_pct:
+          type: integer
+          nullable: true
+          description: For a referral payment, the share it earns (20, 25 or 30).
+        available_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: When a pending referral reward posts (the end of its 30-day hold).
+        posted_at:
+          type: string
+          format: date-time
+          nullable: true
+        reversed_credits:
+          type: integer
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+    InsiderRewardList:
+      type: object
+      additionalProperties: false
+      required: [items, credit_value_usd]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/InsiderReward'
+        credit_value_usd:
+          type: string
+          description: The dollar value of one reward credit used to convert a payment share into credits.
+          examples: ['0.07']
+    InsiderBrandKitLink:
+      type: object
+      additionalProperties: false
+      required: [label, url]
+      properties:
+        label:
+          type: string
+          maxLength: 80
+        url:
+          type: string
+          maxLength: 500
+    InsiderBrandKit:
+      type: object
+      additionalProperties: false
+      required: [assets, sample_prompts, talking_points, disclosure]
+      properties:
+        assets:
+          type: array
+          maxItems: 40
+          description: Downloadable logos, the badge and other brand files.
+          items:
+            $ref: '#/components/schemas/InsiderBrandKitLink'
+        sample_prompts:
+          type: array
+          maxItems: 40
+          items:
+            type: string
+            maxLength: 1000
+        talking_points:
+          type: array
+          maxItems: 40
+          items:
+            type: string
+            maxLength: 500
+        disclosure:
+          type: array
+          maxItems: 20
+          description: The disclosure rules every sponsored or referral post must follow.
+          items:
+            type: string
+            maxLength: 500
+        updated_at:
+          type: string
+          format: date-time
+          nullable: true
+    InsiderPostStatus:
+      type: string
+      description: >
+        `draft` a tracked link waiting for its post; `auto_failed` the post failed an automatic check (see `checks.problem`) and can be submitted again; `pending_review` checks passed, waiting for staff; `approved`; `rejected` (see `review_reason`).
+
+      enum: [draft, auto_failed, pending_review, approved, rejected]
+      x-enum-varnames: [InsiderPostStatusDraft, InsiderPostStatusAutoFailed, InsiderPostStatusPendingReview, InsiderPostStatusApproved, InsiderPostStatusRejected]
+    InsiderPostKind:
+      type: string
+      description: What the post is, for a Super Insider's monthly deliverables.
+      enum: [post, tutorial, dedicated, collab]
+      x-enum-varnames: [InsiderPostKindPost, InsiderPostKindTutorial, InsiderPostKindDedicated, InsiderPostKindCollab]
+    InsiderPostMetrics:
+      type: object
+      additionalProperties: false
+      required: [at]
+      description: Public counts as the platform showed them without sign-in; absent counts were not available.
+      properties:
+        views:
+          type: integer
+        likes:
+          type: integer
+        comments:
+          type: integer
+        shares:
+          type: integer
+        at:
+          type: string
+          format: date-time
+    InsiderPostChecks:
+      type: object
+      additionalProperties: false
+      properties:
+        platform_supported:
+          type: boolean
+        public:
+          type: boolean
+        author_matches:
+          type: boolean
+          description: The post's author is the handle registered for the platform; absent when the platform did not say.
+        duplicate:
+          type: boolean
+        snapshot_saved:
+          type: boolean
+        method:
+          type: string
+          description: How the post was read (oembed, page).
+        problem:
+          type: string
+          description: Why the post failed, in plain words.
+    InsiderPost:
+      type: object
+      additionalProperties: false
+      required: [id, short_id, tracked_url, kind, status, clicks, signups, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        short_id:
+          type: string
+        tracked_url:
+          type: string
+          format: uri
+          description: The link to put in the post (nolgia.ai/@handle?p=<short_id>).
+        kind:
+          $ref: '#/components/schemas/InsiderPostKind'
+        status:
+          $ref: '#/components/schemas/InsiderPostStatus'
+        label:
+          type: string
+        url:
+          type: string
+        platform:
+          $ref: '#/components/schemas/InsiderPlatform'
+        caption:
+          type: string
+        thumbnail_url:
+          type: string
+          description: Signed, short-lived link to the saved snapshot thumbnail.
+        checks:
+          $ref: '#/components/schemas/InsiderPostChecks'
+        metrics_submit:
+          $ref: '#/components/schemas/InsiderPostMetrics'
+        metrics_7d:
+          $ref: '#/components/schemas/InsiderPostMetrics'
+        metrics_note:
+          type: string
+          description: What could not be read (for example "Instagram shows no view count without the creator's sign-in").
+        submitted_at:
+          type: string
+          format: date-time
+        reviewed_at:
+          type: string
+          format: date-time
+        review_reason:
+          type: string
+        deal_month:
+          type: integer
+          description: The Super Insider deal month (0 = the first) the post counts in.
+        clicks:
+          type: integer
+          description: Visits through this post's tracked link.
+        signups:
+          type: integer
+          description: Sign-ups through this post's tracked link.
+        assignment_id:
+          type: string
+          format: uuid
+          nullable: true
+        request_title:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+    InsiderPostList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/InsiderPost'
+    InsiderPostCreateRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        label:
+          type: string
+          maxLength: 80
+          description: A note to recognise the tracked link by ("launch reel").
+        url:
+          type: string
+          maxLength: 500
+          description: The live post, to submit at once.
+        kind:
+          $ref: '#/components/schemas/InsiderPostKind'
+        assignment_id:
+          type: string
+          format: uuid
+          description: The deliverable request this post (or tracked link) is for.
+    InsiderPostSubmitRequest:
+      type: object
+      additionalProperties: false
+      required: [url]
+      properties:
+        url:
+          type: string
+          maxLength: 500
+        kind:
+          $ref: '#/components/schemas/InsiderPostKind'
+        assignment_id:
+          type: string
+          format: uuid
+    InsiderDealMonth:
+      type: object
+      additionalProperties: false
+      required: [index, start, end, approved, pending, tutorials, dedicated, collabs, collab_due, met]
+      description: Progress on the current deal month's deliverables.
+      properties:
+        index:
+          type: integer
+        start:
+          type: string
+          format: date-time
+        end:
+          type: string
+          format: date-time
+        approved:
+          type: integer
+        pending:
+          type: integer
+          description: Submitted posts that passed their checks and wait for review.
+        tutorials:
+          type: integer
+        dedicated:
+          type: integer
+        collabs:
+          type: integer
+          description: Collabs or lives approved this quarter.
+        collab_due:
+          type: boolean
+          description: A collab or live is due by the end of this month (the quarter's last month).
+        met:
+          type: boolean
+    InsiderDealCompliance:
+      type: string
+      description: >
+        `on_track` the month's deliverables are met or the pace is fine; `behind` fewer than expected for how much of the month has passed; `warning` the last month was missed; `ended`.
+
+      enum: [on_track, behind, warning, ended]
+      x-enum-varnames: [InsiderDealComplianceOnTrack, InsiderDealComplianceBehind, InsiderDealComplianceWarning, InsiderDealComplianceEnded]
+    InsiderDeal:
+      type: object
+      additionalProperties: false
+      required: [band, stipend_credits, posts_per_month, tutorials_per_month, dedicated_per_month, collabs_per_quarter, status, compliance, started_at, missed_months]
+      description: A Super Insider deal as the Insider sees it.
+      properties:
+        band:
+          $ref: '#/components/schemas/InsiderDealBand'
+        plan_tier:
+          type: string
+          nullable: true
+          description: The plan the deal gives (pro, studio_min, studio_mid, studio_max); null for a custom deal without one.
+        stipend_credits:
+          type: integer
+        posts_per_month:
+          type: integer
+        tutorials_per_month:
+          type: integer
+        dedicated_per_month:
+          type: integer
+        collabs_per_quarter:
+          type: integer
+        status:
+          type: string
+          enum: [active, warning, ended]
+          x-enum-varnames: [InsiderDealStatusActive, InsiderDealStatusWarning, InsiderDealStatusEnded]
+        compliance:
+          $ref: '#/components/schemas/InsiderDealCompliance'
+        started_at:
+          type: string
+          format: date-time
+        missed_months:
+          type: integer
+          description: Consecutive missed months (1 = warning; 2 ends the deal).
+        month:
+          $ref: '#/components/schemas/InsiderDealMonth'
+    FeedbackType:
+      type: string
+      enum: [bug, feature, other]
+    FeedbackStatus:
+      type: string
+      description: >
+        `fixed` reads "Shipped" on a feature request. `duplicate` items point at the surviving item.
+
+      enum: [new, triaged, planned, in_progress, fixed, wont_fix, duplicate]
+      x-enum-varnames: [FeedbackStatusNew, FeedbackStatusTriaged, FeedbackStatusPlanned, FeedbackStatusInProgress, FeedbackStatusFixed, FeedbackStatusWontFix, FeedbackStatusDuplicate]
+    FeedbackSeverity:
+      type: string
+      description: Bugs only. blocking (cannot continue), annoying (works around it), minor.
+      enum: [blocking, annoying, minor]
+    FeedbackArea:
+      type: string
+      enum: [studio, agent, generate, library, presets, explore, billing, account, insiders, api_cli, other]
+      x-enum-varnames: [FeedbackAreaStudio, FeedbackAreaAgent, FeedbackAreaGenerate, FeedbackAreaLibrary, FeedbackAreaPresets, FeedbackAreaExplore, FeedbackAreaBilling, FeedbackAreaAccount, FeedbackAreaInsiders, FeedbackAreaApiCli, FeedbackAreaOther]
+    FeedbackSource:
+      type: string
+      description: Where the person opened the form.
+      enum: [menu, button, shortcut, agent_message, error_page, insiders_portal, settings, other]
+      x-enum-varnames: [FeedbackSourceMenu, FeedbackSourceButton, FeedbackSourceShortcut, FeedbackSourceAgentMessage, FeedbackSourceErrorPage, FeedbackSourceInsidersPortal, FeedbackSourceSettings, FeedbackSourceOther]
+    FeedbackAttachmentRequest:
+      type: object
+      additionalProperties: false
+      required: [filename, content_type, size_bytes]
+      properties:
+        filename:
+          type: string
+          minLength: 1
+          maxLength: 200
+        content_type:
+          type: string
+          enum: [image/png, image/jpeg, image/webp, image/gif, video/mp4, video/quicktime, video/webm]
+          x-enum-varnames: [FeedbackAttachmentPng, FeedbackAttachmentJpeg, FeedbackAttachmentWebp, FeedbackAttachmentGif, FeedbackAttachmentMp4, FeedbackAttachmentQuicktime, FeedbackAttachmentWebm]
+        size_bytes:
+          type: integer
+          format: int64
+          minimum: 1
+          description: The file's size; images up to 10 MB, videos up to 50 MB.
+    FeedbackAttachmentUpload:
+      type: object
+      additionalProperties: false
+      required: [id, upload_url, upload_method, upload_headers, expires_at, max_bytes]
+      properties:
+        id:
+          type: string
+          format: uuid
+        upload_url:
+          type: string
+        upload_method:
+          type: string
+          enum: [PUT]
+        upload_headers:
+          type: object
+          description: Headers the PUT must carry exactly (Content-Type).
+          additionalProperties:
+            type: string
+        expires_at:
+          type: string
+          format: date-time
+        max_bytes:
+          type: integer
+          format: int64
+    FeedbackClientError:
+      type: object
+      additionalProperties: false
+      required: [message]
+      properties:
+        message:
+          type: string
+          maxLength: 300
+        source:
+          type: string
+          maxLength: 300
+        at:
+          type: string
+          format: date-time
+    FeedbackClientContext:
+      type: object
+      additionalProperties: false
+      description: >
+        What the client captured with consent. Every field is optional and truncated server side; the page address is redacted again server side.
+
+      properties:
+        page_url:
+          type: string
+          maxLength: 2000
+        build_id:
+          type: string
+          maxLength: 100
+        browser:
+          type: string
+          maxLength: 100
+        os:
+          type: string
+          maxLength: 100
+        viewport:
+          type: string
+          maxLength: 20
+        screen:
+          type: string
+          maxLength: 20
+        locale:
+          type: string
+          maxLength: 35
+        time_zone:
+          type: string
+          maxLength: 64
+        surface:
+          type: string
+          maxLength: 40
+          description: app or insiders_portal.
+        job_ids:
+          type: array
+          maxItems: 20
+          items:
+            type: string
+            maxLength: 64
+        client_errors:
+          type: array
+          maxItems: 10
+          items:
+            $ref: '#/components/schemas/FeedbackClientError'
+        agent_session_id:
+          type: string
+          format: uuid
+        agent_message_id:
+          type: string
+          format: uuid
+    FeedbackCreateRequest:
+      type: object
+      additionalProperties: false
+      required: [type, title, description]
+      properties:
+        type:
+          $ref: '#/components/schemas/FeedbackType'
+        title:
+          type: string
+          minLength: 3
+          maxLength: 140
+        description:
+          type: string
+          minLength: 1
+          maxLength: 5000
+        expected:
+          type: string
+          maxLength: 2000
+          description: Bugs only, what you expected to happen.
+        severity:
+          $ref: '#/components/schemas/FeedbackSeverity'
+        area:
+          $ref: '#/components/schemas/FeedbackArea'
+        source:
+          $ref: '#/components/schemas/FeedbackSource'
+        show_on_ideas:
+          type: boolean
+          description: Feature requests only (default true).
+        attachment_ids:
+          type: array
+          maxItems: 4
+          items:
+            type: string
+            format: uuid
+        include_last_prompt:
+          type: boolean
+          description: Store `last_prompt` with the report. Without it the prompt is dropped.
+        last_prompt:
+          type: string
+          maxLength: 4000
+        context:
+          $ref: '#/components/schemas/FeedbackClientContext'
+    FeedbackItem:
+      type: object
+      additionalProperties: false
+      required: [id, number, type, title, description, area, status, status_label, show_on_ideas, vote_count, weighted_votes, staff_replies, attachment_count, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        number:
+          type: integer
+          format: int64
+          description: The human reference (shown as FB-<number>).
+        type:
+          $ref: '#/components/schemas/FeedbackType'
+        title:
+          type: string
+        description:
+          type: string
+        expected:
+          type: string
+        severity:
+          $ref: '#/components/schemas/FeedbackSeverity'
+        area:
+          $ref: '#/components/schemas/FeedbackArea'
+        status:
+          $ref: '#/components/schemas/FeedbackStatus'
+        status_label:
+          type: string
+          description: The customer-facing status (New, Under review, Planned, In progress, Fixed / Shipped, Won't fix, Duplicate).
+        show_on_ideas:
+          type: boolean
+        vote_count:
+          type: integer
+        weighted_votes:
+          type: number
+        staff_replies:
+          type: integer
+          description: Staff replies the reporter can see.
+        last_staff_reply_at:
+          type: string
+          format: date-time
+        attachment_count:
+          type: integer
+        duplicate_of_number:
+          type: integer
+          format: int64
+        reward_credits:
+          type: integer
+          description: Bonus credits this item earned the reporter.
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    FeedbackContributionSummary:
+      type: object
+      additionalProperties: false
+      required: [submitted, open, bugs_confirmed, bugs_fixed, ideas_shipped, votes_received, reward_credits]
+      properties:
+        submitted:
+          type: integer
+        open:
+          type: integer
+        bugs_confirmed:
+          type: integer
+          description: Bugs staff confirmed (triaged or further, not won't fix or duplicate).
+        bugs_fixed:
+          type: integer
+        ideas_shipped:
+          type: integer
+        votes_received:
+          type: integer
+        reward_credits:
+          type: integer
+    MyFeedbackList:
+      type: object
+      additionalProperties: false
+      required: [items, total, summary]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/FeedbackItem'
+        total:
+          type: integer
+        summary:
+          $ref: '#/components/schemas/FeedbackContributionSummary'
+    FeedbackCommentAuthor:
+      type: object
+      additionalProperties: false
+      required: [kind, display_name]
+      properties:
+        kind:
+          type: string
+          enum: [reporter, staff, member]
+          x-enum-varnames: [FeedbackCommentAuthorReporter, FeedbackCommentAuthorStaff, FeedbackCommentAuthorMember]
+        display_name:
+          type: string
+        insider_handle:
+          type: string
+        mine:
+          type: boolean
+    FeedbackComment:
+      type: object
+      additionalProperties: false
+      required: [id, body, author, visibility, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        body:
+          type: string
+        author:
+          $ref: '#/components/schemas/FeedbackCommentAuthor'
+        visibility:
+          type: string
+          enum: [thread, public]
+          x-enum-varnames: [FeedbackCommentThread, FeedbackCommentPublic]
+        created_at:
+          type: string
+          format: date-time
+    FeedbackCommentRequest:
+      type: object
+      additionalProperties: false
+      required: [body]
+      properties:
+        body:
+          type: string
+          minLength: 1
+          maxLength: 5000
+    FeedbackStatusChange:
+      type: object
+      additionalProperties: false
+      required: [to, at]
+      properties:
+        from:
+          $ref: '#/components/schemas/FeedbackStatus'
+        to:
+          $ref: '#/components/schemas/FeedbackStatus'
+        note:
+          type: string
+        at:
+          type: string
+          format: date-time
+    FeedbackAttachmentMeta:
+      type: object
+      additionalProperties: false
+      required: [id, filename, content_type, size_bytes]
+      properties:
+        id:
+          type: string
+          format: uuid
+        filename:
+          type: string
+        content_type:
+          type: string
+        size_bytes:
+          type: integer
+          format: int64
+    FeedbackItemDetail:
+      type: object
+      additionalProperties: false
+      required: [item, comments, history, attachments]
+      properties:
+        item:
+          $ref: '#/components/schemas/FeedbackItem'
+        comments:
+          type: array
+          items:
+            $ref: '#/components/schemas/FeedbackComment'
+        history:
+          type: array
+          items:
+            $ref: '#/components/schemas/FeedbackStatusChange'
+        attachments:
+          type: array
+          items:
+            $ref: '#/components/schemas/FeedbackAttachmentMeta'
+    FeedbackIdea:
+      type: object
+      additionalProperties: false
+      required: [id, number, title, description, status, status_label, area, author_display, author_is_insider, vote_count, weighted_votes, my_vote, mine, comment_count, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        number:
+          type: integer
+          format: int64
+        title:
+          type: string
+        description:
+          type: string
+        status:
+          $ref: '#/components/schemas/FeedbackStatus'
+        status_label:
+          type: string
+        area:
+          $ref: '#/components/schemas/FeedbackArea'
+        author_display:
+          type: string
+        author_is_insider:
+          type: boolean
+        author_insider_handle:
+          type: string
+        author_insider_level:
+          type: string
+          description: insider, rising, elite or super.
+        vote_count:
+          type: integer
+        weighted_votes:
+          type: number
+        my_vote:
+          type: boolean
+        mine:
+          type: boolean
+        comment_count:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+    FeedbackIdeaList:
+      type: object
+      additionalProperties: false
+      required: [ideas, total]
+      properties:
+        ideas:
+          type: array
+          items:
+            $ref: '#/components/schemas/FeedbackIdea'
+        total:
+          type: integer
+    FeedbackIdeaDetail:
+      type: object
+      additionalProperties: false
+      required: [idea, comments, can_comment]
+      properties:
+        idea:
+          $ref: '#/components/schemas/FeedbackIdea'
+        comments:
+          type: array
+          items:
+            $ref: '#/components/schemas/FeedbackComment'
+        can_comment:
+          type: boolean
+    InsiderRequestPlatform:
+      type: string
+      description: A platform a deliverable request asks for.
+      enum: [instagram, tiktok, youtube, x, threads, linkedin, facebook, pinterest, twitch, other]
+      x-enum-varnames: [InsiderRequestPlatformInstagram, InsiderRequestPlatformTiktok, InsiderRequestPlatformYoutube, InsiderRequestPlatformX, InsiderRequestPlatformThreads, InsiderRequestPlatformLinkedin, InsiderRequestPlatformFacebook, InsiderRequestPlatformPinterest, InsiderRequestPlatformTwitch, InsiderRequestPlatformOther]
+    InsiderRequestContentType:
+      type: string
+      enum: [short_video, long_video, story, post, livestream, tutorial, review, collab]
+      x-enum-varnames: [InsiderRequestContentShortVideo, InsiderRequestContentLongVideo, InsiderRequestContentStory, InsiderRequestContentPost, InsiderRequestContentLivestream, InsiderRequestContentTutorial, InsiderRequestContentReview, InsiderRequestContentCollab]
+    InsiderRequestElements:
+      type: object
+      additionalProperties: false
+      description: What every post for the request must include.
+      properties:
+        link_or_code:
+          type: boolean
+          description: The Insider's tracked link or personal code.
+        disclosure:
+          type: boolean
+          description: The
+        hashtags:
+          type: array
+          maxItems: 20
+          items:
+            type: string
+            maxLength: 60
+        talking_points:
+          type: array
+          maxItems: 20
+          items:
+            type: string
+            maxLength: 500
+        assets:
+          type: array
+          maxItems: 20
+          description: Files to use (brand kit links or uploaded files' https links).
+          items:
+            $ref: '#/components/schemas/InsiderBrandKitLink'
+    InsiderRequestSpec:
+      type: object
+      additionalProperties: false
+      required: [title, brief, content_types, platforms, quantity_per_platform, elements]
+      description: The body of a deliverable request (and of a template).
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 120
+        brief:
+          type: string
+          maxLength: 10000
+          description: Markdown (headings, emphasis, lists, links). Rendered as text, never HTML.
+        content_types:
+          type: array
+          minItems: 1
+          maxItems: 8
+          items:
+            $ref: '#/components/schemas/InsiderRequestContentType'
+        platforms:
+          type: array
+          minItems: 1
+          maxItems: 10
+          items:
+            $ref: '#/components/schemas/InsiderRequestPlatform'
+        quantity_per_platform:
+          type: integer
+          minimum: 1
+          maximum: 20
+          description: Posts wanted on EACH chosen platform.
+        elements:
+          $ref: '#/components/schemas/InsiderRequestElements'
+        bonus_credits:
+          type: integer
+          minimum: 0
+          maximum: 50000
+          description: Credits granted to each Insider who completes the request (every item approved). Test Insiders get none.
+        cash_note:
+          type: string
+          maxLength: 1000
+          description: A note for a negotiated cash deal (no money moves automatically).
+    InsiderAssignmentStatus:
+      type: string
+      description: >
+        `requested` sent, not answered; `accepted`; `declined`; `completed` every item approved; `missed` the due date passed without it; `cancelled` staff withdrew the request.
+
+      enum: [requested, accepted, declined, completed, missed, cancelled]
+      x-enum-varnames: [InsiderAssignmentRequested, InsiderAssignmentAccepted, InsiderAssignmentDeclined, InsiderAssignmentCompleted, InsiderAssignmentMissed, InsiderAssignmentCancelled]
+    InsiderAssignmentItem:
+      type: object
+      additionalProperties: false
+      required: [platform, wanted, approved, pending, posts]
+      description: One platform of an assignment and the posts submitted for it.
+      properties:
+        platform:
+          $ref: '#/components/schemas/InsiderRequestPlatform'
+        wanted:
+          type: integer
+        approved:
+          type: integer
+        pending:
+          type: integer
+        posts:
+          type: array
+          items:
+            $ref: '#/components/schemas/InsiderPost'
+    InsiderAssignment:
+      type: object
+      additionalProperties: false
+      required: [id, request_id, kind, spec, due_at, status, items, created_at]
+      description: A deliverable request as one Insider sees it.
+      properties:
+        id:
+          type: string
+          format: uuid
+        request_id:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          enum: [request, deal_month]
+          x-enum-varnames: [InsiderAssignmentKindRequest, InsiderAssignmentKindDealMonth]
+          description: "`deal_month` is a Super Insider deal's monthly quota, generated automatically."
+        spec:
+          $ref: '#/components/schemas/InsiderRequestSpec'
+        minimum_total:
+          type: integer
+          nullable: true
+          description: For a deal month, posts wanted in total on any platform (items then show what was posted).
+        due_at:
+          type: string
+          format: date-time
+        status:
+          $ref: '#/components/schemas/InsiderAssignmentStatus'
+        decline_reason:
+          type: string
+          nullable: true
+        responded_at:
+          type: string
+          format: date-time
+          nullable: true
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/InsiderAssignmentItem'
+        created_at:
+          type: string
+          format: date-time
+    InsiderAssignmentList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/InsiderAssignment'
+    InsiderAssignmentResponse:
+      type: object
+      additionalProperties: false
+      required: [decision]
+      properties:
+        decision:
+          type: string
+          enum: [accept, decline]
+          x-enum-varnames: [InsiderAssignmentDecisionAccept, InsiderAssignmentDecisionDecline]
+        reason:
+          type: string
+          maxLength: 500
+    InsiderNotification:
+      type: object
+      additionalProperties: false
+      required: [id, kind, title, body, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          description: request_new, request_due_soon, request_overdue, post_approved, post_rejected, request_cancelled.
+        title:
+          type: string
+        body:
+          type: string
+        link:
+          type: string
+          nullable: true
+          description: A portal path (e.g. /requests/<id>).
+        created_at:
+          type: string
+          format: date-time
+        read_at:
+          type: string
+          format: date-time
+          nullable: true
+    InsiderNotificationList:
+      type: object
+      additionalProperties: false
+      required: [items, unread]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/InsiderNotification'
+        unread:
+          type: integer
+    InsiderNotificationsRead:
+      type: object
+      additionalProperties: false
+      properties:
+        ids:
+          type: array
+          maxItems: 200
+          items:
+            type: string
+            format: uuid
+        all:
+          type: boolean
+    InsiderDealBand:
+      type: string
+      description: >
+        Super Insider audience band: `micro` 5k to 25k (Pro, 2 posts a month), `mid` 25k to 100k (Pro + 1,000 credits, 3 posts incl. 1 tutorial), `macro` 100k to 500k (Studio + 3,000 credits, 4 posts incl. 1 dedicated, plus a quarterly collab or live), `custom` 500k+ (negotiated).
+
+      enum: [micro, mid, macro, custom]
+      x-enum-varnames: [InsiderDealBandMicro, InsiderDealBandMid, InsiderDealBandMacro, InsiderDealBandCustom]
     PlanTrialStatus:
       type: string
       description: >
