@@ -8355,6 +8355,29 @@ paths:
           $ref: '#/components/responses/ProblemResponse'
         default:
           $ref: '#/components/responses/ProblemResponse'
+  /agent/wake:
+    post:
+      tags: [Agent]
+      operationId: wakeAgent
+      summary: Wake the current user's sleeping agent now.
+      description: >
+        A free-trial agent sleeps after 30 idle minutes (paid agents in environments with sleep mode do too). A message sent to a sleeping agent wakes it on its own; this call starts the wake earlier, for example when the chat opens, so the agent is ready sooner. The wake takes about a minute. Answers `202` with the agent (`sleep_state` `waking` while the wake is in flight) and does nothing for an agent that is awake. `404` when the account has no agent; `409` when the agent is not running (still deploying, stopped, or deprovisioned).
+
+      responses:
+        '202':
+          description: The agent; a sleeping agent is waking.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Agent'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
   /agent/usage:
     get:
       tags: [Agent]
@@ -19119,7 +19142,9 @@ components:
         trial:
           type: boolean
           description: >-
-            True when this is a free-trial agent on the shared trial pool: no dedicated disk (its workspace files are scratch), lower scheduling priority, and it sleeps when idle, so the first message after a pause can take a few minutes. Memory and chat history carry over when the account upgrades to a plan that includes the agent.
+            True when this is a free-trial agent on the shared trial pool: no dedicated disk (its workspace files are scratch), lower scheduling priority, and it sleeps when idle, so the first message after a pause wakes it first (about a minute; see `sleep_state`). Memory and chat history carry over when the account upgrades to a plan that includes the agent.
+        sleep_state:
+          $ref: '#/components/schemas/AgentSleepState'
         created_at:
           type: string
           format: date-time
@@ -23318,6 +23343,13 @@ components:
           type: string
           description: The brain that wrote the suggestions.
           examples: ['deepseek-v4-flash']
+    AgentSleepState:
+      type: string
+      enum: [awake, asleep, waking]
+      description: >
+        `awake` the agent's pod is up (or sleep mode does not apply to it); `asleep` it was scaled to zero after an idle spell and the next message (or `POST /agent/wake`) wakes it; `waking` a wake was requested in the last ten minutes and the agent has not answered yet. A wake takes about a minute.
+
+      x-enum-varnames: [AgentSleepStateAwake, AgentSleepStateAsleep, AgentSleepStateWaking]
     AgentDashboardTicket:
       type: object
       additionalProperties: false
