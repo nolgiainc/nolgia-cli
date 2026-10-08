@@ -451,80 +451,17 @@ cargo build --release --locked
 
 The Rust client is generated at build time from the vendored [OpenAPI snapshot](crates/client/openapi.yaml). CI compares it with the canonical API contract. Do not hand-edit generated client output. For local development, the sibling `nolgia-api` spec is used only when you explicitly set `NOLGIA_USE_SIBLING_SPEC=1`; otherwise builds use the vendored snapshot. The release workflow publishes tagged crates and release binaries, then attempts npm publishing only when `npm/package.json` matches the tag; a mismatch fails that npm job. A commit on `main` is not itself a release.
 
-### Submit and subscribe (Rust)
+### Using the API from Rust
 
-`cargo add nolgia-client` is the whole install: the crate re-exports the async
-runtime and `serde_json` and downloads finished assets itself, so this compiles
-and runs end to end on a fresh project with no second dependency. `client()`
-reads `NOLGIA_TOKEN` (and `NOLGIA_API_URL` when set).
+For your own Rust programs, use the official Rust SDK, the
+[`nolgia`](https://crates.io/crates/nolgia) crate (`cargo add nolgia`; docs at
+[docs.rs/nolgia](https://docs.rs/nolgia)). It is generated from the same API
+contract and adds typed errors, retries, idempotency keys, wait, upload,
+download, streaming and pagination helpers.
 
-```rust
-use nolgia_client::{ClientExt, tokio};
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let nolgia = nolgia_client::client()?;
-    let result = nolgia_client::subscribe(
-        &nolgia,
-        "/generate/image",
-        nolgia_client::json!({"model": "flux-pro", "prompt": "a paper-cut mountain range"}),
-        Default::default(),
-    )
-    .await?;
-    nolgia.download(&result.url.unwrap_or_default(), "first.png").await?;
-    Ok(())
-}
-```
-
-`use nolgia_client::tokio;` is what makes `#[tokio::main]` resolve — the
-attribute expands to a bare `tokio`, so a re-export satisfies it only once it
-is in scope. `#[nolgia_client::rt::main(crate = "nolgia_client::tokio")]` is
-the equivalent with no `use`, and `nolgia_client::rt::block_on(future)` runs
-one future from a synchronous `fn main`. `ClientBuilder` remains available for
-a hand-built client.
-
-`ClientExt::download(url, path)` streams a finished asset to disk through a
-sibling `<path>.part`, so an interrupted download leaves no truncated file;
-`download_bytes(url)` returns it in memory instead. The client's bearer token
-is sent only when the URL is on the same origin as the client's base URL — an
-`asset.signed_url` carries its own credential and is fetched anonymously — and
-a query string never reaches an error message.
-
-Every generate request requires `model`; `flux-pro` is the CLI's default image
-model. `result.media` contains all assets (deduplicated in server order), while
-`result.url` is the first signed URL, or `None` when there are no assets. Treat
-signed URLs as short-lived bearer capabilities.
-
-Use `submit` for a `JobHandle`: `job_id()` and `job()` inspect the submission,
-`status().await` fetches once, and `result().await` starts polling. Clone the
-handle before consuming it with `result()` if you need to call `cancel_job()`
-while waiting. Options control polling (500 ms by default), the wait budget (30 minutes
-from `result()`), change-only status callbacks, and submission headers such as
-`Idempotency-Key`. Server error codes, including unknown codes, and raw terminal
-job fields survive in `GenerationError`.
-
-`handle.cancel_job().await` cancels the job on the server
-(`POST /jobs/{id}/cancel`) and stops the wait. It returns the canceled job, raw
-like `status()`, whose `cancellation` says what the model provider did and
-whether the credits were refunded: a job that had not reached the provider is
-refunded in full, and a started render is refunded only when the provider
-stops it without billing (`settlement` can read `pending` until the provider
-answers). A canceled job is never added to your library. A pending or later
-`result()` on the handle or any clone then fails with `ErrorCode::Canceled`,
-whose message is the server's cancellation sentence. A job that already
-finished is refused with `ErrorCode::JobNotCancellable` (HTTP `409`); nothing
-is changed and the wait carries on to the job's own result. Without a handle,
-`client.cancel_job_with_body(job_id)` (from `ClientExt`) sends the same request
-and returns the typed `Job`.
-
-A wait timeout stops only the client waiting; the job keeps running and credits
-are still spent. `JobHandle::cancel()` is deprecated for the same reason: it
-stops only the local wait, and the job keeps running and is billed. Keep the job
-ID to inspect the existing job instead of submitting another paid generation.
-
-Supported endpoints are `/generate/image`, `/generate/audio`, `/generate/video`,
-`/generate/3d`, and `/restore/video`. `/generate/set` returns an `OutputSet` and
-uses `/sets/{id}` polling, so it is deliberately excluded from this job helper.
+`nolgia-client` (`crates/client`) is this CLI's internal building block. It is
+still published because `nolgia-cli` depends on it, but it is deprecated as a
+public client: new code should depend on `nolgia`.
 
 ## License
 

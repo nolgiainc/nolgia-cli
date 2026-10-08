@@ -1,5 +1,11 @@
 # nolgia-client
 
+> **Deprecated as a public client.** Use the official Rust SDK instead:
+> [`nolgia`](https://crates.io/crates/nolgia) (`cargo add nolgia`, docs at
+> [docs.rs/nolgia](https://docs.rs/nolgia)). `nolgia-client` is the internal
+> building block of the `nolgia` CLI and stays published only because
+> `nolgia-cli` depends on it.
+
 Rust API client for `nolgia-api`, generated from `openapi.yaml` with Progenitor.
 
 ## What this crate does

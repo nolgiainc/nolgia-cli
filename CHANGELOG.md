@@ -5,6 +5,10 @@ the matching GitHub release.
 
 ## Unreleased
 
+- **`nolgia-client` is deprecated as a public Rust client.** Use the official
+  Rust SDK, the `nolgia` crate (`cargo add nolgia`). `nolgia-client` keeps
+  being published because the CLI depends on it; nothing about the CLI changes.
+
 ## v0.2.34
 
 - **Personal access tokens expire, and `nolgia pat` shows when.** `nolgia pat
