@@ -12954,6 +12954,24 @@ components:
 
         Refused with a 400 on a model whose `references.video_tasks` does not
         list the value, and without a reference video.
+    EditTargetPoint:
+      type: object
+      nullable: true
+      additionalProperties: false
+      required: [x, y]
+      description: >-
+        A tap on the `edit_target` in the source clip's first frame, as fractions of the frame (0,0 is the top left corner, 1,1 the bottom right). Optional: send it when the words could match more than one thing in the shot (two people, two cups). Needs `edit_target`.
+      properties:
+        x:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+        y:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
     ModelCost:
       type: object
       additionalProperties: false
@@ -14716,6 +14734,30 @@ components:
             format: uri
         video_task:
           $ref: '#/components/schemas/VideoTask'
+        edit_target:
+          type: string
+          nullable: true
+          minLength: 1
+          maxLength: 120
+          description: |
+            Keep everything else. On an edit (`video_task: edit`, or a model
+            that edits footage, such as `happyhorse-1.0-video-edit`), name the
+            one thing the edit removes or changes, in a few words ("the boom
+            microphone", "the coffee cup on the table"). The delivered clip is
+            then the source clip everywhere but that thing: the same frames,
+            length, frame rate and size, and the source's own audio. Only the
+            area around the thing comes from the edit, which also keeps the
+            edit model from changing faces, wardrobe or the grade elsewhere in
+            the shot.
+
+            The thing is found in the source clip when the edit completes.
+            When it cannot be found, the job fails with a full refund and a
+            message naming it: describe it the way it looks in the shot.
+            Commas name several things ("boom microphone, boom pole"). Needs
+            exactly one source clip, given as `video_asset_ids`. Billed as the
+            edit itself; the pass adds no charge.
+        edit_target_point:
+          $ref: '#/components/schemas/EditTargetPoint'
         element_asset_ids:
           type: array
           nullable: true
