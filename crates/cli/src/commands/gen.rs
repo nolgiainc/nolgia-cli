@@ -299,7 +299,7 @@ pub struct AudioArgs {
 /// OpenAPI spec and fails if this list ever drifts from the real enum.
 pub const IMAGE_ASPECT_RATIOS: &[&str] = &[
     "16:9", "9:16", "1:1", "4:3", "3:4", "3:2", "2:3", "21:9", "9:21", "2:1", "1:2", "5:4", "4:5",
-    "3:1", "1:3", "4:1", "1:4",
+    "3:1", "1:3", "4:1", "1:4", "8:1", "1:8",
 ];
 
 /// Parse `--aspect-ratio`, naming every accepted value on a miss.
