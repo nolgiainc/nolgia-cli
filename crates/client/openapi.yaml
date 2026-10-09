@@ -3406,6 +3406,8 @@ paths:
 
         For a `video/mp4` or `video/quicktime` upload the server also reads the clip's duration from the uploaded file's movie header and returns it as `duration_seconds`, so a model that bills the source clip's length can take the asset at once. The read is best effort: when the file carries no usable movie header (a fragmented MP4, for one) the upload still completes and `duration_seconds` stays null until the asynchronous backfill measures it.
 
+        For an audio upload the server decodes the stored file once and returns its length as `duration_seconds` and its envelope as `waveform_peaks` (with `has_audio`), so a lip sync model, which bills the voice track's length and refuses a silent track, can take it at once. Also best effort: a file that cannot be decoded in time still completes, and the asynchronous backfill measures it later.
+
       parameters:
         - name: id
           in: path
@@ -15360,7 +15362,7 @@ components:
           nullable: true
           minimum: 0
           description: >
-            Media duration in seconds for video/audio assets. Recorded at creation time for generated videos, read from the file's own movie header when an MP4 or MOV signed upload completes, and otherwise backfilled asynchronously (ffprobe) for uploaded/legacy assets; null until known.
+            Media duration in seconds for video/audio assets. Recorded at creation time for generated videos, read from the file's own movie header when an MP4 or MOV signed upload completes, measured from the decoded audio when an audio signed upload completes (or when a lip sync request uses a track without one), and otherwise backfilled asynchronously (ffprobe) for uploaded/legacy assets; null until known.
 
         has_audio:
           type: boolean
@@ -15374,7 +15376,7 @@ components:
           type: array
           nullable: true
           description: >
-            Downsampled, peak-normalized amplitude envelope of the asset's audio for client-side waveform rendering. Each value is the RMS amplitude of one contiguous window, normalized so the loudest window is `1.0` and rounded to 3 decimals; up to ~400 points for a full-length clip (fewer for very short clips). Present only for audio-bearing assets once the media sweep has computed it (ffmpeg PCM decode); `null` for assets with no audio or not yet probed. Populated on every asset read that carries it (list and single-asset).
+            Downsampled, peak-normalized amplitude envelope of the asset's audio for client-side waveform rendering. Each value is the RMS amplitude of one contiguous window, normalized so the loudest window is `1.0` and rounded to 3 decimals; up to ~400 points for a full-length clip (fewer for very short clips). Present only for audio-bearing assets once computed (ffmpeg PCM decode): when an audio signed upload completes, when a lip sync request uses a track without one, or otherwise by the asynchronous media sweep; `null` for assets with no audio or not yet probed. Populated on every asset read that carries it (list and single-asset).
 
           items:
             type: number
