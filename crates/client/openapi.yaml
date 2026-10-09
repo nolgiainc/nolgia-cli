@@ -13599,9 +13599,9 @@ components:
         `nano-banana-2.1` (Gemini Nano Banana 2.1) is the update to
         `nano-banana-2`: native `1k` (default), `2k` and `4k` output tiers,
         each rendered at that resolution by the model itself and priced by
-        its own credits (read them from `GET /models`), all fifteen Gemini
-        aspect ratios including 8:1, 1:8 and 9:21, and editing with up to 4
-        reference images. One image per request.
+        its own credits (read them from `GET /models`), fourteen Gemini
+        aspect ratios including 8:1 and 1:8 (no 9:21), and editing with up to
+        4 reference images. One image per request.
         `grok-imagine-image-2.0` is the newest Grok Imagine image model, same
         1k/2k tiers and aspect ratios as `grok-imagine-image`. The tiers are
         not priced alike across the three Grok image models: xAI charges one
