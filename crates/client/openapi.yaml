@@ -3822,6 +3822,38 @@ paths:
           $ref: '#/components/responses/ProblemResponse'
         default:
           $ref: '#/components/responses/ProblemResponse'
+  /desktop-apps:
+    get:
+      tags: [Bridge]
+      operationId: listDesktopApps
+      summary: List the desktop apps NOLGIA has a plugin for, with each plugin's status and download. Public, identical for every caller.
+      description: |
+        Every desktop app the NOLGIA Bridge connects, always in the same
+        order: Blender, After Effects, Premiere Pro, Illustrator, Photoshop,
+        DaVinci Resolve Studio, TouchDesigner.
+
+        `status` says whether the app's NOLGIA plugin has shipped
+        (`available`) or not yet (`coming_soon`). An available app carries
+        the oldest app version its plugin installs into, the plugin's
+        version and its download (a pinned release of
+        https://github.com/nolgiainc/nolgia-plugins). The plugin's page is
+        `https://nolgia.ai/plugins/<page_slug>`.
+
+        A plugin workflow (a preset whose `target.kind` is `desktop_app`)
+        can be published only while its app is `available`.
+      security:
+        - {}
+        - bearerAuth: []
+        - patAuth: []
+      responses:
+        '200':
+          description: Every desktop app, in the Bridge's order.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DesktopAppList'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
   /bridge/sessions:
     get:
       tags: [Bridge]
@@ -16028,6 +16060,63 @@ components:
         A desktop app a NOLGIA plugin connects: Blender, After Effects,
         Premiere Pro, Illustrator, Photoshop, DaVinci Resolve Studio or
         TouchDesigner.
+    DesktopAppStatus:
+      type: string
+      enum: [coming_soon, available]
+      x-enum-varnames: [DesktopAppStatusComingSoon, DesktopAppStatusAvailable]
+      description: |
+        Whether the app's NOLGIA plugin has shipped: `available` (download it
+        today) or `coming_soon` (not out yet).
+    DesktopApp:
+      type: object
+      additionalProperties: false
+      required: [id, name, run_language, status, min_app_version, plugin_version, download_url, page_slug, updated_at]
+      description: A desktop app the NOLGIA Bridge connects, and where its NOLGIA plugin stands.
+      properties:
+        id:
+          $ref: '#/components/schemas/BridgeApp'
+        name:
+          type: string
+          description: The app as a person knows it.
+          examples: ['Premiere Pro']
+        run_language:
+          type: string
+          description: |
+            The language the app's plugin runs `run` commands in
+            (`args.language` on `POST /bridge/commands`): `python`,
+            `extendscript` or `uxp`.
+          examples: ['extendscript']
+        status:
+          $ref: '#/components/schemas/DesktopAppStatus'
+        min_app_version:
+          type: string
+          description: The oldest app version the plugin installs into, as the app numbers it. Empty when not set.
+          examples: ['25.0']
+        plugin_version:
+          type: string
+          description: The shipped plugin release. Empty when not set.
+          examples: ['0.1.1']
+        download_url:
+          type: string
+          description: The plugin's download, an https link to a pinned release. Empty while the plugin has not shipped.
+          examples: ['https://github.com/nolgiainc/nolgia-plugins/releases/download/adobe-v0.1.1/nolgia-adobe-0.1.1.zxp']
+        page_slug:
+          type: string
+          description: The plugin page's path segment, `https://nolgia.ai/plugins/<page_slug>`.
+          examples: ['davinci-resolve']
+        updated_at:
+          type: string
+          format: date-time
+          description: When the entry last changed.
+    DesktopAppList:
+      type: object
+      additionalProperties: false
+      required: [apps]
+      properties:
+        apps:
+          type: array
+          items:
+            $ref: '#/components/schemas/DesktopApp'
     BridgeDocument:
       type: object
       additionalProperties: false
