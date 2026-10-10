@@ -50,7 +50,8 @@ nolgia voices list --model <tts model>   # voice ids for --voice
 ## Generate
 
 ```bash
-# Image (prints the signed URL; --out saves it). Default model: flux-pro.
+# Image (prints the signed URL; --out saves it, renamed to the real format
+# when the extension is wrong, e.g. .png -> .jpg). Default model: flux-pro.
 nolgia gen image --prompt "isometric server room, dramatic lighting" --out img.png
 
 # 3D (GLB): 1 to 4 photos; --draft costs 2 credits. Estimate with --cost-only.
@@ -74,6 +75,18 @@ nolgia gen video --model fal-ai/bytedance/seedance/v2/pro/reference-to-video \
   --video-ref <video asset uuid> --element <image asset uuid> \
   --prompt "@Video1 restaged in the style of @Image1" \
   --quality 1080p --bitrate high --out remix.mp4
+
+# One subject reference on seedance-2.5 and no --duration-seconds: the clip
+# renders the reference's length, counted to the nearest second (the CLI
+# prints the length it chose). Pass --duration-seconds to pick another.
+nolgia gen video --video-ref <video asset uuid> --element <image asset uuid> \
+  --prompt "@Image1 performs the dance in @Video1" --out dance.mp4
+
+# Background removal takes NO prompt, only --input (`remove background` in
+# `nolgia models list`): a transparent PNG, or a WebM with alpha for video.
+nolgia gen image --model remove-background --input product.jpg --out cutout.png
+nolgia gen video --model remove-background-video --input <video asset uuid> \
+  --out cutout.webm
 
 # Outpaint: grow an image you already have to a new ratio (flux-expand).
 # Keeps the source pixels and paints the added margins; --prompt is optional.

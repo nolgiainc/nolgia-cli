@@ -5,6 +5,36 @@ the matching GitHub release.
 
 ## Unreleased
 
+- **Background removal runs from the CLI, with no prompt.** `nolgia gen image
+  --model remove-background --input <image>` no longer demands `--prompt`
+  (the API refuses one there), and neither do the image enhancers.
+  `nolgia gen video --model remove-background-video --input <clip>` submits to
+  the background-removal route and returns a WebM with an alpha channel;
+  `--input` takes a video asset UUID, a local file or an https URL, and
+  `--cost-only` quotes the clip's stored length. Which models take no prompt
+  comes from the catalog (`remove_background`, `image_enhance`), and
+  `nolgia models list` marks them `remove background` and `enhance`.
+- **Identity scores are shown.** After `gen image` with
+  `--face-reference-asset-id` or `--character-id` (and `gen video` with
+  `--character-id`), text output reports the Aura identity score, whether it
+  passed the 0.60 gate and any automatic re-roll; `--json` carries the same
+  fields on `asset`.
+- **`--out` uses the real file type.** When the extension you give names a
+  different format than the server delivered (nano-banana-2.1 returns JPEG,
+  so `--out still.png`), the file is saved under the right extension
+  (`still.jpg`) and the CLI says so. `assets get --out` reports the path it
+  wrote. A failed download is now an error instead of a saved error page.
+- **A single reference video sets the clip length.** With one `--video-ref`
+  on a subject-reference model such as `seedance-2.5` and no
+  `--duration-seconds`, the clip renders the reference's length, counted to
+  the nearest whole second as the API counts it (a 5.25 s reference renders
+  5 s) and fitted to the model's range, and the CLI prints the length it
+  chose. Several references, or a reference whose length is not stored, keep
+  the server default, with a warning.
+- **`--video-ref` takes up to 10 clips**, the request's own limit (it was
+  capped at 3); each model's limit still comes from the catalog, and
+  seedance-2.5 takes 10.
+
 - **`nolgia-client` is deprecated as a public Rust client.** Use the official
   Rust SDK, the `nolgia` crate (`cargo add nolgia`). `nolgia-client` keeps
   being published because the CLI depends on it; nothing about the CLI changes.

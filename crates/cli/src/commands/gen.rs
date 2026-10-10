@@ -36,7 +36,11 @@ pub struct ImageArgs {
     /// built still works — the API is the authority on what exists.
     #[arg(long, default_value = "flux-pro")]
     pub model: String,
-    #[arg(long, required_unless_present = "expand_to")]
+    /// What to draw. Required, except on a model that takes no prompt: one
+    /// marked `remove background` (cuts the subject out onto a transparent
+    /// PNG) or `enhance` (an upscaler) in `nolgia models list`, which works
+    /// on --input alone and refuses a prompt. Optional with --expand-to.
+    #[arg(long)]
     pub prompt: Option<String>,
     /// The image to edit: a local file (uploaded to /assets) or the UUID of
     /// an existing asset. Rides as `reference_asset_ids`, so the server
@@ -147,12 +151,22 @@ pub struct VideoArgs {
     /// platform, because nobody had to type a Kling id to reach it.
     #[arg(long, default_value = "seedance-2.5")]
     pub model: String,
+    /// What to generate. Required, except on a background-removal model
+    /// (`remove background` in `nolgia models list`), which takes no prompt.
     #[arg(long)]
-    pub prompt: String,
+    pub prompt: Option<String>,
     /// Start image: a local file (uploaded to /assets) or the UUID of an
     /// existing asset (reused, fresh signed URL). Required for
     /// image-to-video models; optional on models with image input
     /// support (Veo, Omni Flash) per `nolgia models list`.
+    ///
+    /// On a background-removal model (`--model remove-background-video`)
+    /// --input is instead the CLIP to cut the subject out of, and the only
+    /// input: one of your video asset UUIDs, a local video file (uploaded to
+    /// /assets first) or an https URL (which needs --duration-seconds). No
+    /// prompt. It is billed on the clip's length rounded up to whole seconds
+    /// (`nolgia models get remove-background-video`), and the result is a
+    /// WebM (VP9) with an alpha channel, so --out saves it as .webm.
     #[arg(long)]
     pub input: Option<String>,
     #[arg(long)]
@@ -164,6 +178,15 @@ pub struct VideoArgs {
     /// Omni Flash 3-10). Omit to let the server choose: 5s normally, or the sum
     /// of the --shot durations when shots are given. If passed alongside --shot
     /// it must equal that sum.
+    ///
+    /// With ONE --video-ref on a model whose reference video shows the
+    /// subject to perform (Seedance reference-to-video), omitting it renders
+    /// the reference's length instead: its stored duration counted to the
+    /// nearest whole second, the way the API counts a reference (a 5.25s
+    /// clip renders 5s, a 9.6s clip 10s), fitted to the model's range. The
+    /// CLI prints the length it chose. With several --video-ref clips, or a
+    /// clip whose length is not stored, the server default applies; pass the
+    /// length you want.
     #[arg(long)]
     pub duration_seconds: Option<std::num::NonZeroU64>,
     #[arg(long)]
@@ -209,9 +232,12 @@ pub struct VideoArgs {
     #[arg(long, value_name = "STRENGTH", requires = "motion")]
     pub motion_strength: Option<CameraMoveStrength>,
     /// Reference video for reference-to-video models: the UUID of one of
-    /// your video assets (repeat up to 3). Address them in the prompt as
-    /// @Video1..@Video3. Inputs: MP4/MOV, 480p-720p, 2-15s and 50MB
-    /// combined across all reference videos.
+    /// your video assets, repeated up to the model's `video_refs_max` in
+    /// `nolgia models get <model> --json` (10 on seedance-2.5, 3 on Seedance
+    /// 2.0 Pro). Address them in the prompt as @Video1, @Video2 and so on.
+    /// Inputs: MP4/MOV and 50MB combined; seedance-2.5 takes 2-30s combined,
+    /// Seedance 2.0 Pro 2-15s at 480p-720p. See --duration-seconds for how
+    /// one reference sets the clip length.
     #[arg(long = "video-ref", value_name = "ASSET_ID")]
     pub video_refs: Vec<uuid::Uuid>,
     /// Element/reference image for reference-to-video models: the UUID of
@@ -340,6 +366,12 @@ async fn image(args: ImageArgs, ctx: &CommandContext) -> Result<()> {
     } else {
         args.model
     };
+    // Only a missing prompt costs a catalog read: a prompt on a model that
+    // takes none is refused by the server in the same words.
+    if args.prompt.is_none() && args.expand_to.is_none() {
+        let entry = super::models::entry(ctx, &model).await;
+        check_promptless_image(&model, entry.as_ref(), args.input.is_some())?;
+    }
     if args.expand_to.is_some() {
         super::models::precheck_image_expand(ctx, &model).await?;
     }
@@ -432,6 +464,7 @@ async fn image(args: ImageArgs, ctx: &CommandContext) -> Result<()> {
         .project_id(args.project_id)
         .try_into()
         .context("building image request")?;
+    let identity_requested = args.face_reference_asset_id.is_some() || args.character_id.is_some();
     let job = match ctx.client().generate_image().body(body).send().await {
         Ok(response) => response.into_inner(),
         Err(err) => {
@@ -464,6 +497,7 @@ async fn image(args: ImageArgs, ctx: &CommandContext) -> Result<()> {
             OutputFormat::Json => print_json(ctx.output(), &job),
             OutputFormat::Text => {
                 println!("{}", asset.signed_url);
+                print_identity(asset, identity_requested);
                 Ok(())
             }
         }
@@ -471,16 +505,109 @@ async fn image(args: ImageArgs, ctx: &CommandContext) -> Result<()> {
     .await
 }
 
-async fn video(args: VideoArgs, ctx: &CommandContext) -> Result<()> {
-    if args.cost_only {
-        let duration: u64 = if args.shots.is_empty() {
-            args.duration_seconds.map(|d| d.get()).unwrap_or(5)
+/// `--prompt` may be left off only on a model the catalog marks as taking
+/// none, and such a model works on one source image, which is then what is
+/// required. Without a catalog entry the CLI cannot vouch for the model, so
+/// the prompt stays required.
+fn check_promptless_image(
+    model_id: &str,
+    entry: Option<&nolgia_client::types::Model>,
+    has_input: bool,
+) -> Result<()> {
+    let Some(flag) = entry.and_then(super::models::promptless_flag) else {
+        anyhow::bail!(
+            "--prompt is required for {model_id}. Only a model that takes no prompt runs \
+             without one, given --input: background removal (`remove background` in `nolgia \
+             models list`) or an enhancer (`enhance`)."
+        );
+    };
+    anyhow::ensure!(
+        has_input,
+        "{model_id} takes no prompt (`{flag}` in `nolgia models get {model_id} --json`): it \
+         works on one source image, so pass --input with a local file or an image asset UUID"
+    );
+    Ok(())
+}
+
+/// Report the Aura identity gate's verdict on stderr, so stdout stays the
+/// asset URL (or job line) that scripts read. `--json` carries the same
+/// fields on `asset`. When an identity was requested but nothing was scored,
+/// say why that can happen rather than leave the absence unexplained.
+fn print_identity(asset: &nolgia_client::types::Asset, identity_requested: bool) {
+    if let Some(line) = identity_line(asset) {
+        eprintln!("{line}");
+    } else if identity_requested {
+        eprintln!(
+            "identity: not scored. The face check runs only with consent on record for the \
+             reference photo (characters: `nolgia characters update <id> \
+             --face-check-consent`) and on models where the scorer is available."
+        );
+    }
+}
+
+fn identity_line(asset: &nolgia_client::types::Asset) -> Option<String> {
+    let score = asset.identity_score?;
+    let verdict = match asset.identity_gate_passed {
+        Some(true) => "passed the 0.60 gate",
+        Some(false) => "below the 0.60 gate",
+        None => "not gated",
+    };
+    let rerolls = match asset.identity_rerolls {
+        Some(n) if n > 0 => format!(", after {n} automatic re-roll"),
+        _ => String::new(),
+    };
+    let mut line = format!("identity score {score:.3}: {verdict}{rerolls}");
+    // A cast's overall score is its weakest member's, so name each member;
+    // a single character's own score is the line above.
+    let members = asset.character_scores.as_deref().unwrap_or_default();
+    for member in members.iter().filter(|_| members.len() > 1) {
+        let gate = if member.identity_gate_passed {
+            "passed"
         } else {
-            parse_shots(&args.shots)?
-                .unwrap_or_default()
-                .iter()
-                .map(|s| s.duration_seconds.get())
-                .sum()
+            "below the gate"
+        };
+        line.push_str(&format!(
+            "\n  character {}: {:.3} ({gate})",
+            member.character_id, member.identity_score
+        ));
+    }
+    Some(line)
+}
+
+async fn video(mut args: VideoArgs, ctx: &CommandContext) -> Result<()> {
+    // Parsed before anything touches the network, so a contradictory
+    // duration fails before a catalog read, an upload or a submit.
+    let shots = parse_shots(&args.shots)?;
+    if let (Some(shots), Some(duration)) = (shots.as_deref(), args.duration_seconds) {
+        let shot_total: u64 = shots.iter().map(|s| s.duration_seconds.get()).sum();
+        anyhow::ensure!(
+            shot_total == duration.get(),
+            "--duration-seconds {duration} contradicts the --shot durations \
+             (which sum to {shot_total}). The clip length of a multi-shot job is \
+             the sum of its shots — omit --duration-seconds, or pass \
+             --duration-seconds {shot_total}."
+        );
+    }
+    // Which lane a model belongs to is a catalog fact, not a name list: a
+    // background-removal model is submitted to its own route with a source
+    // clip and no prompt. An unreadable catalog leaves the ordinary route.
+    let entry = super::models::entry(ctx, &args.model).await;
+    if entry
+        .as_ref()
+        .is_some_and(|model| model.remove_background == Some(true))
+    {
+        return remove_background_video(args, ctx).await;
+    }
+    let Some(prompt) = args.prompt.take() else {
+        return Err(missing_video_prompt(&args.model, entry.as_ref()));
+    };
+    if args.duration_seconds.is_none() && args.shots.is_empty() && !args.video_refs.is_empty() {
+        args.duration_seconds = reference_duration(ctx, entry.as_ref(), &args.video_refs).await;
+    }
+    if args.cost_only {
+        let duration: u64 = match shots.as_deref() {
+            None => args.duration_seconds.map(|d| d.get()).unwrap_or(5),
+            Some(shots) => shots.iter().map(|s| s.duration_seconds.get()).sum(),
         };
         let quote = super::models::quote_video(
             ctx,
@@ -493,9 +620,11 @@ async fn video(args: VideoArgs, ctx: &CommandContext) -> Result<()> {
         println!("{quote}");
         return Ok(());
     }
+    // The request schema's ceiling (`video_asset_ids` maxItems). Each
+    // model's own cap comes from the catalog in precheck_video_options.
     anyhow::ensure!(
-        args.video_refs.len() <= 3,
-        "--video-ref: at most 3 reference videos per request"
+        args.video_refs.len() <= 10,
+        "--video-ref: at most 10 reference videos per request"
     );
     anyhow::ensure!(
         args.elements.len() <= 9,
@@ -505,19 +634,6 @@ async fn video(args: VideoArgs, ctx: &CommandContext) -> Result<()> {
         args.end_frame.is_none() || args.input.is_some(),
         "--end-frame requires --input (the start frame)"
     );
-    // Parsed up front so a contradictory duration fails before we upload a
-    // start frame or spend a round trip on the model precheck.
-    let shots = parse_shots(&args.shots)?;
-    if let (Some(shots), Some(duration)) = (shots.as_deref(), args.duration_seconds) {
-        let shot_total: u64 = shots.iter().map(|s| s.duration_seconds.get()).sum();
-        anyhow::ensure!(
-            shot_total == duration.get(),
-            "--duration-seconds {duration} contradicts the --shot durations \
-             (which sum to {shot_total}). The clip length of a multi-shot job is \
-             the sum of its shots — omit --duration-seconds, or pass \
-             --duration-seconds {shot_total}."
-        );
-    }
     // The precheck runs unconditionally now rather than only when a
     // capability flag is present: a model with a MINIMUM reference-audio count
     // (a lip sync route) has to be told it is MISSING one, and an absence is
@@ -567,9 +683,10 @@ async fn video(args: VideoArgs, ctx: &CommandContext) -> Result<()> {
         .map(GenerateVideoRequestMotionId::try_from)
         .transpose()
         .map_err(|e| anyhow::anyhow!("--motion: {e}"))?;
+    let identity_requested = args.character_id.is_some();
     let mut builder = GenerateVideoRequest::builder()
         .model(args.model)
-        .prompt(args.prompt)
+        .prompt(prompt)
         .negative_prompt(negative_prompt)
         .image_url(image_url)
         .end_image_asset_id(end_image_asset_id)
@@ -583,10 +700,11 @@ async fn video(args: VideoArgs, ctx: &CommandContext) -> Result<()> {
         .character_id(args.character_id)
         .project_id(args.project_id)
         .shots(shots)
-        // Only ever the duration the caller actually asked for. Left unset the
-        // field is omitted entirely and the server derives it — from the shots
-        // when there are shots, from its own 5s default when there are not
-        // (NOL-342).
+        // Only ever the duration the caller asked for, or the one a single
+        // subject reference implies (see reference_duration, which says so on
+        // stderr). Left unset the field is omitted entirely and the server
+        // derives it — from the shots when there are shots, from its own 5s
+        // default when there are not (NOL-342).
         .duration_seconds(args.duration_seconds);
     if !args.video_refs.is_empty() {
         builder = builder.video_asset_ids(Some(args.video_refs));
@@ -604,33 +722,308 @@ async fn video(args: VideoArgs, ctx: &CommandContext) -> Result<()> {
             return Err(super::submit_error(err, "submitting video job", "nolgia gen video").await);
         }
     };
-    if args.no_wait || !args.wait {
-        return livejob::guard(job.id, async {
+    let wait = args.wait && !args.no_wait;
+    deliver_video_job(
+        job.id,
+        wait,
+        args.timeout,
+        args.out,
+        identity_requested,
+        ctx,
+    )
+    .await
+}
+
+/// The shared tail of every `gen video` lane: print the job id and return
+/// under --no-wait, otherwise wait, save --out and print the outcome.
+async fn deliver_video_job(
+    job_id: uuid::Uuid,
+    wait: bool,
+    timeout: u64,
+    out: Option<PathBuf>,
+    identity_requested: bool,
+    ctx: &CommandContext,
+) -> Result<()> {
+    if !wait {
+        return livejob::guard(job_id, async {
             print_json(
                 ctx.output(),
                 &AsyncJob {
-                    job_id: job.id.to_string(),
+                    job_id: job_id.to_string(),
                 },
             )
         })
         .await;
     }
-    let job_id = job.id;
-    livejob::announce(job_id, args.timeout);
+    livejob::announce(job_id, timeout);
     livejob::guard(job_id, async move {
-        let job = wait_for_asset(job_id, ctx, args.timeout).await?;
-        if let (Some(asset), Some(out)) = (&job.asset, args.out.as_ref()) {
+        let job = wait_for_asset(job_id, ctx, timeout).await?;
+        if let (Some(asset), Some(out)) = (&job.asset, out.as_ref()) {
             download(&asset.signed_url, out).await?;
         }
         match ctx.format() {
             OutputFormat::Json => print_json(ctx.output(), &job),
             OutputFormat::Text => {
                 println!("{} {}", job.id, job.status);
+                if let Some(asset) = &job.asset {
+                    print_identity(asset, identity_requested);
+                }
                 Ok(())
             }
         }
     })
     .await
+}
+
+/// `gen video` on a background-removal model (`remove_background` in the
+/// catalog): `POST /remove-background/video` with the --input clip as the
+/// source. The route takes no prompt and none of the generation controls, so
+/// those flags are refused by name rather than silently dropped.
+async fn remove_background_video(args: VideoArgs, ctx: &CommandContext) -> Result<()> {
+    let model = args.model.as_str();
+    let refused: Vec<&str> = [
+        ("--prompt", args.prompt.is_some()),
+        ("--negative-prompt", args.negative_prompt.is_some()),
+        ("--aspect-ratio", args.aspect_ratio.is_some()),
+        ("--seed", args.seed.is_some()),
+        ("--generate-audio", args.generate_audio.is_some()),
+        ("--quality", args.quality.is_some()),
+        ("--bitrate", args.bitrate.is_some()),
+        ("--motion", args.motion.is_some()),
+        ("--video-ref", !args.video_refs.is_empty()),
+        ("--element", !args.elements.is_empty()),
+        ("--audio-ref", !args.audio_refs.is_empty()),
+        ("--end-frame", args.end_frame.is_some()),
+        ("--shot", !args.shots.is_empty()),
+        ("--character-id", args.character_id.is_some()),
+        ("--project-id", args.project_id.is_some()),
+    ]
+    .into_iter()
+    .filter_map(|(flag, given)| given.then_some(flag))
+    .collect();
+    anyhow::ensure!(
+        refused.is_empty(),
+        "{model} removes the background of one clip and takes no prompt or generation \
+         controls (`remove background` in `nolgia models list`): drop {}. It takes --input \
+         (the clip), plus --duration-seconds for a URL or a clip whose length is not stored.",
+        refused.join(", ")
+    );
+    let input = args.input.as_deref().with_context(|| {
+        format!(
+            "{model} needs --input: the clip to cut the subject out of (one of your video \
+             asset UUIDs, a local video file, or an https URL)"
+        )
+    })?;
+    let input = super::restore::classify_input(input)?;
+    if matches!(input, super::restore::RestoreInput::Url(_)) {
+        anyhow::ensure!(
+            args.duration_seconds.is_some(),
+            "--duration-seconds is required with a URL source: the server cannot measure \
+             external media, and the clip length prices the job. Round the clip length up to \
+             whole seconds."
+        );
+    }
+    // The route's model enum is closed, so a model the catalog added after
+    // this build is named here, before a local file is uploaded for nothing.
+    let model_value =
+        nolgia_client::types::RemoveBackgroundVideoModel::try_from(model).map_err(|_| {
+            anyhow::anyhow!(
+                "{model} is a background-removal model this build of the CLI cannot submit — \
+                 update the CLI (`nolgia update`, or reinstall)"
+            )
+        })?;
+    if args.cost_only {
+        let seconds = remove_background_seconds(&input, args.duration_seconds, ctx).await?;
+        let quote = super::models::quote_video(ctx, model, seconds, None, None).await?;
+        println!("{quote}");
+        return Ok(());
+    }
+    let (source_asset_id, source_url) = match input {
+        super::restore::RestoreInput::Url(url) => (None, Some(url)),
+        super::restore::RestoreInput::Asset(id) => (Some(id), None),
+        super::restore::RestoreInput::File(path) => {
+            let asset = upload_asset_file(&path, ctx, None).await?;
+            // The server bills the stored length. A container whose length
+            // was not read at upload has none yet, so the submission would be
+            // refused; say how to rerun without uploading again.
+            anyhow::ensure!(
+                asset.duration_seconds.is_some() || args.duration_seconds.is_some(),
+                "{} was uploaded as asset {}, but its length is not known yet and the clip \
+                 length prices the job: rerun with --input {} --duration-seconds <seconds, \
+                 rounded up>",
+                path.display(),
+                asset.id,
+                asset.id
+            );
+            (Some(asset.id), None)
+        }
+    };
+    let body: nolgia_client::types::RemoveBackgroundVideoRequest =
+        nolgia_client::types::RemoveBackgroundVideoRequest::builder()
+            .model(model_value)
+            .source_asset_id(source_asset_id)
+            .source_url(source_url)
+            .duration_seconds(args.duration_seconds)
+            .try_into()
+            .context("building background removal request")?;
+    let job = match ctx
+        .client()
+        .remove_background_video()
+        .body(body)
+        .send()
+        .await
+    {
+        Ok(response) => response.into_inner(),
+        Err(err) => {
+            return Err(super::submit_error(
+                err,
+                "submitting background removal job",
+                "nolgia gen video",
+            )
+            .await);
+        }
+    };
+    let wait = args.wait && !args.no_wait;
+    deliver_video_job(job.id, wait, args.timeout, args.out, false, ctx).await
+}
+
+/// The clip length a background removal is priced on, for --cost-only: an
+/// asset's stored duration rounded up (the server bills that and ignores
+/// --duration-seconds), otherwise --duration-seconds.
+async fn remove_background_seconds(
+    input: &super::restore::RestoreInput,
+    declared: Option<std::num::NonZeroU64>,
+    ctx: &CommandContext,
+) -> Result<u64> {
+    if let super::restore::RestoreInput::Asset(id) = input {
+        let asset = ctx
+            .client()
+            .get_asset()
+            .id(*id)
+            .send()
+            .await
+            .with_context(|| format!("fetching asset {id}"))?
+            .into_inner();
+        if let Some(seconds) = asset.duration_seconds.filter(|s| *s > 0.0) {
+            return Ok(seconds.ceil() as u64);
+        }
+    }
+    declared.map(|d| d.get()).context(
+        "--cost-only needs the clip's length: pass --duration-seconds (rounded up), or give \
+         --input as an asset whose length is stored",
+    )
+}
+
+/// Why `gen video` has no prompt to send, phrased for the lane the catalog
+/// puts the model in.
+fn missing_video_prompt(
+    model_id: &str,
+    entry: Option<&nolgia_client::types::Model>,
+) -> anyhow::Error {
+    if entry.is_some_and(|model| model.restore == Some(true)) {
+        return anyhow::anyhow!(
+            "{model_id} is a restore model, which takes a source clip and no prompt: run \
+             `nolgia restore video --model {model_id} --input <clip>`"
+        );
+    }
+    anyhow::anyhow!(
+        "--prompt is required for {model_id}. Only a background-removal model (`remove \
+         background` in `nolgia models list`) runs without one, given --input."
+    )
+}
+
+/// The clip length to send when the caller gave none but attached reference
+/// video, on a model whose reference shows the SUBJECT to perform (Seedance
+/// reference-to-video; `references.subject_video_reference`). Left unset the
+/// server renders its default length, so a 9s driver clip came back 5s. One
+/// reference sets the length: its stored duration counted to the nearest
+/// whole second, the way the API counts a reference, fitted to the model's
+/// range. A model whose output already follows its source clip is left to
+/// the server, and anything the CLI cannot measure keeps the server default
+/// with a warning instead of a guess.
+async fn reference_duration(
+    ctx: &CommandContext,
+    entry: Option<&nolgia_client::types::Model>,
+    video_refs: &[uuid::Uuid],
+) -> Option<std::num::NonZeroU64> {
+    let model = entry?;
+    let references = model.references.as_ref()?;
+    if references.subject_video_reference != Some(true)
+        || references.output_follows_source_video == Some(true)
+    {
+        return None;
+    }
+    let [reference] = video_refs else {
+        eprintln!(
+            "--duration-seconds not given: with {} --video-ref clips {} renders the server's \
+             default length, not the clips' length. Pass --duration-seconds to choose.",
+            video_refs.len(),
+            model.id
+        );
+        return None;
+    };
+    let stored = match ctx.client().get_asset().id(*reference).send().await {
+        Ok(response) => response.into_inner().duration_seconds,
+        Err(_) => None,
+    };
+    let Some(seconds) = stored.filter(|s| *s > 0.0) else {
+        eprintln!(
+            "--duration-seconds not given and the --video-ref clip's length is not stored, so \
+             {} renders the server's default length. Pass --duration-seconds to match the \
+             reference.",
+            model.id
+        );
+        return None;
+    };
+    let counted = counted_reference_seconds(seconds);
+    let chosen = fit_duration(counted, model.video.as_ref());
+    if chosen == counted {
+        eprintln!(
+            "--duration-seconds {chosen}: the --video-ref clip is {seconds:.2}s, counted to the \
+             nearest second as the API counts a reference. Pass --duration-seconds to render \
+             another length."
+        );
+    } else {
+        eprintln!(
+            "--duration-seconds {chosen}: the --video-ref clip is {seconds:.2}s ({counted}s \
+             counted), and {chosen}s is the nearest length {} renders. Pass \
+             --duration-seconds to render another length.",
+            model.id
+        );
+    }
+    std::num::NonZeroU64::new(chosen.max(1) as u64)
+}
+
+/// A reference video's length the way the API counts it: to the nearest
+/// whole second, halves away from zero (Go's math.Round in nolgia-api's
+/// VideoInputCountedSeconds), and never below one second.
+fn counted_reference_seconds(seconds: f64) -> i64 {
+    (seconds.round() as i64).max(1)
+}
+
+/// Fit a length to what the model renders, the way the server fits its own
+/// default: the nearest listed duration (ties go up) on a model with a
+/// discrete list, otherwise clamped into [min_duration, max_duration].
+fn fit_duration(seconds: i64, video: Option<&nolgia_client::types::VideoCapabilities>) -> i64 {
+    let Some(video) = video else {
+        return seconds;
+    };
+    if let Some(nearest) = video
+        .durations
+        .iter()
+        .copied()
+        .min_by_key(|listed| ((listed - seconds).abs(), -listed))
+    {
+        return nearest;
+    }
+    let mut fitted = seconds;
+    if let Some(min) = video.min_duration {
+        fitted = fitted.max(min);
+    }
+    if let Some(max) = video.max_duration {
+        fitted = fitted.min(max);
+    }
+    fitted
 }
 
 async fn audio(args: AudioArgs, ctx: &CommandContext) -> Result<()> {
@@ -1064,16 +1457,175 @@ pub(crate) async fn wait_for_asset(
     }
 }
 
-pub(crate) async fn download(url: &str, out: &PathBuf) -> Result<()> {
-    let bytes = reqwest::get(url)
+/// Save a finished asset to `out`, named for what the server actually sent.
+///
+/// The extension the caller typed is a guess about a format the model
+/// chooses: nano-banana-2.1 delivers JPEG, so `--out still.png` used to leave
+/// JPEG bytes under a .png name. When the extension names a different media
+/// format than the body is, the file is saved under the right one and stderr
+/// says so. An extension that matches, a name with no extension and an
+/// extension that is not a media type (`.bin`, `.tmp`) are kept as typed.
+/// Returns the path written.
+pub(crate) async fn download(url: &str, out: &Path) -> Result<PathBuf> {
+    let response = reqwest::get(url)
         .await
         .with_context(|| format!("downloading {url}"))?
-        .bytes()
-        .await?;
-    if let Some(parent) = out.parent() {
+        .error_for_status()
+        .context("downloading the asset")?;
+    let content_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let bytes = response.bytes().await?;
+    let format = sniffed_format(&bytes).or_else(|| content_type.as_deref().and_then(mime_format));
+    let path = path_for_format(out, format);
+    if path != out
+        && let Some(format) = format
+    {
+        eprintln!(
+            "--out: the file is {}, so it was saved as {} rather than {}",
+            format_label(format),
+            path.display(),
+            out.display()
+        );
+    }
+    if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
     }
-    fs::write(out, bytes).with_context(|| format!("writing {}", out.display()))
+    fs::write(&path, bytes).with_context(|| format!("writing {}", path.display()))?;
+    Ok(path)
+}
+
+/// The media format a body's own signature names, as its usual extension,
+/// for the formats the API delivers. The bytes are the authority: a storage
+/// object labelled with the wrong Content-Type still saves correctly.
+fn sniffed_format(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        return Some("png");
+    }
+    if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        return Some("jpg");
+    }
+    if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        return Some("gif");
+    }
+    if bytes.len() >= 12 && bytes.starts_with(b"RIFF") {
+        match &bytes[8..12] {
+            b"WEBP" => return Some("webp"),
+            b"WAVE" => return Some("wav"),
+            _ => {}
+        }
+    }
+    if bytes.len() >= 12 && &bytes[4..8] == b"ftyp" {
+        return Some(match &bytes[8..12] {
+            b"qt  " => "mov",
+            b"M4A " => "m4a",
+            b"avif" | b"avis" => "avif",
+            b"heic" | b"heix" | b"mif1" | b"msf1" => "heic",
+            _ => "mp4",
+        });
+    }
+    if bytes.starts_with(&[0x1A, 0x45, 0xDF, 0xA3]) {
+        return Some("webm");
+    }
+    if bytes.starts_with(b"OggS") {
+        return Some("ogg");
+    }
+    if bytes.starts_with(b"glTF") {
+        return Some("glb");
+    }
+    // ID3-tagged MP3, or a bare MPEG-1/2 Layer III frame header.
+    if bytes.starts_with(b"ID3")
+        || (bytes.len() >= 2
+            && bytes[0] == 0xFF
+            && bytes[1] & 0xE0 == 0xE0
+            && bytes[1] & 0x06 == 0x02)
+    {
+        return Some("mp3");
+    }
+    None
+}
+
+/// The format a Content-Type header names, for a body whose signature is not
+/// one [`sniffed_format`] knows.
+fn mime_format(content_type: &str) -> Option<&'static str> {
+    let mime = content_type.split(';').next()?.trim().to_ascii_lowercase();
+    Some(match mime.as_str() {
+        "image/png" => "png",
+        "image/jpeg" | "image/jpg" => "jpg",
+        "image/webp" => "webp",
+        "image/gif" => "gif",
+        "image/avif" => "avif",
+        "image/heic" | "image/heif" => "heic",
+        "video/mp4" => "mp4",
+        "video/quicktime" => "mov",
+        "video/webm" => "webm",
+        "audio/mpeg" | "audio/mp3" => "mp3",
+        "audio/wav" | "audio/x-wav" | "audio/wave" => "wav",
+        "audio/ogg" => "ogg",
+        "audio/webm" => "weba",
+        "audio/mp4" | "audio/x-m4a" => "m4a",
+        "model/gltf-binary" => "glb",
+        _ => return None,
+    })
+}
+
+/// Extensions that are already a correct name for a body of `format`. The
+/// ISO media family shares one entry because MP4, MOV and M4A are the same
+/// container and players open each under the others' names.
+fn accepted_extensions(format: &str) -> &'static [&'static str] {
+    match format {
+        "jpg" => &["jpg", "jpeg", "jpe", "jfif"],
+        "mp4" | "mov" | "m4a" => &["mp4", "m4v", "mov", "qt", "m4a"],
+        "webm" | "weba" => &["webm", "weba", "mkv"],
+        "ogg" => &["ogg", "oga", "ogv", "opus"],
+        "heic" => &["heic", "heif"],
+        "png" => &["png"],
+        "webp" => &["webp"],
+        "gif" => &["gif"],
+        "avif" => &["avif"],
+        "wav" => &["wav"],
+        "mp3" => &["mp3"],
+        "glb" => &["glb"],
+        _ => &[],
+    }
+}
+
+/// Every extension that claims a media format, so typing one is a claim the
+/// body can contradict. Anything else is the caller's own naming and is kept.
+const MEDIA_EXTENSIONS: &[&str] = &[
+    "png", "jpg", "jpeg", "jpe", "jfif", "webp", "gif", "avif", "heic", "heif", "bmp", "tif",
+    "tiff", "mp4", "m4v", "mov", "qt", "m4a", "webm", "weba", "mkv", "ogg", "oga", "ogv", "opus",
+    "mp3", "wav", "glb", "gltf",
+];
+
+fn path_for_format(requested: &Path, format: Option<&'static str>) -> PathBuf {
+    let (Some(format), Some(extension)) = (
+        format,
+        requested
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(str::to_ascii_lowercase),
+    ) else {
+        return requested.to_path_buf();
+    };
+    if accepted_extensions(format).contains(&extension.as_str())
+        || !MEDIA_EXTENSIONS.contains(&extension.as_str())
+    {
+        return requested.to_path_buf();
+    }
+    requested.with_extension(format)
+}
+
+fn format_label(format: &str) -> String {
+    match format {
+        "jpg" => "JPEG".to_string(),
+        "mov" => "QuickTime".to_string(),
+        "webm" => "WebM".to_string(),
+        "weba" => "WebM audio".to_string(),
+        other => other.to_ascii_uppercase(),
+    }
 }
 
 #[cfg(test)]
@@ -1325,6 +1877,190 @@ mod three_d_tests {
         assert_eq!(
             super::signed_upload_content_type("glb"),
             Some(super::CreateAssetUploadRequestContentType::ModelGltfBinary)
+        );
+    }
+}
+
+#[cfg(test)]
+mod encore_gap_tests {
+    use std::path::{Path, PathBuf};
+
+    use nolgia_client::types::{Asset, Model, VideoCapabilities};
+    use serde_json::json;
+
+    use super::{
+        check_promptless_image, counted_reference_seconds, fit_duration, identity_line,
+        mime_format, path_for_format, sniffed_format,
+    };
+
+    fn model(mut value: serde_json::Value) -> Model {
+        value["recommended"] = json!(false);
+        serde_json::from_value(value).expect("model fixture parses")
+    }
+
+    fn video(value: serde_json::Value) -> VideoCapabilities {
+        serde_json::from_value(value).expect("video capabilities fixture parses")
+    }
+
+    #[test]
+    fn prompt_may_be_omitted_only_for_promptless_models_with_input() {
+        let cutout = model(json!({
+            "id": "remove-background", "modality": "image", "remove_background": true
+        }));
+        let enhancer = model(json!({
+            "id": "topaz-image-standard", "modality": "image", "image_enhance": true
+        }));
+        let generator = model(json!({"id": "flux-pro", "modality": "image"}));
+
+        assert!(check_promptless_image("remove-background", Some(&cutout), true).is_ok());
+        assert!(check_promptless_image("topaz-image-standard", Some(&enhancer), true).is_ok());
+        let needs_input = check_promptless_image("remove-background", Some(&cutout), false)
+            .unwrap_err()
+            .to_string();
+        assert!(needs_input.contains("--input"), "{needs_input}");
+        let needs_prompt = check_promptless_image("flux-pro", Some(&generator), true)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            needs_prompt.contains("--prompt is required for flux-pro"),
+            "{needs_prompt}"
+        );
+        // An unreadable catalog cannot vouch for the model.
+        assert!(check_promptless_image("remove-background", None, true).is_err());
+    }
+
+    #[test]
+    fn reference_seconds_round_to_nearest_like_the_api() {
+        assert_eq!(counted_reference_seconds(5.25), 5);
+        assert_eq!(counted_reference_seconds(5.5), 6);
+        assert_eq!(counted_reference_seconds(9.6), 10);
+        assert_eq!(counted_reference_seconds(0.3), 1);
+    }
+
+    #[test]
+    fn fitted_duration_clamps_a_range_and_snaps_a_list() {
+        let ranged = video(json!({"min_duration": 4, "max_duration": 30}));
+        assert_eq!(fit_duration(9, Some(&ranged)), 9);
+        assert_eq!(fit_duration(2, Some(&ranged)), 4);
+        assert_eq!(fit_duration(45, Some(&ranged)), 30);
+        let listed = video(json!({"durations": [4, 6, 8]}));
+        assert_eq!(
+            fit_duration(5, Some(&listed)),
+            6,
+            "ties go up, like the server"
+        );
+        assert_eq!(fit_duration(7, Some(&listed)), 8);
+        assert_eq!(fit_duration(12, Some(&listed)), 8);
+        assert_eq!(fit_duration(9, None), 9);
+    }
+
+    #[test]
+    fn body_signature_names_the_format() {
+        assert_eq!(sniffed_format(&[0xFF, 0xD8, 0xFF, 0xE0]), Some("jpg"));
+        assert_eq!(sniffed_format(b"\x89PNG\r\n\x1a\n...."), Some("png"));
+        assert_eq!(sniffed_format(b"RIFF\0\0\0\0WEBPVP8 "), Some("webp"));
+        assert_eq!(sniffed_format(b"\0\0\0\x18ftypisom"), Some("mp4"));
+        assert_eq!(sniffed_format(b"\0\0\0\x14ftypqt  "), Some("mov"));
+        assert_eq!(
+            sniffed_format(&[0x1A, 0x45, 0xDF, 0xA3, 0x01]),
+            Some("webm")
+        );
+        assert_eq!(sniffed_format(b"ID3\x04"), Some("mp3"));
+        assert_eq!(sniffed_format(b"glTF\x02"), Some("glb"));
+        assert_eq!(sniffed_format(&[1, 2, 3]), None);
+        assert_eq!(mime_format("image/jpeg; charset=binary"), Some("jpg"));
+        assert_eq!(mime_format("application/octet-stream"), None);
+    }
+
+    #[test]
+    fn a_wrong_media_extension_is_corrected_and_everything_else_kept() {
+        let png = Path::new("out/still.png");
+        assert_eq!(
+            path_for_format(png, Some("jpg")),
+            PathBuf::from("out/still.jpg")
+        );
+        assert_eq!(path_for_format(png, Some("png")), png);
+        assert_eq!(
+            path_for_format(Path::new("a.JPEG"), Some("jpg")),
+            Path::new("a.JPEG")
+        );
+        assert_eq!(
+            path_for_format(Path::new("cut.mp4"), Some("webm")),
+            PathBuf::from("cut.webm")
+        );
+        // MP4 and MOV are one container; neither name is wrong for the other.
+        assert_eq!(
+            path_for_format(Path::new("clip.mov"), Some("mp4")),
+            Path::new("clip.mov")
+        );
+        // No extension, or one that is not a media type, is the caller's own.
+        assert_eq!(
+            path_for_format(Path::new("still"), Some("jpg")),
+            Path::new("still")
+        );
+        assert_eq!(
+            path_for_format(Path::new("still.bin"), Some("jpg")),
+            Path::new("still.bin")
+        );
+        assert_eq!(path_for_format(png, None), png);
+    }
+
+    fn asset(extra: serde_json::Value) -> Asset {
+        let mut value = json!({
+            "id": "66666666-6666-4666-8666-666666666666",
+            "user_id": "22222222-2222-4222-8222-222222222222",
+            "modality": "image", "model": "gpt-image-2.5-sunburst",
+            "signed_url": "https://files/a.png",
+            "expires_at": "2026-06-13T00:00:00Z", "created_at": "2026-06-13T00:00:00Z"
+        });
+        value
+            .as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
+        serde_json::from_value(value).expect("asset fixture parses")
+    }
+
+    #[test]
+    fn identity_line_reports_score_gate_and_rerolls() {
+        assert_eq!(identity_line(&asset(json!({}))), None);
+        assert_eq!(
+            identity_line(&asset(json!({
+                "identity_score": 0.812, "identity_gate_passed": true, "identity_rerolls": 0
+            })))
+            .as_deref(),
+            Some("identity score 0.812: passed the 0.60 gate")
+        );
+        assert_eq!(
+            identity_line(&asset(json!({
+                "identity_score": 0.55, "identity_gate_passed": false, "identity_rerolls": 1
+            })))
+            .as_deref(),
+            Some("identity score 0.550: below the 0.60 gate, after 1 automatic re-roll")
+        );
+        let one = "44444444-4444-4444-8444-444444444444";
+        let two = "55555555-5555-4555-8555-555555555555";
+        assert_eq!(
+            identity_line(&asset(json!({
+                "identity_score": 0.753, "identity_gate_passed": true,
+                "character_scores": [{"character_id": one, "identity_score": 0.753, "identity_gate_passed": true}]
+            })))
+            .as_deref(),
+            Some("identity score 0.753: passed the 0.60 gate"),
+            "a single character's score is the headline, not repeated"
+        );
+        assert_eq!(
+            identity_line(&asset(json!({
+                "identity_score": 0.58, "identity_gate_passed": false,
+                "character_scores": [
+                    {"character_id": one, "identity_score": 0.81, "identity_gate_passed": true},
+                    {"character_id": two, "identity_score": 0.58, "identity_gate_passed": false}
+                ]
+            })))
+            .as_deref(),
+            Some(&*format!(
+                "identity score 0.580: below the 0.60 gate\n  character {one}: 0.810 (passed)\n  \
+                 character {two}: 0.580 (below the gate)"
+            ))
         );
     }
 }

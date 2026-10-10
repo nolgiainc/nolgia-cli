@@ -1640,9 +1640,9 @@ fn gen_video_end_frame_requires_input() {
 }
 
 #[test]
-fn gen_video_rejects_more_than_three_video_refs() {
+fn gen_video_rejects_more_than_ten_video_refs() {
     let mut args = vec!["gen", "video", "--prompt", "x"];
-    for _ in 0..4 {
+    for _ in 0..11 {
         args.extend(["--video-ref", ASSET_ID]);
     }
     args.extend(["--api-url", "http://127.0.0.1:9"]);
@@ -1650,7 +1650,7 @@ fn gen_video_rejects_more_than_three_video_refs() {
         .args(args)
         .assert()
         .failure()
-        .stderr(predicate::str::contains("at most 3 reference videos"));
+        .stderr(predicate::str::contains("at most 10 reference videos"));
 }
 
 #[tokio::test]
@@ -6112,6 +6112,9 @@ async fn gen_image_expand_rejects_incapable_model() {
     );
 }
 
+/// The prompt is still required on a generation model. Whether a model takes
+/// one is a catalog fact now (remove-background and the enhancers take none),
+/// so the refusal costs one catalog read and nothing else.
 #[tokio::test]
 async fn gen_image_still_requires_prompt_without_expand() {
     let api = MockServer::start().await;
@@ -6121,9 +6124,16 @@ async fn gen_image_still_requires_prompt_without_expand() {
         .args(["gen", "image"])
         .assert()
         .failure()
-        .code(2)
-        .stderr(predicate::str::contains("--prompt"));
-    assert!(api.received_requests().await.unwrap().is_empty());
+        .stderr(predicate::str::contains(
+            "--prompt is required for flux-pro",
+        ));
+    assert!(
+        api.received_requests()
+            .await
+            .unwrap()
+            .iter()
+            .all(|r| r.method == "GET" && r.url.path() == "/v1/models")
+    );
 }
 
 #[tokio::test]
@@ -6585,4 +6595,522 @@ async fn gen_3d_wait_timeout_preserves_live_job() {
         .assert()
         .code(75)
         .stderr(predicate::str::contains(JOB_ID));
+}
+
+/// Catalog fixture for the promptless lanes and the subject-reference
+/// duration default: the image and video background removers (flagged
+/// `remove_background`, not by name), a Seedance-style subject-reference
+/// model (`subject_video_reference`), and a Kling-style motion model whose
+/// output already follows its driver clip.
+async fn mount_encore_models(api: &MockServer) {
+    Mock::given(method("GET"))
+        .and(path("/v1/models"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"models": [
+            {
+                "id": "remove-background", "modality": "image", "recommended": false,
+                "remove_background": true,
+                "cost": {"credits": 1, "unit": "per_image"},
+                "image": {"aura_compatible": false, "inpaint_mask": false, "num_images_max": 1, "reference_images_max": 1},
+            },
+            {
+                "id": "remove-background-video", "modality": "video", "recommended": false,
+                "remove_background": true,
+                "cost": {"credits": 14, "unit": "per_clip", "baseline_seconds": 5},
+                "video": {"min_duration": 1, "max_duration": 120, "image_input": false},
+            },
+            {
+                "id": "flux-pro", "modality": "image", "recommended": true,
+                "image": {"reference_images_max": 1},
+            },
+            {
+                "id": "seedance-2.5", "modality": "video", "recommended": true,
+                "cost": {"credits": 56, "unit": "per_clip", "baseline_seconds": 5},
+                "video": {"min_duration": 4, "max_duration": 30, "image_input": true},
+                "references": {"start_frame": true, "start_frame_required": false, "end_frame": true,
+                               "video_refs_max": 10, "element_refs_max": 9, "audio_refs_max": 10,
+                               "subject_video_reference": true},
+            },
+            {
+                "id": "kling-v3-motion-control", "modality": "video", "recommended": false,
+                "cost": {"credits": 60, "unit": "per_clip", "baseline_seconds": 5},
+                "video": {"min_duration": 3, "max_duration": 30, "image_input": false},
+                "references": {"start_frame": false, "start_frame_required": false, "end_frame": false,
+                               "video_refs_max": 1, "element_refs_max": 1, "audio_refs_max": 0,
+                               "subject_video_reference": true, "output_follows_source_video": true},
+            },
+        ]})))
+        .mount(api)
+        .await;
+}
+
+async fn mount_reference_clip(api: &MockServer, seconds: f64) {
+    let mut clip = video_clip_json(Uuid::parse_str(ASSET_ID).unwrap(), "https://files/ref.mp4");
+    clip["duration_seconds"] = json!(seconds);
+    Mock::given(method("GET"))
+        .and(path(format!("/v1/assets/{ASSET_ID}")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(clip))
+        .mount(api)
+        .await;
+}
+
+/// remove-background takes no prompt and the API refuses one, so the CLI
+/// must let it be omitted — decided by the catalog's `remove_background`
+/// flag — and send the source image alone.
+#[tokio::test]
+async fn gen_image_remove_background_runs_without_a_prompt() {
+    let api = MockServer::start().await;
+    mount_encore_models(&api).await;
+    Mock::given(method("POST"))
+        .and(path("/v1/generate/image"))
+        .and(body_partial_json(json!({
+            "model": "remove-background",
+            "reference_asset_ids": [ASSET_ID],
+        })))
+        .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
+        .expect(1)
+        .mount(&api)
+        .await;
+    run_ok(
+        &api,
+        &[
+            "gen",
+            "image",
+            "--model",
+            "remove-background",
+            "--input",
+            ASSET_ID,
+            "--no-wait",
+        ],
+    )
+    .stdout(predicate::str::contains(JOB_ID));
+    let submitted = api
+        .received_requests()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|r| r.url.path() == "/v1/generate/image")
+        .expect("submitted");
+    let body: serde_json::Value = serde_json::from_slice(&submitted.body).unwrap();
+    assert!(
+        body.get("prompt").is_none(),
+        "no prompt may be sent: {body}"
+    );
+}
+
+#[tokio::test]
+async fn gen_image_without_a_prompt_is_refused_on_generators_and_without_input() {
+    let api = MockServer::start().await;
+    mount_encore_models(&api).await;
+    Mock::given(method("POST"))
+        .and(path("/v1/generate/image"))
+        .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
+        .expect(0)
+        .mount(&api)
+        .await;
+    cmd()
+        .args(["--api-url", &api.uri(), "gen", "image", "--no-wait"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "--prompt is required for flux-pro",
+        ));
+    cmd()
+        .args([
+            "--api-url",
+            &api.uri(),
+            "gen",
+            "image",
+            "--model",
+            "remove-background",
+            "--no-wait",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("pass --input"));
+}
+
+/// The Aura identity gate's verdict reaches a human in text mode (on stderr,
+/// so stdout stays the URL), and `--json` carries it on the asset.
+#[tokio::test]
+async fn gen_image_surfaces_the_identity_score() {
+    let api = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/generate/image"))
+        .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
+        .mount(&api)
+        .await;
+    let mut done = job_json("succeeded", Some("https://files"));
+    done["asset"]["identity_score"] = json!(0.812);
+    done["asset"]["identity_gate_passed"] = json!(true);
+    done["asset"]["identity_rerolls"] = json!(0);
+    Mock::given(method("GET"))
+        .and(path(format!("/v1/jobs/{JOB_ID}/wait")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(done))
+        .mount(&api)
+        .await;
+    let args = [
+        "gen",
+        "image",
+        "--prompt",
+        "portrait",
+        "--face-reference-asset-id",
+        ASSET_ID,
+    ];
+    run_ok(&api, &args)
+        .stdout(predicate::str::contains("https://files/video.mp4"))
+        .stderr(predicate::str::contains(
+            "identity score 0.812: passed the 0.60 gate",
+        ));
+    let mut json_args = vec!["--json"];
+    json_args.extend(args);
+    run_ok(&api, &json_args)
+        .stdout(predicate::str::contains("\"identity_score\": 0.812"))
+        .stdout(predicate::str::contains("\"identity_gate_passed\": true"));
+}
+
+/// nano-banana-2.1 delivers JPEG; `--out still.png` must not leave JPEG bytes
+/// under a .png name.
+#[tokio::test]
+async fn gen_image_out_is_named_by_the_delivered_format() {
+    let api = MockServer::start().await;
+    let files = MockServer::start().await;
+    let jpeg = vec![0xFF, 0xD8, 0xFF, 0xE0, 0, 0x10, b'J', b'F', b'I', b'F'];
+    Mock::given(method("GET"))
+        .and(path("/video.mp4"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "image/jpeg")
+                .set_body_bytes(jpeg.clone()),
+        )
+        .mount(&files)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/v1/generate/image"))
+        .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
+        .mount(&api)
+        .await;
+    Mock::given(method("GET"))
+        .and(path(format!("/v1/jobs/{JOB_ID}/wait")))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(job_json("succeeded", Some(&files.uri()))),
+        )
+        .mount(&api)
+        .await;
+    let dir = tempfile::tempdir().unwrap();
+    let asked = dir.path().join("still.png");
+    run_ok(
+        &api,
+        &[
+            "gen",
+            "image",
+            "--model",
+            "nano-banana-2.1",
+            "--prompt",
+            "x",
+            "--out",
+            asked.to_str().unwrap(),
+        ],
+    )
+    .stderr(predicate::str::contains(
+        "the file is JPEG, so it was saved as",
+    ));
+    assert!(!asked.exists(), "no JPEG may be written under a .png name");
+    assert_eq!(std::fs::read(dir.path().join("still.jpg")).unwrap(), jpeg);
+}
+
+/// `assets get --out` reports the path it actually wrote.
+#[tokio::test]
+async fn assets_get_out_reports_the_corrected_path() {
+    let api = MockServer::start().await;
+    let files = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/a.png"))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(vec![0xFF, 0xD8, 0xFF, 0xDB]))
+        .mount(&files)
+        .await;
+    let mut asset = asset_json(&format!("{}/a.png", files.uri()));
+    asset["id"] = json!(ASSET_ID);
+    Mock::given(method("GET"))
+        .and(path(format!("/v1/assets/{ASSET_ID}")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(asset))
+        .mount(&api)
+        .await;
+    let dir = tempfile::tempdir().unwrap();
+    let asked = dir.path().join("a.png");
+    let written = dir.path().join("a.jpg");
+    run_ok(
+        &api,
+        &["assets", "get", ASSET_ID, "--out", asked.to_str().unwrap()],
+    )
+    .stdout(predicate::str::contains(format!(
+        "wrote {}",
+        written.display()
+    )));
+    assert!(written.exists());
+}
+
+/// remove-background-video goes to its own route with the --input clip as
+/// the source and no prompt; the lane comes from the catalog flag.
+#[tokio::test]
+async fn gen_video_remove_background_submits_the_source_clip() {
+    let api = MockServer::start().await;
+    mount_encore_models(&api).await;
+    Mock::given(method("POST"))
+        .and(path("/v1/remove-background/video"))
+        .and(body_json(json!({
+            "model": "remove-background-video",
+            "source_asset_id": ASSET_ID,
+        })))
+        .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
+        .expect(1)
+        .mount(&api)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/v1/generate/video"))
+        .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
+        .expect(0)
+        .mount(&api)
+        .await;
+    run_ok(
+        &api,
+        &[
+            "gen",
+            "video",
+            "--model",
+            "remove-background-video",
+            "--input",
+            ASSET_ID,
+            "--no-wait",
+        ],
+    )
+    .stdout(predicate::str::contains(JOB_ID));
+}
+
+#[tokio::test]
+async fn gen_video_remove_background_refuses_generation_flags_by_name() {
+    let api = MockServer::start().await;
+    mount_encore_models(&api).await;
+    Mock::given(method("POST"))
+        .and(path("/v1/remove-background/video"))
+        .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
+        .expect(0)
+        .mount(&api)
+        .await;
+    cmd()
+        .args([
+            "--api-url",
+            &api.uri(),
+            "gen",
+            "video",
+            "--model",
+            "remove-background-video",
+            "--prompt",
+            "cut out the dancer",
+            "--input",
+            ASSET_ID,
+            "--quality",
+            "1080p",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("drop --prompt, --quality"));
+    cmd()
+        .args([
+            "--api-url",
+            &api.uri(),
+            "gen",
+            "video",
+            "--model",
+            "remove-background-video",
+            "--input",
+            "https://example.com/clip.mp4",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--duration-seconds is required"));
+}
+
+/// The quote is the stored clip length rounded up, which is what the server
+/// bills: 7.2s -> 8s at 14 credits per 5s -> 23 credits.
+#[tokio::test]
+async fn gen_video_remove_background_quotes_the_stored_length() {
+    let api = MockServer::start().await;
+    mount_encore_models(&api).await;
+    mount_reference_clip(&api, 7.2).await;
+    run_ok(
+        &api,
+        &[
+            "gen",
+            "video",
+            "--model",
+            "remove-background-video",
+            "--input",
+            ASSET_ID,
+            "--cost-only",
+        ],
+    )
+    .stdout(predicate::str::contains(
+        "23 credits (remove-background-video, 8s)",
+    ));
+}
+
+/// With one subject reference and no --duration-seconds, Seedance renders
+/// the reference's length, counted to the nearest second as the API counts
+/// it, and says so; the quote uses the same length.
+#[tokio::test]
+async fn gen_video_one_subject_reference_sets_the_duration() {
+    let api = MockServer::start().await;
+    mount_encore_models(&api).await;
+    mount_reference_clip(&api, 9.6).await;
+    Mock::given(method("POST"))
+        .and(path("/v1/generate/video"))
+        .and(body_partial_json(json!({
+            "model": "seedance-2.5",
+            "video_asset_ids": [ASSET_ID],
+            "duration_seconds": 10,
+        })))
+        .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
+        .expect(1)
+        .mount(&api)
+        .await;
+    let args = [
+        "gen",
+        "video",
+        "--prompt",
+        "@Video1 performed by the character",
+        "--video-ref",
+        ASSET_ID,
+    ];
+    let mut submit = args.to_vec();
+    submit.push("--no-wait");
+    run_ok(&api, &submit).stderr(predicate::str::contains(
+        "--duration-seconds 10: the --video-ref clip is 9.60s",
+    ));
+    let mut quote = args.to_vec();
+    quote.push("--cost-only");
+    run_ok(&api, &quote).stdout(predicate::str::contains("(seedance-2.5, 10s)"));
+}
+
+#[tokio::test]
+async fn gen_video_reference_duration_rounds_to_nearest_and_respects_the_flag() {
+    let api = MockServer::start().await;
+    mount_encore_models(&api).await;
+    mount_reference_clip(&api, 5.25).await;
+    Mock::given(method("POST"))
+        .and(path("/v1/generate/video"))
+        .and(body_partial_json(json!({"duration_seconds": 5})))
+        .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
+        .expect(1)
+        .mount(&api)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/v1/generate/video"))
+        .and(body_partial_json(json!({"duration_seconds": 7})))
+        .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
+        .expect(1)
+        .mount(&api)
+        .await;
+    run_ok(
+        &api,
+        &[
+            "gen",
+            "video",
+            "--prompt",
+            "x",
+            "--video-ref",
+            ASSET_ID,
+            "--no-wait",
+        ],
+    );
+    run_ok(
+        &api,
+        &[
+            "gen",
+            "video",
+            "--prompt",
+            "x",
+            "--video-ref",
+            ASSET_ID,
+            "--duration-seconds",
+            "7",
+            "--no-wait",
+        ],
+    )
+    .stderr(predicate::str::contains("--video-ref clip is").not());
+}
+
+/// A model whose output already follows its driver clip is left to the
+/// server; so are several references, with a warning instead of a guess.
+#[tokio::test]
+async fn gen_video_reference_duration_is_left_to_the_server_when_ambiguous() {
+    let api = MockServer::start().await;
+    mount_encore_models(&api).await;
+    mount_reference_clip(&api, 9.6).await;
+    Mock::given(method("POST"))
+        .and(path("/v1/generate/video"))
+        .and(body_partial_json(
+            json!({"model": "kling-v3-motion-control"}),
+        ))
+        .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
+        .expect(1)
+        .mount(&api)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/v1/generate/video"))
+        .and(body_partial_json(json!({"model": "seedance-2.5"})))
+        .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
+        .expect(1)
+        .mount(&api)
+        .await;
+    run_ok(
+        &api,
+        &[
+            "gen",
+            "video",
+            "--model",
+            "kling-v3-motion-control",
+            "--prompt",
+            "x",
+            "--video-ref",
+            ASSET_ID,
+            "--element",
+            ELEMENT_ASSET_ID,
+            "--no-wait",
+        ],
+    )
+    .stderr(predicate::str::contains("--duration-seconds").not());
+    run_ok(
+        &api,
+        &[
+            "gen",
+            "video",
+            "--prompt",
+            "x",
+            "--video-ref",
+            ASSET_ID,
+            "--video-ref",
+            ELEMENT_ASSET_ID,
+            "--no-wait",
+        ],
+    )
+    .stderr(predicate::str::contains(
+        "with 2 --video-ref clips seedance-2.5 renders the server's default length",
+    ));
+    for request in api.received_requests().await.unwrap() {
+        if request.url.path() == "/v1/generate/video" {
+            let body: serde_json::Value = serde_json::from_slice(&request.body).unwrap();
+            assert!(body.get("duration_seconds").is_none(), "{body}");
+        }
+    }
+}
+
+#[test]
+fn video_help_documents_remove_background_input_and_reference_duration() {
+    cmd()
+        .args(["gen", "video", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--model remove-background-video"))
+        .stdout(predicate::str::contains("WebM (VP9) with an alpha channel"))
+        .stdout(predicate::str::contains("a 5.25s"));
 }
