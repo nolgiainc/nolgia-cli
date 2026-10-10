@@ -3,7 +3,7 @@
 Release notes for the Nolgia CLI. Each `## vX.Y.Z` section becomes the body of
 the matching GitHub release.
 
-## Unreleased
+## v0.2.35
 
 - **Background removal runs from the CLI, with no prompt.** `nolgia gen image
   --model remove-background --input <image>` no longer demands `--prompt`
@@ -34,7 +34,10 @@ the matching GitHub release.
 - **`--video-ref` takes up to 10 clips**, the request's own limit (it was
   capped at 3); each model's limit still comes from the catalog, and
   seedance-2.5 takes 10.
-
+- **API spec refreshed.** The Rust client's types are regenerated from the
+  current spec, including nano-banana-2.1, the 8:1 and 1:8 image aspect
+  ratios, and the background-removal route above. These are additions;
+  nothing you already wrote changes.
 - **`nolgia-client` is deprecated as a public Rust client.** Use the official
   Rust SDK, the `nolgia` crate (`cargo add nolgia`). `nolgia-client` keeps
   being published because the CLI depends on it; nothing about the CLI changes.
