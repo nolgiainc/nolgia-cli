@@ -15287,6 +15287,8 @@ components:
             - $ref: '#/components/schemas/Error'
         failure:
           $ref: '#/components/schemas/JobFailure'
+        credits:
+          $ref: '#/components/schemas/JobCredits'
         cancellation:
           $ref: '#/components/schemas/JobCancellation'
         progress:
@@ -15371,6 +15373,24 @@ components:
           nullable: true
           description: >-
             What the credit ledger actually did with this job's credit hold, recorded when the hold settled. `true`: the hold was released and the job cost nothing. `false`: the hold was consumed and the credits were charged (a content-filter refusal the provider billed for is charged; one the provider did not bill for is refunded). Absent or null when there is no ledger outcome to report: the job took no hold, the hold is still settling (`GET /jobs/{id}/wait` waits a few seconds for it), or the job failed before this field existed. Never read an absent value as "no charge".
+    JobCredits:
+      type: object
+      additionalProperties: false
+      required: [charged, refunded, net]
+      description: >-
+        What the credit ledger did for this job, read from the ledger rows of its credit holds when the job is read. `charged` is every credit the holds took (the hold IS the charge, at submit), `refunded` every credit a release gave back (a failed or canceled job, or the unused part of a hold), and `net` is `charged - refunded`, what the job cost. A job still running shows its hold as charged; the refund, if any, appears when the hold settles. Served by `GET /jobs/{id}`, `GET /jobs/{id}/wait` and `POST /jobs/{id}/cancel`; absent on `GET /jobs` pages, on a job that took no credit hold, and when the ledger could not be read (never read an absent value as "free"). The same rows are listed per account, each with its `job_id`, by `GET /billing/transactions` (`kind` `generation` for charges and `refund` for refunds).
+      properties:
+        charged:
+          type: integer
+          minimum: 0
+          examples: [37]
+        refunded:
+          type: integer
+          minimum: 0
+          examples: [37]
+        net:
+          type: integer
+          examples: [0]
     JobPage:
       type: object
       additionalProperties: false
