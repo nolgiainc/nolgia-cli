@@ -72,6 +72,31 @@ pub(crate) async fn fetch(ctx: &CommandContext) -> Result<Vec<Model>> {
         .models)
 }
 
+/// One model's catalog entry, or None when the catalog cannot be read or does
+/// not list the id. None means "unknown", never "refused": a caller falls
+/// through to the server, the authority, exactly as the prechecks here do.
+pub(crate) async fn entry(ctx: &CommandContext, model_id: &str) -> Option<Model> {
+    fetch(ctx)
+        .await
+        .ok()?
+        .into_iter()
+        .find(|model| model.id == model_id)
+}
+
+/// The catalog flag that marks a model as taking no prompt, when it carries
+/// one. `remove_background` cuts the subject out of one source and
+/// `image_enhance` re-renders one source larger; neither has a text channel,
+/// so the API refuses a prompt on both rather than bill for ignoring it.
+pub(crate) fn promptless_flag(model: &Model) -> Option<&'static str> {
+    if model.remove_background == Some(true) {
+        Some("remove_background")
+    } else if model.image_enhance == Some(true) {
+        Some("image_enhance")
+    } else {
+        None
+    }
+}
+
 fn cost_line(model: &Model) -> String {
     match &model.cost {
         Some(cost) => {
@@ -85,19 +110,30 @@ fn cost_line(model: &Model) -> String {
     }
 }
 
-/// One-line capability summary. Restore-lane models lead with a `restore`
-/// marker: the lane takes a source clip and no prompt, so a human reading the
-/// default catalog output has to be able to tell a restorer from an ordinary
-/// video generator without discovering that `--json` exposes `restore: true`.
+/// One-line capability summary. Models that take a source and no prompt lead
+/// with a marker naming their lane (`restore`, `remove background`,
+/// `enhance`), so a human reading the default catalog output can tell them
+/// from ordinary generators without discovering the `--json` flags, and the
+/// `gen` help can point at the marker by name.
 fn capability_line(model: &Model) -> String {
     let capabilities = modality_capability_line(model);
-    if model.restore != Some(true) {
+    let Some(marker) = lane_marker(model) else {
         return capabilities;
-    }
+    };
     if capabilities.is_empty() {
-        return "restore".to_string();
+        return marker.to_string();
     }
-    format!("restore  {capabilities}")
+    format!("{marker}  {capabilities}")
+}
+
+fn lane_marker(model: &Model) -> Option<&'static str> {
+    if model.restore == Some(true) {
+        return Some("restore");
+    }
+    match promptless_flag(model)? {
+        "remove_background" => Some("remove background"),
+        _ => Some("enhance"),
+    }
 }
 
 fn modality_capability_line(model: &Model) -> String {

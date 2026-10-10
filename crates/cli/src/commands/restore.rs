@@ -121,8 +121,9 @@ pub async fn run(command: RestoreCommand, ctx: &CommandContext) -> Result<()> {
 
 /// What `--input` names, decided without touching the network: classifying
 /// first is what lets every client-side check run *before* a local file is
-/// uploaded, so a rejected option cannot leave an unused asset behind.
-enum RestoreInput {
+/// uploaded, so a rejected option cannot leave an unused asset behind. Shared
+/// with `gen video` on a background-removal model, whose source is the same.
+pub(super) enum RestoreInput {
     Url(String),
     Asset(uuid::Uuid),
     File(PathBuf),
@@ -136,7 +137,7 @@ enum RestoreSource {
     Asset(uuid::Uuid),
 }
 
-fn classify_input(input: &str) -> Result<RestoreInput> {
+pub(super) fn classify_input(input: &str) -> Result<RestoreInput> {
     if input.starts_with("https://") || input.starts_with("http://") {
         return Ok(RestoreInput::Url(input.to_string()));
     }

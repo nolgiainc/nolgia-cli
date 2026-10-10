@@ -141,7 +141,9 @@ async fn get(args: GetAssetArgs, ctx: &CommandContext) -> Result<()> {
         .into_inner();
 
     if let Some(out) = args.out {
-        super::r#gen::download(&asset.signed_url, &out).await?;
+        // The path written, which differs from --out when the extension
+        // named the wrong format (see `download`).
+        let out = super::r#gen::download(&asset.signed_url, &out).await?;
         match ctx.format() {
             OutputFormat::Json => print_json(
                 ctx.output(),
@@ -237,14 +239,15 @@ async fn frame(args: FrameAssetArgs, ctx: &CommandContext) -> Result<()> {
         Ok(response) => response.into_inner(),
         Err(err) => return Err(super::api_error(err, "extracting frame").await),
     };
-    if let Some(out) = args.out.as_ref() {
-        super::r#gen::download(&asset.signed_url, out).await?;
-    }
+    let wrote = match args.out.as_ref() {
+        Some(out) => Some(super::r#gen::download(&asset.signed_url, out).await?),
+        None => None,
+    };
     match ctx.format() {
         OutputFormat::Json => print_json(ctx.output(), &asset),
         OutputFormat::Text => {
             println!("{} {} {}", asset.id, asset.modality, asset.signed_url);
-            if let Some(out) = args.out {
+            if let Some(out) = wrote {
                 println!("wrote {}", out.display());
             }
             Ok(())
