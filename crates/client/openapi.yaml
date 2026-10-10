@@ -24710,6 +24710,12 @@ components:
             $ref: '#/components/schemas/PresetOption'
           description: >-
             Customer-visible pick-one chips surfacing the option menus the preset's guardrails carry (named styles, archetypes, effects, casting, formats). Empty when the preset has no options surface.
+        family:
+          type: string
+          maxLength: 40
+          description: >-
+            The family label that groups sibling presets on the /presets page (the Encore presets, 2026-10-09): every preset with the same non-empty label sits together under it. A display label, not a tree: each member stays a root preset with its own card (`parent_slug` is the tree). Empty when the preset belongs to no family. Customer copy. Always emitted by the server; optional in the schema so existing client fixtures stay valid.
+          examples: ['Encore']
         long_description:
           type: string
           description: >-
