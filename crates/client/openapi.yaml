@@ -7002,6 +7002,16 @@ paths:
           x/y/rotation/opacity, defaulting to the canvas center like the Studio
           preview; authored text elements keep the lower-third caption
           placement), on audio it is ignored.
+        - Framing and transparency follow the Studio preview: a `<video>` or
+          `<img>` element's CSS `object-fit` and `object-position` (its
+          `style` attribute or a `<style>` rule with simple selectors) place
+          the clip in the canvas the way the browser paints it (`cover`
+          fills the frame, `fill` stretches, `none` keeps the intrinsic
+          size); every media element's box is the full canvas, and an
+          element that declares no `object-fit` is contained. A video whose
+          stream carries alpha (VP9 with alpha in WebM, ProRes 4444, any
+          stream with an alpha pixel format) composites with that alpha
+          over the tracks beneath.
         - Authored plain-text elements (an element whose content is plain text
           with no child elements) remain animated white-on-dark-pill captions
           with a safe-zone margin; authored CSS is NOT applied.
