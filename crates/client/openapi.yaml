@@ -2218,6 +2218,19 @@ paths:
         retrieve the asset. Output is WebM/VP9 with an alpha channel, not MP4.
         Glass and other genuinely transparent materials come back opaque.
 
+        The asset (`mime_type` `video/webm`) keeps the source's frame size,
+        frame rate and length and carries no audio track. The subject is on a
+        TRANSPARENT background, not on black or green: the alpha rides as
+        VP9's alpha side channel (`ALPHA_MODE=1`, profile 0, yuv420p), so
+        decode it with libvpx (`ffmpeg -c:v libvpx-vp9 -i matte.webm ...
+        -pix_fmt rgba`); ffmpeg's built-in `vp9` decoder drops the alpha.
+        Colour under fully transparent pixels is the source's own background,
+        so composite on alpha, never on a luma or chroma key.
+
+        Quote it first with `POST /jobs/cost` kind `remove_background_video`.
+        `POST /generate/video` refuses this model with a `400` naming this
+        endpoint.
+
         Exactly one source asset or https URL is required. Billing uses the
         stored source duration when available; otherwise `duration_seconds`
         is required. Credits scale with source length at the flat per-5-second
@@ -2316,6 +2329,14 @@ paths:
         The request is validated as the generate endpoint would validate it,
         so an unpriceable or malformed request is refused here with the same
         status, detail and `error.code` it would get on submit.
+
+        Every model `GET /models` lists can be quoted: the generate endpoints
+        by `kind` `image`, `video`, `audio`, `3d` and `set`, and the
+        promptless source-clip utilities by `remove_background_video`
+        (`POST /remove-background/video`) and `restore_video`
+        (`POST /restore/video`). A utility model sent as kind `video` is
+        refused here exactly as `POST /generate/video` refuses it, with a
+        detail naming its endpoint.
 
         **The quote is not an estimate.** It is produced by running the real
         generate handler up to the moment it would spend, so the number here
@@ -12359,6 +12380,12 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Model'
+        services:
+          type: array
+          description: >-
+            Priced utilities that are not generation models (today: transcription), with the request that runs each. The same list as `GET /pricing/models`.
+          items:
+            $ref: '#/components/schemas/ServicePrice'
     ModelPricingList:
       type: object
       additionalProperties: false
@@ -12371,6 +12398,43 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ModelPricing'
+        services:
+          type: array
+          description: >-
+            Priced utilities that are not generation models (today: transcription), with the request that runs each.
+          items:
+            $ref: '#/components/schemas/ServicePrice'
+    ServicePrice:
+      type: object
+      additionalProperties: false
+      required: [id, name, endpoint, credits, unit]
+      description: >-
+        The published price of a utility that is not a generation model. `credits` is charged per `unit`, from the same constant the endpoint bills from.
+      properties:
+        id:
+          type: string
+          description: Stable identifier of the utility.
+          examples: ['transcription']
+        name:
+          type: string
+          examples: ['Transcription']
+        endpoint:
+          type: string
+          description: The request that runs it.
+          examples: ['POST /assets/{id}/transcription']
+        credits:
+          type: integer
+          description: Credits charged per `unit`.
+          examples: [1]
+        unit:
+          type: string
+          enum: [per_started_minute]
+          x-enum-varnames: [ServicePriceUnitPerStartedMinute]
+          description: >-
+            `per_started_minute`: every started minute of the measured media is billed in full (61 seconds bills 2 minutes).
+        description:
+          type: string
+          description: What is billed and when, in plain words.
     ModelPricing:
       type: object
       additionalProperties: false
@@ -13898,7 +13962,7 @@ components:
       type: string
       enum: [remove-background-video]
       description: >-
-        Promptless video background removal via `POST /remove-background/video`. Returns WebM/VP9 with an alpha channel. Glass and other genuinely transparent materials come back opaque.
+        Promptless video background removal via `POST /remove-background/video`. Returns WebM/VP9 with an alpha channel (the subject on a transparent background, not on black or green). Glass and other genuinely transparent materials come back opaque.
     RemoveBackgroundVideoRequest:
       type: object
       additionalProperties: false
@@ -13906,6 +13970,10 @@ components:
       properties:
         model:
           $ref: '#/components/schemas/RemoveBackgroundVideoModel'
+        confirmation_token:
+          type: string
+          description: >-
+            Optional proof that this exact request and price were shown to the customer, from `POST /jobs/cost` kind `remove_background_video`. Omit it and nothing changes. Send it and it is verified: an expired, malformed, foreign, or mismatched token is a `422` with `error.code` `confirmation_rejected`.
         source_asset_id:
           type: string
           format: uuid
@@ -15051,6 +15119,10 @@ components:
       properties:
         model:
           $ref: '#/components/schemas/RestoreVideoModel'
+        confirmation_token:
+          type: string
+          description: >-
+            Optional proof that this exact request and price were shown to the customer, from `POST /jobs/cost` kind `restore_video`. Omit it and nothing changes. Send it and it is verified: an expired, malformed, foreign, or mismatched token is a `422` with `error.code` `confirmation_rejected`.
         source_asset_id:
           type: string
           format: uuid
@@ -15489,6 +15561,13 @@ components:
           nullable: true
           description: >
             Whether `identity_score` clears the 0.60 identity gate. A render can be delivered with `false` when both the original and the one automatic re-roll scored under the gate (the better attempt is delivered and labeled). Present only alongside `identity_score`.
+
+        identity_check:
+          type: string
+          nullable: true
+          enum: [scored, unavailable, no_consent]
+          description: >
+            Why `identity_score` is present or absent on a render made with an identity reference. `scored`: the Aura gate compared the face and `identity_score` carries the result. `unavailable`: the scorer could not run, so the render was delivered unscored. `no_consent` (images made with `face_reference_asset_id`, a character or a cast): no consent to the face check was recorded for the reference photo, so the reference conditioned the render but no face was compared; send `face_check_consent: true` with the request (or set it on the character with `PATCH /characters/{id}`) to have it scored. Absent when no identity reference rode the generation, and on assets made before this field existed.
 
         character_scores:
           type: array
@@ -23056,9 +23135,10 @@ components:
         - `timeout`: the turn ran past its time budget.
     JobCostKind:
       type: string
-      enum: [image, video, audio, 3d, set]
-      x-enum-varnames: [JobCostKindImage, JobCostKindVideo, JobCostKindAudio, JobCostKind3D, JobCostKindSet]
-      description: Which generate endpoint the quoted body is for.
+      enum: [image, video, audio, 3d, set, remove_background_video, restore_video]
+      x-enum-varnames: [JobCostKindImage, JobCostKindVideo, JobCostKindAudio, JobCostKind3D, JobCostKindSet, JobCostKindRemoveBackgroundVideo, JobCostKindRestoreVideo]
+      description: >-
+        Which endpoint the quoted body is for: `image`, `video`, `audio` and `3d` are the `POST /generate/*` endpoints, `set` is `POST /generate/set`, `remove_background_video` is `POST /remove-background/video` and `restore_video` is `POST /restore/video`.
     JobCostRequest:
       type: object
       additionalProperties: false
@@ -23082,6 +23162,10 @@ components:
           $ref: '#/components/schemas/Generate3DRequest'
         set:
           $ref: '#/components/schemas/GenerateSetRequest'
+        remove_background_video:
+          $ref: '#/components/schemas/RemoveBackgroundVideoRequest'
+        restore_video:
+          $ref: '#/components/schemas/RestoreVideoRequest'
     JobCostSetting:
       type: object
       additionalProperties: false
