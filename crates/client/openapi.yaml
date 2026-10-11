@@ -15428,6 +15428,46 @@ components:
           type: string
           description: The original's pixel format; `yuv420p10le` is 10-bit.
           examples: ['yuv420p10le']
+    AssetPlayback:
+      type: object
+      additionalProperties: false
+      required: [status]
+      description: >
+        A browser-playable copy of an uploaded video whose own codec browsers cannot decode: ProRes, DNxHD/HR, CineForm, HEVC, MJPEG, or 10-bit or 4:2:2 H.264. Players (Studio's preview and timeline, the Library) use `signed_url` here; the asset's own `signed_url` stays the upload, which export, render, generation inputs and downloads read at full quality. The copy is an H.264 MP4 (long edge at most 1920), or a VP9 WebM with alpha when the upload carries an alpha channel (ProRes 4444). It is made in the background after the upload completes, usually within a minute or two for a short clip. Absent for every other asset, including uploads browsers already play.
+
+      properties:
+        status:
+          type: string
+          enum: [pending, ready, failed]
+          x-enum-varnames: [PlaybackPending, PlaybackReady, PlaybackFailed]
+          description: >-
+            `pending` while the copy is being made (show a "preparing a preview" state and re-read the asset), `ready` once `signed_url` is set, `failed` when it could not be made (the upload itself is unaffected and still exports).
+        signed_url:
+          type: string
+          format: uri
+          nullable: true
+          description: >-
+            Time-limited signed URL of the playable copy, set when `status` is `ready`. Stable for about an hour like the asset's `signed_url`.
+        mime_type:
+          type: string
+          nullable: true
+          examples: ['video/mp4', 'video/webm']
+        has_alpha:
+          type: boolean
+          description: Whether the copy keeps the upload's alpha channel (VP9 WebM).
+        width:
+          type: integer
+          nullable: true
+          minimum: 1
+        height:
+          type: integer
+          nullable: true
+          minimum: 1
+        source_codec:
+          type: string
+          nullable: true
+          description: The upload's video codec as ffmpeg names it.
+          examples: ['prores']
     Asset:
       type: object
       additionalProperties: false
@@ -15516,6 +15556,8 @@ components:
 
         original:
           $ref: '#/components/schemas/AssetOriginal'
+        playback:
+          $ref: '#/components/schemas/AssetPlayback'
         waveform_peaks:
           type: array
           nullable: true
