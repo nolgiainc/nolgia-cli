@@ -23553,6 +23553,8 @@ components:
           description: >
             Present and true on user messages that were sent mid-turn as steering: they were recorded while another turn was in flight and delivered to the agent with the following turn. Absent means false.
 
+        origin:
+          $ref: '#/components/schemas/AgentMessageOrigin'
         attachments:
           type: array
           description: >
@@ -23581,6 +23583,13 @@ components:
           type: string
           format: date-time
           description: When the agent reply completed or failed. Absent while pending and on user messages.
+    AgentMessageOrigin:
+      type: string
+      enum: [background]
+      x-enum-varnames: [AgentMessageOriginBackground]
+      description: >
+        Present on a user message the platform filed rather than one a person sent. `background`: work the agent had sent to the background (a delegated task, a process it was waiting on) finished after its turn ended, and the platform filed the result here so the agent can report it in a normal turn. Render it as "Background work finished", not as something the customer typed. Absent on every message a person or client sent.
+
     AgentTurnCost:
       type: object
       additionalProperties: false
