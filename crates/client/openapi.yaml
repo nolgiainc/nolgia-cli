@@ -6562,7 +6562,7 @@ paths:
       operationId: createComposition
       summary: Create an empty composition.
       description: >-
-        Composition names are unique per user; a duplicate name returns 409. An optional `project_id` links the composition to a caller-owned project; an unknown or foreign project returns 404. Every new composition is stamped `meta.audio_mix = "v1"`, which makes it mix-managed: its renders duck music and ambience under voice, loop and fade out beds, and normalise loudness to -14 LUFS with the true peak at or under -1 dBTP (see the `AudioMix` schema). Send `meta.audio_mix` yourself (any value, `null` included) to keep a composition unmanaged; compositions created before the stamp existed render exactly as they always did.
+        Composition names are unique per user; a duplicate name returns 409. An optional `project_id` links the composition to a caller-owned project; an unknown or foreign project returns 404. Every new composition is stamped `meta.audio_mix = "v1"`, which makes it mix-managed: its renders duck music and ambience under voice, loop and fade out beds, and normalise loudness to -14 LUFS with the true peak at or under -1 dBTP (see the `AudioMix` schema). Send `meta.audio_mix` yourself (any value, `null` included) to keep a composition unmanaged; compositions created before the stamp existed render exactly as they always did. Every new composition is also stamped `meta.text_version = 2`: its text additions render the way the Studio preview draws them, with the bundled face of the weight and style each asks for (a real Black, a true italic) and the preview's line placement and wrapping (see "Text version 2" on the render operation). Send `meta.text_version` yourself (any value, `null` included) to keep version 1; compositions created before this stamp existed keep it too, title by title, until a title asks for version 2 in its own `textStyle.version`.
       requestBody:
         required: true
         content:
@@ -7022,13 +7022,12 @@ paths:
           the glyphs. An addition that carries no `textStyle` is rasterized
           with the default Studio style, centered on the canvas — the
           animated white-on-dark-pill treatment is reserved for authored
-          plain-text elements. The 22 self-hosted Studio families are bundled
-          and resolved by family name from the CSS stack. Each is one static
-          instance, with synthetic emboldening or thinning for weight and a
-          synthetic oblique for italic (reported in warnings). An unknown
-          custom family falls back to Go fonts with a render warning; generic,
-          system, and web-safe fallback names do not warn. Rendering rejects
-          plans with more than 300 visible text additions before rasterization.
+          plain-text elements. Fonts are bundled and resolved by family
+          name from the CSS stack, in one of two ways (see "Text version 2"
+          below). An unknown custom family falls back to Go fonts with a
+          render warning; generic, system, and web-safe fallback names do
+          not warn. Rendering rejects plans with more than 300 visible text
+          additions before rasterization.
         - Text additions with a valid `textStyle.width` or `textStyle.height`
           also preserve their text box layout, on the same static raster path
           (a text box is never animated). Width and height are independently
@@ -7039,12 +7038,53 @@ paths:
           visible as overflow. Without a width, the box uses intrinsic
           shrink-to-fit sizing from the space remaining to the right of x%,
           capped at 80% of the canvas width; without a height, the box fits the
-          wrapped lines. The same 22 bundled Studio families resolve from
-          the CSS stack, with synthetic weight and oblique italic from each
-          static instance. Unknown custom families use Go fallback fonts and
-          record a warning (generic, system, and web-safe names do not warn).
+          wrapped lines. Fonts resolve from the CSS stack exactly as for an
+          unboxed text addition (see "Text version 2" below), and a box wraps on
+          the advances of the face it is drawn with. Unknown custom families
+          use Go fallback fonts and record a warning (generic, system, and
+          web-safe names do not warn).
           Authored CSS is NOT applied
           to either text rendering path.
+        - Text version 2. A text addition is at **version 2** when the
+          composition says so (`meta.text_version = 2`, which every new
+          composition is stamped with) or the addition does
+          (`textStyle.version = 2`, which Studio writes on a title it adds
+          to, or restyles in, an older composition). A version 2 title is
+          rendered the way the Studio preview draws it:
+          it uses real faces. 34 families are bundled, each in the weights
+          and italics it really has: Anton, Bebas Neue, Lobster, Oswald,
+          Pacifico, JetBrains Mono, Roboto Mono, Inter, Manrope, Montserrat,
+          Nunito, Open Sans, Poppins, Raleway, Roboto, Work Sans, Caveat,
+          Dancing Script, EB Garamond, Lora, Playfair Display, Roboto Slab,
+          Archivo, Inter Tight, Jost, Chakra Petch, Bodoni Moda, Fraunces,
+          Instrument Serif, Bangers, Comic Neue, Libre Barcode 128, Unbounded
+          and Space Mono. The face is chosen the way a browser chooses one
+          (CSS font matching): `italic` takes the family's true italic, and
+          `fontWeight` the face of that weight, or the nearest one the
+          family has (toward lighter below 400, toward heavier above 500).
+          Only two things are still synthesized, each reported in the
+          render's warnings: an oblique, for an italic asked of a family
+          with no italic (Anton, Bebas Neue, Lobster, Oswald, Pacifico,
+          Manrope, Caveat, Dancing Script, Roboto Slab, Bangers, Libre
+          Barcode 128, Unbounded), and a bold, for a weight of 600 or more
+          asked of a family whose nearest face is lighter than 600. Nothing
+          is thinned. Bodoni Moda and Fraunces are bundled at their display
+          optical size. And it is always laid out as a CSS box, with or
+          without a `textStyle.width` or `textStyle.height`: each line sits
+          in its line box where a browser puts it, and a title with no width
+          wraps as it does in the preview (the shrink-to-fit sizing
+          described above for a text box). An addition with no `textStyle`
+          is drawn in the default Studio style at its 100 px, as the preview
+          shows it (at version 1 it is drawn at 5 percent of the canvas's
+          shorter side). A title at **version 1**, which
+          is every title not at version 2, renders as it always did: the
+          first 22 of those families, each as one static instance, with
+          synthetic emboldening or thinning for weight and a synthetic
+          oblique for every italic (reported in warnings), the other 12
+          unknown, and, without a width or height, on one unwrapped line per
+          newline with its ascent at the top of the still. The two versions
+          differ in letter shapes, widths, wrapping and vertical position, so
+          a title can sit and fit differently once it is at version 2.
 
         - Audio mix (see the `AudioMix` schema): per-clip
           `data-audio` / overlay `audio` (role, gainDb, fades, duckUnderVoice,
@@ -18836,7 +18876,7 @@ components:
           type: object
           nullable: true
           description: >-
-            Free-form composition metadata (at most 64 KiB serialized). The server adds `audio_mix: "v1"` (the mix-managed stamp, see `AudioMix`) unless the key is already present.
+            Free-form composition metadata (at most 64 KiB serialized). The server adds `audio_mix: "v1"` (the mix-managed stamp, see `AudioMix`) and `text_version: 2` (text additions render the way the Studio preview draws them, see "Text version 2" on the render operation), each unless its key is already present.
     UpdateCompositionRequest:
       type: object
       additionalProperties: false
