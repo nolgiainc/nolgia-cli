@@ -10994,6 +10994,18 @@ components:
       required: [type, title, status]
       description: RFC 7807 problem object.
       properties:
+        suggested_models:
+          type: array
+          items:
+            type: string
+          description: Catalog model ids compatible with the submitted reference inputs and accessible on the caller's effective plan. Only likeness_refused messages that name specific alternatives and frame_constraint can carry suggestions. Suggestions are alternatives, not a guarantee that a provider will accept the content.
+        retryable_same_model:
+          type: boolean
+          description: Whether retrying the unchanged request on this model can help. False for deterministic refusals and remembered verdicts; true for output safety checks only while the two-retry allowance remains (never for categories involving minors). Omitted for job_failed.
+        help_url:
+          type: string
+          format: uri
+          description: Relevant Nolgia guide, when one is available.
         code:
           type: string
           description: >
@@ -15355,14 +15367,26 @@ components:
       description: >-
         Typed reason a job failed. Present only when `status` is `failed`, alongside `error` (which is unchanged). `status` stays `failed` for every failure, including a content-filter refusal, so clients that read only `status` keep working; branch on `kind` for the reason.
       properties:
+        suggested_models:
+          type: array
+          items:
+            type: string
+          description: Catalog model ids compatible with the submitted reference inputs and accessible on the caller's effective plan. Only likeness_refused messages that name specific alternatives and frame_constraint can carry suggestions. Suggestions are alternatives, not a guarantee that a provider will accept the content.
+        retryable_same_model:
+          type: boolean
+          description: Whether retrying the unchanged request on this model can help. False for deterministic refusals and remembered verdicts; true for output safety checks only while the two-retry allowance remains (never for categories involving minors). Omitted for job_failed.
+        help_url:
+          type: string
+          format: uri
+          description: Relevant Nolgia guide, when one is available.
         code:
           $ref: '#/components/schemas/GenerationErrorCode'
           description: >-
-            Stable refinement of `kind`, present on every job that failed after this field shipped and derived from the recorded reason for older ones. `kind: moderated` narrows to `prompt_nsfw` or `ip_detected`; `kind: error` narrows to `timeout` or `job_failed`. Branch on `code` when you need the distinction and on `kind` when you do not.
+            Stable refinement of `kind`, present on every job that failed after this field shipped and derived from the recorded reason for older ones. Refusal codes (likeness, copyright, input/output safety and the coarse prompt_nsfw) can appear with either kind, including legacy `kind: error` rows. `kind: error` also includes invalid media, frame constraints, timeout, cancellation, validation and job failures. Branch on `code` when you need the distinction and on `kind` when you do not.
         kind:
           type: string
           description: >-
-            What stopped the job. `moderated`: a provider's content filter refused the request or blocked the result it generated (safety systems, real-person likeness and protected-work checks); editing the prompt or the reference media, or switching models, is the fix. `error`: any other failure. This is an open set: treat any value you do not recognize as `error`.
+            What stopped the job. `moderated`: a provider's content filter refused the request or blocked the result it generated (safety systems, real-person likeness and protected-work checks); follow the specific code and guidance to change the prompt or reference media. `error`: any other failure. This is an open set: treat any value you do not recognize as `error`.
           examples: ['moderated', 'error']
         message:
           type: string
@@ -23309,8 +23333,8 @@ components:
           description: After this the token is refused and a submit carrying it fails with `confirmation_rejected`. Re-quote.
     GenerationErrorCode:
       type: string
-      enum: [out_of_credits, rate_limit, prompt_nsfw, ip_detected, job_failed, timeout, validation, confirmation_rejected, canceled, job_not_cancellable, approval_required, run_ended]
-      x-enum-varnames: [GenerationErrorCodeOutOfCredits, GenerationErrorCodeRateLimit, GenerationErrorCodePromptNsfw, GenerationErrorCodeIpDetected, GenerationErrorCodeJobFailed, GenerationErrorCodeTimeout, GenerationErrorCodeValidation, GenerationErrorCodeConfirmationRejected, GenerationErrorCodeCanceled, GenerationErrorCodeJobNotCancellable, GenerationErrorCodeApprovalRequired, GenerationErrorCodeRunEnded]
+      enum: [out_of_credits, rate_limit, prompt_nsfw, ip_detected, job_failed, timeout, validation, confirmation_rejected, canceled, job_not_cancellable, approval_required, run_ended, likeness_refused, copyright_refused, output_safety_blocked, input_safety_blocked, invalid_media, frame_constraint]
+      x-enum-varnames: [GenerationErrorCodeOutOfCredits, GenerationErrorCodeRateLimit, GenerationErrorCodePromptNsfw, GenerationErrorCodeIpDetected, GenerationErrorCodeJobFailed, GenerationErrorCodeTimeout, GenerationErrorCodeValidation, GenerationErrorCodeConfirmationRejected, GenerationErrorCodeCanceled, GenerationErrorCodeJobNotCancellable, GenerationErrorCodeApprovalRequired, GenerationErrorCodeRunEnded, GenerationErrorCodeLikenessRefused, GenerationErrorCodeCopyrightRefused, GenerationErrorCodeOutputSafetyBlocked, GenerationErrorCodeInputSafetyBlocked, GenerationErrorCodeInvalidMedia, GenerationErrorCodeFrameConstraint]
       description: |
         Stable machine-readable class of a generation failure, on the
         `/generate/*` submit responses (as `error.code`) and on a failed job
@@ -23318,10 +23342,16 @@ components:
         unchanged and stays the text to show a customer; the code is what a
         client branches on. This is a closed enum today but treat an
         unrecognised value as `job_failed`.
+        - `likeness_refused`: The reference was refused for a real-person likeness. Alternatives are suggested only when the existing route message names specific models, filtered for your inputs and effective plan. PrivacyInformation refusals carry no alternatives.
+        - `copyright_refused`: The input or generated media was refused for copyright restrictions.
+        - `output_safety_blocked`: The checker blocked generated output; up to two identical retries are allowed within 30 minutes, except categories involving minors.
+        - `input_safety_blocked`: The checker refused the input. Change the prompt or references.
+        - `invalid_media`: The provider could not decode or inspect the input media. Replace it with valid media.
+        - `frame_constraint`: Frame pinning conflicts with the requested reference media. Drop the frames or the references.
         - `out_of_credits`: the wallet cannot pay for the job. Nothing was submitted and nothing was charged. Top up, or submit a cheaper model or fewer seconds.
         - `rate_limit`: refused for now, not refused outright — the caller's own concurrency ceiling, or the provider's. Retry later; the same request will be accepted.
         - `prompt_nsfw`: a content filter refused the request or the result it produced, on safety grounds. Editing the prompt or the reference media is the fix. Whether the credits were refunded is `failure.credits_refunded`, not this code.
-        - `ip_detected`: a content filter refused it for a real person's likeness or a protected work, rather than for safety. The fix is different from `prompt_nsfw` — change the reference image or the named subject, not the tone of the prompt — which is why it is its own code.
+        - `ip_detected`: legacy, still accepted but no longer emitted. A content filter refused it for a real person's likeness or a protected work, rather than for safety. The fix is different from `prompt_nsfw` — change the reference image or the named subject, not the tone of the prompt — which is why it is its own code.
         - `job_failed`: the job ran and did not produce an asset for any other reason, including a provider error. The default for an unclassified failure.
         - `timeout`: the job ran past its time budget, or a `GET /jobs/{id}/wait` returned before the job reached a terminal status. On a failed job the work is over; on a `wait` the job may still be running.
         - `validation`: the request itself is not acceptable — a missing or malformed field, a model that does not support the capability asked of it, a duration the model will not render. Nothing was submitted and nothing was charged. Retrying unchanged will fail identically.
