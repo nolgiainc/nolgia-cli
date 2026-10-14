@@ -23607,6 +23607,37 @@ components:
           type: string
           format: date-time
           description: When the agent reply completed or failed. Absent while pending and on user messages.
+        lettering:
+          type: array
+          description: |
+            Garbled lettering the platform's quality check found in the
+            videos this reply delivers (malformed, invented or nonsense
+            letters; legible text and real logos never appear here). The
+            file is delivered anyway, with the lettering named, and the chat
+            offers two actions per shot: regenerate it, or upload the exact
+            logo or text image to use as a reference. Absent when there is
+            none.
+          items:
+            $ref: '#/components/schemas/AgentMessageLettering'
+    AgentMessageLettering:
+      type: object
+      required: [asset_id, shot, start_s, end_s, where]
+      properties:
+        asset_id:
+          type: string
+          format: uuid
+          description: The delivered video.
+        shot:
+          type: integer
+        start_s:
+          type: number
+          format: double
+        end_s:
+          type: number
+          format: double
+        where:
+          type: string
+          description: The object and its garbled marks, in the check's words.
     AgentMessageOrigin:
       type: string
       enum: [background]
