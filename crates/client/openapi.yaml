@@ -6972,7 +6972,7 @@ paths:
           modality; unresolvable references are skipped with a warning.
         - Edits overlay v2: element overrides (`start`/`duration`/`track`/
           `hidden`/`srcOffset`/`muted`) and additions (kind `media` with
-          `assetId` or `path`; kind `text`). A `muted` element (or added
+          `assetId` or `path`; kind `text`; kind `shape`). A `muted` element (or added
           clip) renders silent — its embedded audio is stripped. Optional
           top-level `tracks` toggles apply per section by a clip's effective
           track index: `tracks.video.<idx>.hidden` skips those clips,
@@ -7045,6 +7045,34 @@ paths:
           web-safe names do not warn).
           Authored CSS is NOT applied
           to either text rendering path.
+        - Text background: `textStyle.background` draws a filled box behind a
+          text addition at text version 2 (see below), under the glyphs and
+          their shadow: `color` (hex, with optional alpha; required, and a
+          fully transparent color means no background), `padding` (em, 0 to
+          2, default 0.25: how far the box extends past the title's own box
+          on every side) and `radius` (em, 0 to 2, default 0.1: the corner
+          radius, never more than half the box's shorter side). The title's
+          own box is its `textStyle.width` and `textStyle.height` where it
+          has them, and otherwise the size its wrapped lines are fitted to.
+          The background belongs to the title: it moves, rotates and fades
+          with it, and the text does not move when it is added. A version 1
+          title does not draw one (a render warning says so).
+        - Shape additions (kind `shape`) draw a filled rectangle from the
+          addition's `shape` object, as a static still on a video track like
+          a text addition: `width` and `height` (required; native canvas
+          pixels, 1 to 8192), `fill` (hex, default `#ffffff`), `radius`
+          (pixels, default 0; never more than half the shorter side, so a
+          large radius gives a pill, and on a square a circle),
+          `strokeWidth` (pixels, 0 to 512, default 0) with `strokeColor`
+          (hex, default `#000000`), drawn inside the edge over the fill like
+          a CSS border in a border-box, and the same placement fields as a
+          text addition: `x`/`y` (the center, as a percentage of the
+          canvas, default 50), `rotation` (degrees) and `opacity` (0 to 1).
+          An optional `type` must be `"rect"`. A shape addition with no
+          usable size, or with another `type`, is dropped like any malformed
+          addition. Shapes share the limit of 300 rasterized text additions,
+          and a per-clip color grade, mask or motion on a shape is ignored
+          with a warning.
         - Text version 2. A text addition is at **version 2** when the
           composition says so (`meta.text_version = 2`, which every new
           composition is stamped with) or the addition does
@@ -7165,9 +7193,10 @@ paths:
         authored timed elements plus the Studio edits overlay.
         `format=fcpxml` writes `sequence.xml` (Final Cut Pro 7 XML interchange,
         xmeml version 5, 30 fps, imported by Premiere Pro and DaVinci Resolve)
-        plus text additions as PNG stills under `text/`.
+        plus text additions as PNG stills under `text/` and shape additions as PNG stills under `shapes/`.
         `format=aejsx` writes `build.jsx`, an ExtendScript After Effects runs from
-        File > Scripts > Run Script File, with native text layers, keyframed transforms and masks.
+        File > Scripts > Run Script File, with native text layers, keyframed transforms and masks;
+        shape additions, and text additions with a background or a fixed box, are PNG stills there too.
         Both carry `luts/*.cube` for color grades and `README.txt` stating the fidelity limits.
         `manifest.json` lists every referenced media file in `media[]`: `ref`, `asset_id`,
         `path` relative to the export folder, a signed download `url` valid for one hour,
