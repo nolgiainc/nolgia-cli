@@ -102,8 +102,9 @@ tags:
       The platform's quality check on a finished video: the sound (loudness,
       true peak, clipping, dead air, the voice over the music bed, a bed and
       a sound cue actually in the file) and the picture (people clothed, no
-      stray text or numbers, natural eyes, sound anatomy), judged on the
-      stored file itself. Every video an agent run delivers passes this check
+      garbled lettering, natural eyes, sound anatomy), judged on the stored
+      file itself. Legible text and real brand logos pass; garbled lettering
+      is named with where it is. Every video an agent run delivers is checked
       before the reply reaches the customer; these endpoints run the same
       check on demand.
   - name: Activity
@@ -6261,7 +6262,7 @@ paths:
         (a clip that is not in the library yet, a shot being worked on). Each
         shot's frames (JPEG, base64, one to six per shot, in order) are judged
         by the platform's vision model against the same rubric as
-        `POST /qc/deliverable`: people clothed, no stray text or numbers,
+        `POST /qc/deliverable`: people clothed, no garbled lettering,
         natural eyes and faces, sound anatomy. `allow_text` and `opt_outs`
         follow the same rule: only the customer's own words.
 
@@ -22564,6 +22565,29 @@ components:
         cost_usd:
           type: number
           format: double
+        lettering:
+          type: array
+          description: Each shot whose lettering is garbled (malformed, invented or nonsense letters, numbers or logos), with where it is. Legible text and real brand marks never appear here.
+          items:
+            $ref: '#/components/schemas/QcLetteringFlag'
+        lettering_only:
+          type: boolean
+          description: The picture fails, and garbled lettering is the only thing that failed in any shot.
+    QcLetteringFlag:
+      type: object
+      required: [shot, start_s, end_s, where]
+      properties:
+        shot:
+          type: integer
+        start_s:
+          type: number
+          format: double
+        end_s:
+          type: number
+          format: double
+        where:
+          type: string
+          description: The object and the garbled marks on it, in the vision model's words.
     QcVerdict:
       type: object
       required: [version, kind, status, ok, failures, opt_outs, cost_usd, elapsed_ms]
