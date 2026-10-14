@@ -25631,6 +25631,27 @@ components:
           description: Whether `face_reference_asset_id` is accepted (image models with Aura and a reference slot).
         aura_compatible:
           type: boolean
+        min_duration_seconds:
+          type: integer
+          description: >-
+            The shortest clip a video model renders (`video.min_duration`). Video models only. With `max_duration_seconds` or `durations` it is how the flow sets a footage preset's length: see `length_follows_footage`.
+        max_duration_seconds:
+          type: integer
+          description: The longest clip a video model renders (`video.max_duration`). Video models only.
+        durations:
+          type: array
+          items:
+            type: integer
+          description: >-
+            The only lengths a video model renders (`video.durations`), when it takes a list rather than a range. Video models only.
+        output_follows_source_video:
+          type: boolean
+          description: >-
+            The model renders a source clip at that clip's own length on its own (`references.output_follows_source_video`), so a request leaves `duration_seconds` out. Video models only.
+        length_follows_footage:
+          type: boolean
+          description: >-
+            A request built from this context sets `duration_seconds` from the customer's footage: when the target bakes no length, no step sets one, the target's `video_task` is absent or `reference`, the model does not follow the source on its own, and exactly one clip answers an asset step with role `footage` bound to `video_asset_ids`, the length is that clip's stored length rounded up, held inside `min_duration_seconds` to `max_duration_seconds` (or the nearest of `durations` at or above it, else the longest). So a one-angle Multicam of a 6 s take renders 6 s, not the 5 s default. Video models only.
     PresetIntakeEstimate:
       type: object
       additionalProperties: false
