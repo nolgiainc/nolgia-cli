@@ -12,7 +12,7 @@ chrono = { version = "0.4", features = ["serde"] }
 directories = "6"
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 keyring = { version = "3.6", features = ["apple-native", "windows-native", "linux-native-sync-persistent"] }
-nolgia-client = { path = "crates/client", version = "0.3.0" }
+nolgia-client = { path = "crates/client", version = "0.3.1" }
 reqwest = { version = "0.13", default-features = false, features = ["json", "gzip", "rustls"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -30,7 +30,7 @@ sha2 = "0.10"
 xxhash-rust = { version = "0.8", features = ["xxh64"] }
 
 [workspace.package]
-version = "0.3.0"
+version = "0.3.1"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/nolgiainc/nolgia-cli"
