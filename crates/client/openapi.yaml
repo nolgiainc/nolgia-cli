@@ -9438,7 +9438,7 @@ paths:
       operationId: listAgentModels
       summary: Selectable agent brains (reasoning models) with their flat per-turn credit rates.
       description: >-
-        Every entry is a model the platform can actually serve for an agent's reasoning loop — routed through the LLM proxy with a provider-outage fallback group — priced as a flat credit rate per chat turn. The default brain is included; premium brains cost more per turn. `gpt-6.1-sol` is the best brain, at 70 credits a turn: OpenAI's strongest reasoning model we serve, for long documents and hard multi-step work. Retired brains are NOT listed and are REPLACED rather than kept running: `glm-5.3`, `glm-5.2` and `kimi-k3` resolve to `claude-opus-5-5`, and `gpt-6-astra` resolves to `gpt-6.1-sol`, so an agent pinned to one runs and bills as its replacement and GET /agent reports the replacement as its model. Treat this catalogue as the source of truth for both the selectable ids and their rates rather than hard-coding either — it is served from the same table that prices the turn.
+        Every entry is a model the platform can actually serve for an agent's reasoning loop — routed through the LLM proxy with a provider-outage fallback group — priced as a flat credit rate per chat turn. The default brain is included; premium brains cost more per turn. `gpt-6.1-sol` is the best brain, at 70 credits a turn: OpenAI's strongest reasoning model we serve, for long documents and hard multi-step work. `gemini-4-argon` (70 credits a turn) is Google's most capable model, for hard coding, math and science problems and long agent work. Retired brains are NOT listed and are REPLACED rather than kept running: `glm-5.3`, `glm-5.2` and `kimi-k3` resolve to `claude-opus-5-5`, and `gpt-6-astra` resolves to `gpt-6.1-sol`, so an agent pinned to one runs and bills as its replacement and GET /agent reports the replacement as its model. Treat this catalogue as the source of truth for both the selectable ids and their rates rather than hard-coding either — it is served from the same table that prices the turn.
       responses:
         '200':
           description: The selectable brains, default first, then by ascending per-turn rate.
@@ -22253,7 +22253,7 @@ components:
         turn_credits:
           type: integer
           description: >-
-            Flat credits billed per agent chat turn while the agent runs this brain. The rate is per TURN, not per token, and today does not vary with how much work the turn does: it ranges from 10 for the default brain to 70 for `claude-opus-5-5` and `gpt-6.1-sol`. Per-turn rates are under active revision and will change — always read the current rate from this catalogue and show it to the user before a brain is selected, rather than hard-coding it.
+            Flat credits billed per agent chat turn while the agent runs this brain. The rate is per TURN, not per token, and today does not vary with how much work the turn does: it ranges from 10 for the default brain to 70 for `claude-opus-5-5`, `gemini-4-argon` and `gpt-6.1-sol`. Per-turn rates are under active revision and will change — always read the current rate from this catalogue and show it to the user before a brain is selected, rather than hard-coding it.
           examples: [25, 70]
         default:
           type: boolean
