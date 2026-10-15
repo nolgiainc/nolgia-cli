@@ -20,7 +20,7 @@ mod verify;
 
 use std::{
     fmt,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -310,17 +310,17 @@ async fn offload_cmd(a: OffloadArgs, output: &OutputContext) -> Result<()> {
         return Ok(());
     }
     let mut outcome = with_stop(move |stop| offload::run(&opts, stop, plan, cards)).await?;
-    // The report for each destination's shoot folder, from the copies.
+    // The report in each destination's shoot folder, from the copies.
     let status = outcome.status.clone();
-    if status != "interrupted"
-        && let Some(r) = outcome.results.first()
-    {
-        let folder = PathBuf::from(&r.folder);
-        let shoot_dir = folder.parent().map(PathBuf::from).unwrap_or(folder.clone());
-        let out = offload::dit_dir(&shoot_dir, None).join(format!(
-            "DIT-REPORT-{}.md",
-            chrono::Local::now().format("%Y%m%d-%H%M%S")
-        ));
+    if status != "interrupted" {
+        let mut shoot_dirs: Vec<PathBuf> = Vec::new();
+        for r in &outcome.results {
+            let folder = PathBuf::from(&r.folder);
+            let shoot_dir = folder.parent().map(PathBuf::from).unwrap_or(folder);
+            if !shoot_dirs.contains(&shoot_dir) {
+                shoot_dirs.push(shoot_dir);
+            }
+        }
         let note = format!(
             "Every copy was read back from its destination and matched its card when it was \
              written: {} file copies verified ({}), {} failed. ASC MHL and TSV manifests list each card.",
@@ -332,27 +332,54 @@ async fn offload_cmd(a: OffloadArgs, output: &OutputContext) -> Result<()> {
                 .map(|r| r.failed.len())
                 .sum::<usize>()
         );
-        let ro = report::ReportOptions {
-            offload_note: Some(note),
-            dir: shoot_dir,
-            manifest: None,
-            verify: false,
-            only: Vec::new(),
-            offsets: Vec::new(),
-            out: Some(out),
-        };
-        if let Ok(rep) = report::report(&ro, Arc::new(AtomicBool::new(false))) {
-            outcome.report = Some(rep.markdown);
+        let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
+        for shoot_dir in shoot_dirs {
+            let ro = report::ReportOptions {
+                offload_note: Some(note.clone()),
+                out: Some(
+                    offload::dit_dir(&shoot_dir, None).join(format!("DIT-REPORT-{stamp}.md")),
+                ),
+                dir: shoot_dir,
+                manifest: None,
+                verify: false,
+                only: Vec::new(),
+                offsets: Vec::new(),
+            };
+            if let Ok(rep) = report::report(&ro, Arc::new(AtomicBool::new(false))) {
+                outcome.reports.push(rep.markdown);
+            }
         }
+        outcome.report = outcome.reports.first().cloned();
     }
     emit(output, &outcome, || {
-        let mut s = format!(
-            "Offload {}: {} file copies verified in {:.0} s ({} MB/s)\n",
-            outcome.status, outcome.files_verified, outcome.seconds, outcome.mb_per_s
-        );
+        let earlier = outcome.files_done_earlier;
+        let mut s = if outcome.status == "complete" && earlier == outcome.files_verified {
+            format!(
+                "Offload complete: nothing new to copy; all {earlier} file copies were made and verified by an earlier run\n"
+            )
+        } else {
+            let mut s = format!(
+                "Offload {}: {} file copies verified in {}",
+                outcome.status,
+                outcome.files_verified,
+                offload::seconds_text(outcome.seconds)
+            );
+            if outcome.bytes_copied > 0 {
+                s.push_str(&format!(
+                    " ({} copied at {} MB/s)",
+                    offload::human_bytes(outcome.bytes_copied),
+                    outcome.mb_per_s
+                ));
+            }
+            if earlier > 0 {
+                s.push_str(&format!("; {earlier} of them by an earlier run"));
+            }
+            s.push('\n');
+            s
+        };
         for r in &outcome.results {
             s.push_str(&format!(
-                "  {} -> {}: {} copied and verified, {} already there, {} resumed, {} failed\n",
+                "  {} -> {}: {} copied and verified, {} already there, {} done by an earlier run, {} failed\n",
                 r.card,
                 r.folder,
                 r.verified,
@@ -364,7 +391,7 @@ async fn offload_cmd(a: OffloadArgs, output: &OutputContext) -> Result<()> {
                 s.push_str(&format!("    FAILED {}: {}\n", f.path, f.reason));
             }
         }
-        if let Some(rep) = &outcome.report {
+        for rep in &outcome.reports {
             s.push_str(&format!("Report: {rep}\n"));
         }
         if let Some(h) = &outcome.resume_hint {
@@ -422,41 +449,149 @@ async fn manifest_cmd(a: ManifestArgs, output: &OutputContext) -> Result<()> {
     if !dir.is_dir() {
         bail!("{} is not a folder", dir.display());
     }
-    let (mhl, tsv, count) = with_stop(move |stop| -> Result<(PathBuf, PathBuf, usize)> {
-        let walk = files::walk(&dir)?;
-        let mut records = Vec::new();
-        for f in &walk.files {
-            if stop.load(Ordering::Relaxed) {
-                bail!(DitExit(EXIT_INTERRUPTED));
-            }
-            let (size, hashes) = hash::hash_file(&f.abs, &algos)?;
-            records.push(manifest::Record {
-                rel: f.rel.clone(),
-                size,
-                mtime: f.mtime,
-                hashes,
-            });
+    let out = with_stop(move |stop| manifest_in_place(&dir, &algos, stop)).await?;
+    let problems = !out.differ.is_empty() || !out.missing.is_empty();
+    emit(output, &out, || {
+        let mut s = if out.had_history {
+            format!(
+                "Hashed {} files: {} match the ASC MHL history, {} renamed (found by their hashes), {} new, {} differ; {} missing\n",
+                out.files,
+                out.verified,
+                out.renamed.len(),
+                out.new,
+                out.differ.len(),
+                out.missing.len()
+            )
+        } else {
+            format!("Hashed {} files.\n", out.files)
+        };
+        for c in out.renamed.iter().take(20) {
+            s.push_str(&format!("  renamed {} -> {}\n", c.from, c.to));
         }
-        let mhl = manifest::write_mhl_generation(
-            &dir,
-            &records,
-            &walk.empty_dirs,
-            manifest::Process::InPlace,
-            "original",
-        )?;
-        let tsv = manifest::tsv_path_for(&dir);
-        manifest::write_tsv(&tsv, &dir.display().to_string(), &records, &algos)?;
-        Ok((mhl, tsv, records.len()))
-    })
-    .await?;
-    let value = serde_json::json!({"files": count, "mhl": mhl.display().to_string(), "tsv": tsv.display().to_string()});
-    emit(output, &value, || {
-        format!(
-            "Hashed {count} files.\nASC MHL: {}\nTSV: {}",
-            mhl.display(),
-            tsv.display()
-        )
-    })
+        for p in &out.differ {
+            s.push_str(&format!(
+                "  DIFFERS {p}: not the file the history recorded\n"
+            ));
+        }
+        for p in &out.missing {
+            s.push_str(&format!("  MISSING {p}\n"));
+        }
+        s.push_str(&format!("ASC MHL: {}\nTSV: {}", out.mhl, out.tsv));
+        s
+    })?;
+    if problems {
+        return Err(DitExit(EXIT_MISMATCH).into());
+    }
+    Ok(())
+}
+
+#[derive(serde::Serialize)]
+struct ManifestOutcome {
+    files: usize,
+    mhl: String,
+    tsv: String,
+    /// Whether the folder already had an ASC MHL history to compare with.
+    had_history: bool,
+    verified: usize,
+    new: usize,
+    renamed: Vec<rename::Change>,
+    differ: Vec<String>,
+    missing: Vec<String>,
+}
+
+/// Hash a folder and append its generation. Against an existing history,
+/// as `ascmhl create --detect_renaming` does: a file it lists is
+/// `verified` (or `failed`), a file under a new name whose hashes match a
+/// file no longer on disk is a rename (`original` with `<previousPath>`),
+/// anything else is `original`. Files the history lists that are gone are
+/// reported missing.
+fn manifest_in_place(
+    dir: &Path,
+    algos: &[hash::Algo],
+    stop: Arc<AtomicBool>,
+) -> Result<ManifestOutcome> {
+    let walk = files::walk(dir)?;
+    let had_history = dir.join(files::MHL_DIR).is_dir();
+    let known = if had_history {
+        manifest::read_mhl_history(dir)?.0
+    } else {
+        Default::default()
+    };
+    let on_disk: std::collections::HashSet<&str> =
+        walk.files.iter().map(|f| f.rel.as_str()).collect();
+    // Files the history expects that are gone, by size and xxh64: candidates for a rename.
+    let mut gone: Vec<&manifest::Record> = known
+        .values()
+        .filter(|r| !on_disk.contains(r.rel.as_str()))
+        .collect();
+    let mut out = ManifestOutcome {
+        files: 0,
+        mhl: String::new(),
+        tsv: String::new(),
+        had_history,
+        verified: 0,
+        new: 0,
+        renamed: Vec::new(),
+        differ: Vec::new(),
+        missing: Vec::new(),
+    };
+    let mut entries = Vec::new();
+    let mut records = Vec::new();
+    for f in &walk.files {
+        if stop.load(Ordering::Relaxed) {
+            bail!(DitExit(EXIT_INTERRUPTED));
+        }
+        let (size, hashes) = hash::hash_file(&f.abs, algos)?;
+        let record = manifest::Record {
+            rel: f.rel.clone(),
+            size,
+            mtime: f.mtime,
+            hashes,
+        };
+        let xxh = record.hash(hash::Algo::Xxh64).map(str::to_string);
+        let (action, previous) = match known.get(&f.rel) {
+            Some(k) if k.size == size && k.hash(hash::Algo::Xxh64) == xxh.as_deref() => {
+                out.verified += 1;
+                ("verified", None)
+            }
+            Some(_) => {
+                out.differ.push(f.rel.clone());
+                ("failed", None)
+            }
+            None => match gone
+                .iter()
+                .position(|g| g.size == size && g.hash(hash::Algo::Xxh64) == xxh.as_deref())
+            {
+                Some(i) => {
+                    let old = gone.remove(i).rel.clone();
+                    out.renamed.push(rename::Change {
+                        from: old.clone(),
+                        to: f.rel.clone(),
+                    });
+                    ("original", Some(old))
+                }
+                None => {
+                    out.new += 1;
+                    ("original", None)
+                }
+            },
+        };
+        records.push(record.clone());
+        entries.push(manifest::MhlEntry {
+            record,
+            action,
+            previous,
+        });
+    }
+    out.missing = gone.iter().map(|g| g.rel.clone()).collect();
+    out.files = records.len();
+    let mhl =
+        manifest::write_mhl_entries(dir, &entries, &walk.empty_dirs, manifest::Process::InPlace)?;
+    let tsv = manifest::tsv_path_for(dir);
+    manifest::write_tsv(&tsv, &dir.display().to_string(), &records, algos)?;
+    out.mhl = mhl.display().to_string();
+    out.tsv = tsv.display().to_string();
+    Ok(out)
 }
 
 async fn inventory_cmd(a: InventoryArgs, output: &OutputContext) -> Result<()> {
@@ -478,22 +613,87 @@ async fn inventory_cmd(a: InventoryArgs, output: &OutputContext) -> Result<()> {
             inv.other_files
         );
         for c in &inv.cameras {
-            s.push_str(&format!(
-                "  {}: {} videos, {} photos, {}, {} to {}{}\n",
-                c.camera,
-                c.videos,
-                c.photos,
-                offload::human_bytes(c.bytes),
-                c.first.clone().unwrap_or_default(),
-                c.last.clone().unwrap_or_default(),
-                if c.gamma.is_empty() {
-                    String::new()
-                } else {
+            let count = c.videos + c.photos + c.audio;
+            let mut kinds = Vec::new();
+            if c.videos > 0 {
+                kinds.push(if c.video_seconds > 0.0 {
                     format!(
-                        ", {}",
-                        c.gamma.iter().cloned().collect::<Vec<_>>().join("/")
+                        "{} videos ({} of footage)",
+                        c.videos,
+                        length_text(c.video_seconds)
                     )
-                }
+                } else {
+                    format!("{} videos", c.videos)
+                });
+            }
+            if c.photos > 0 {
+                kinds.push(format!("{} photos", c.photos));
+            }
+            if c.audio > 0 {
+                kinds.push(format!("{} audio files", c.audio));
+            }
+            s.push_str(&format!(
+                "  {}: {}, {}\n",
+                camera_label(&c.camera),
+                kinds.join(", "),
+                offload::human_bytes(c.bytes)
+            ));
+            let mut when = format!(
+                "    {} to {}",
+                c.first.clone().unwrap_or_default(),
+                c.last.clone().unwrap_or_default()
+            );
+            if c.clock_offset_minutes != 0 {
+                when.push_str(&format!(
+                    " (clock corrected by {:+} min)",
+                    c.clock_offset_minutes
+                ));
+            }
+            if c.times_from_file == count {
+                when.push_str(" (file times: the files record no capture time)");
+            } else if c.times_from_file > 0 {
+                when.push_str(&format!(" ({} from file times)", c.times_from_file));
+            }
+            s.push_str(&format!("{when}\n"));
+            let mut tech: Vec<String> = c.resolutions.iter().cloned().collect();
+            tech.extend(c.frame_rates.iter().map(|f| fps_text(f)));
+            tech.extend(c.codecs.iter().cloned());
+            tech.extend(c.gamma.iter().cloned());
+            tech.extend(c.lenses.iter().cloned());
+            if !tech.is_empty() {
+                s.push_str(&format!("    {}\n", tech.join(", ")));
+            }
+        }
+        for it in inv.items.iter().take(200) {
+            let m = &it.meta;
+            let mut parts = vec![
+                it.corrected
+                    .clone()
+                    .or(it.captured.clone())
+                    .unwrap_or_default(),
+            ];
+            parts.extend(m.duration_s.map(|d| format!("{d} s")));
+            if let (Some(w), Some(h)) = (m.width, m.height) {
+                parts.push(format!("{w}x{h}"));
+            }
+            parts.extend(
+                m.capture_fps
+                    .clone()
+                    .or(m.format_fps.clone())
+                    .map(|f| fps_text(&f)),
+            );
+            parts.extend(m.codec.clone());
+            s.push_str(&format!(
+                "  {}: {}; source: {}\n",
+                it.path,
+                parts.join(", "),
+                m.source.clone().unwrap_or_default()
+            ));
+        }
+        if inv.items.len() > 200 {
+            s.push_str(&format!(
+                "  ... and {} more (--json or --csv lists all)\n",
+                inv.items.len() - 200
             ));
         }
         for w in &inv.warnings {
@@ -504,6 +704,33 @@ async fn inventory_cmd(a: InventoryArgs, output: &OutputContext) -> Result<()> {
         }
         s.trim_end().to_string()
     })
+}
+
+fn camera_label(camera: &str) -> String {
+    if camera == "unknown" {
+        "unknown camera".to_string()
+    } else {
+        camera.to_string()
+    }
+}
+
+/// "24" -> "24 fps"; Sony's own "23.98p" stays as it is.
+fn fps_text(f: &str) -> String {
+    if f.ends_with(|c: char| c.is_ascii_alphabetic()) {
+        f.to_string()
+    } else {
+        format!("{f} fps")
+    }
+}
+
+/// "54 s", "12 min 30 s", "1 h 02 min".
+fn length_text(secs: f64) -> String {
+    let t = secs.round() as u64;
+    match t {
+        0..60 => format!("{t} s"),
+        60..3600 => format!("{} min {:02} s", t / 60, t % 60),
+        _ => format!("{} h {:02} min", t / 3600, (t % 3600) / 60),
+    }
 }
 
 async fn rename_cmd(a: RenameArgs, output: &OutputContext) -> Result<()> {
@@ -574,6 +801,9 @@ async fn undo_cmd(a: UndoArgs, output: &OutputContext) -> Result<()> {
         for c in &out.skipped {
             s.push_str(&format!("  skipped {} -> {}\n", c.from, c.to));
         }
+        for w in &out.warnings {
+            s.push_str(&format!("  warning: {w}\n"));
+        }
         s.trim_end().to_string()
     })?;
     if status == "interrupted" {
@@ -607,29 +837,69 @@ async fn report_cmd(a: ReportArgs, output: &OutputContext) -> Result<()> {
 }
 
 fn status_cmd(a: StatusArgs, output: &OutputContext) -> Result<()> {
-    let candidates = [
-        a.dir.join(files::DIT_DIR).join("offload-progress.json"),
-        a.dir.join("offload-progress.json"),
+    const PROGRESS: &str = "offload-progress.json";
+    // The shoot folder (or its _DIT); else a destination, whose shoot
+    // folders each hold one: the most recently written wins.
+    let direct = [
+        a.dir.join(files::DIT_DIR).join(PROGRESS),
+        a.dir.join(PROGRESS),
     ];
-    let Some(path) = candidates.iter().find(|p| p.is_file()) else {
-        bail!(
-            "no offload progress at {} (look in the shoot folder the offload writes to)",
-            a.dir.display()
-        );
+    let path = match direct.into_iter().find(|p| p.is_file()) {
+        Some(p) => p,
+        None => std::fs::read_dir(&a.dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|e| e.path().join(files::DIT_DIR).join(PROGRESS))
+            .filter(|p| p.is_file())
+            .max_by_key(|p| p.metadata().and_then(|m| m.modified()).ok())
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "no offload progress at {} or in the shoot folders inside it",
+                    a.dir.display()
+                )
+            })?,
     };
-    let value: serde_json::Value = serde_json::from_slice(&std::fs::read(path)?)?;
+    let mut value: serde_json::Value = serde_json::from_slice(&std::fs::read(&path)?)?;
+    let dit = path.parent().unwrap_or(&path);
+    let folder = if dit
+        .file_name()
+        .is_some_and(|n| n.eq_ignore_ascii_case(files::DIT_DIR))
+    {
+        dit.parent().unwrap_or(dit)
+    } else {
+        dit
+    };
+    let age = path
+        .metadata()
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.elapsed().ok())
+        .map(|d| d.as_secs());
+    if let Some(obj) = value.as_object_mut() {
+        obj.insert("folder".into(), folder.display().to_string().into());
+        obj.insert("updated_seconds_ago".into(), age.into());
+    }
+    let done = value["files_done"].as_u64();
+    let finished = done.is_some() && done == value["files_total"].as_u64();
     emit(output, &value, || {
+        let state = if value["running"].as_bool() == Some(true) {
+            match age {
+                Some(s) if s > 30 => format!("running, but no update for {s} s"),
+                _ => "running".to_string(),
+            }
+        } else if finished {
+            "finished".to_string()
+        } else {
+            "stopped before the end; run the same offload again to resume".to_string()
+        };
         format!(
-            "{} of {} files, {} of {}{}",
+            "{}: {} of {} files, {} of {}, {state}",
+            folder.display(),
             value["files_done"],
             value["files_total"],
             offload::human_bytes(value["bytes_done"].as_u64().unwrap_or(0)),
             offload::human_bytes(value["bytes_total"].as_u64().unwrap_or(0)),
-            if value["running"].as_bool() == Some(true) {
-                ", running"
-            } else {
-                ", stopped"
-            }
         )
     })
 }

@@ -232,6 +232,14 @@ pub enum Process {
     Transfer,
 }
 
+/// One file in a generation: its hashes, the `action` they are recorded
+/// with, and the name it had before a rename (`<previousPath>`).
+pub struct MhlEntry {
+    pub record: Record,
+    pub action: &'static str,
+    pub previous: Option<String>,
+}
+
 /// Append a new generation to `root/ascmhl/` and update the chain. Records
 /// carry `action="original"` the first time a file is hashed and
 /// `"verified"` (or `"failed"`) on a later check, as the spec defines.
@@ -240,8 +248,30 @@ pub fn write_mhl_generation(
     records: &[Record],
     empty_dirs: &[String],
     process: Process,
-    action: &str,
+    action: &'static str,
 ) -> Result<PathBuf> {
+    let entries: Vec<MhlEntry> = records
+        .iter()
+        .map(|r| MhlEntry {
+            record: r.clone(),
+            action,
+            previous: None,
+        })
+        .collect();
+    write_mhl_entries(root, &entries, empty_dirs, process)
+}
+
+/// [`write_mhl_generation`] with an action per file, and the previous name
+/// of each renamed file, as the reference `ascmhl create --detect_renaming`
+/// writes them (a renamed file is `original` under its new name).
+pub fn write_mhl_entries(
+    root: &Path,
+    entries: &[MhlEntry],
+    empty_dirs: &[String],
+    process: Process,
+) -> Result<PathBuf> {
+    let records: Vec<Record> = entries.iter().map(|e| e.record.clone()).collect();
+    let records = records.as_slice();
     let mhl_dir = root.join(MHL_DIR);
     fs::create_dir_all(&mhl_dir)
         .with_context(|| format!("could not create {}", mhl_dir.display()))?;
@@ -302,9 +332,11 @@ pub fn write_mhl_generation(
     x.push_str("    </ignore>\n");
     x.push_str("  </processinfo>\n");
     x.push_str("  <hashes>\n");
-    let mut sorted: Vec<&Record> = records.iter().collect();
-    sorted.sort_by(|a, b| a.rel.cmp(&b.rel));
-    for r in sorted {
+    let mut sorted: Vec<&MhlEntry> = entries.iter().collect();
+    sorted.sort_by(|a, b| a.record.rel.cmp(&b.record.rel));
+    for e in sorted {
+        let r = &e.record;
+        let action = e.action;
         let mtime = r.mtime.map(local_iso).unwrap_or_else(|| created.clone());
         x.push_str("    <hash>\n");
         x.push_str(&format!(
@@ -316,6 +348,12 @@ pub fn write_mhl_generation(
             x.push_str(&format!(
                 "      <{n} action=\"{action}\" hashdate=\"{hashdate}\">{digest}</{n}>\n",
                 n = algo.name()
+            ));
+        }
+        if let Some(p) = &e.previous {
+            x.push_str(&format!(
+                "      <previousPath>{}</previousPath>\n",
+                xml_escape(p)
             ));
         }
         x.push_str("    </hash>\n");
@@ -466,7 +504,13 @@ pub fn read_mhl_history(root: &Path) -> Result<(BTreeMap<String, Record>, Vec<St
                     "{name}: its C4 ID does not match ascmhl_chain.xml, so the manifest file was changed after it was written"
                 ));
         }
-        for (r, action) in parse_generation(&String::from_utf8_lossy(&bytes))? {
+        for (r, action, previous) in parse_generation(&String::from_utf8_lossy(&bytes))? {
+            // A renamed file: its old name is no longer expected.
+            if let Some(p) = previous
+                && action != "failed"
+            {
+                out.remove(&p);
+            }
             // The trusted hash is the one first recorded as `original`. A
             // later `verified` restates it; a later `failed` is evidence the
             // file went bad and must never become the new reference.
@@ -485,8 +529,10 @@ pub fn read_mhl_history(root: &Path) -> Result<(BTreeMap<String, Record>, Vec<St
     Ok((out, warnings))
 }
 
-/// Each file record with the `action` its hashes were recorded with.
-fn parse_generation(text: &str) -> Result<Vec<(Record, String)>> {
+/// Each file record with the `action` its hashes were recorded with and,
+/// for a renamed file, its previous name.
+#[allow(clippy::type_complexity)]
+fn parse_generation(text: &str) -> Result<Vec<(Record, String, Option<String>)>> {
     let mut reader = Reader::from_str(text);
     let mut out = Vec::new();
     let mut in_hash = false;
@@ -498,6 +544,7 @@ fn parse_generation(text: &str) -> Result<Vec<(Record, String)>> {
         hashes: Vec::new(),
     };
     let mut action = String::new();
+    let mut previous: Option<String> = None;
     loop {
         match reader.read_event() {
             Ok(Event::Start(e)) => {
@@ -533,6 +580,8 @@ fn parse_generation(text: &str) -> Result<Vec<(Record, String)>> {
                 let v = t.unescape().map(|s| s.to_string()).unwrap_or_default();
                 if cur == "path" {
                     rec.rel = v;
+                } else if cur == "previousPath" {
+                    previous = Some(v);
                 } else if let Some(algo) = Algo::parse(&cur) {
                     let v = v.trim().to_ascii_lowercase();
                     rec.hashes.retain(|(a, _)| *a != algo);
@@ -552,7 +601,7 @@ fn parse_generation(text: &str) -> Result<Vec<(Record, String)>> {
                             hashes: Vec::new(),
                         },
                     );
-                    out.push((done, std::mem::take(&mut action)));
+                    out.push((done, std::mem::take(&mut action), previous.take()));
                 }
                 cur.clear();
             }

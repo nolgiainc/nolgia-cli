@@ -7,10 +7,12 @@
 //! - EXIF in JPEG and in TIFF-based raws (CR2, NEF, ARW, DNG, ORF, RW2...).
 //! - Canon CR3 (ISO base media): the CMT1/CMT2 TIFF blocks in Canon's
 //!   `uuid` box.
+//! - Plain MP4 and MOV (ISO base media, QuickTime): duration, codec, coded
+//!   size, frame rate and audio channels.
 //!
 //! When `ffprobe` or `exiftool` is on PATH, they fill in what the native
-//! readers cannot (duration of a plain MP4/MOV, HEIC dates). Nothing here
-//! ever writes to a file.
+//! readers cannot (the capture time a plain MP4/MOV records, HEIC dates).
+//! Nothing here ever writes to a file.
 
 use std::{
     fs,
@@ -77,7 +79,9 @@ pub struct Meta {
     pub gamut: Option<String>,
     pub iso: Option<u32>,
     pub audio_channels: Option<u32>,
-    /// Which reader produced this: `sony-xml`, `exif`, `cr3`, `ffprobe`, `exiftool`, `file-time`.
+    /// The readers that filled this in, joined by `+` in the order they ran:
+    /// `sony-xml`, `mp4`, `exif`, `cr3`, `ffprobe`, `exiftool`, and
+    /// `file-time` when the capture time is the file's modified time.
     pub source: Option<String>,
 }
 
@@ -133,36 +137,50 @@ pub fn sony_sidecar(clip: &Path) -> Option<PathBuf> {
 /// file yields only its file time, marked as such.
 pub fn read(path: &Path, tools: &Tools) -> Meta {
     let mut meta = Meta::default();
+    let mut used: Vec<String> = Vec::new();
+    // A reader is named in `source` only when it filled something in.
+    let mut add = |meta: &mut Meta, other: Meta| {
+        let name = other.source.clone();
+        if fill(meta, other) {
+            used.extend(name);
+        }
+    };
+    let ext = path
+        .extension()
+        .map(|e| e.to_string_lossy().to_ascii_lowercase())
+        .unwrap_or_default();
     match kind_of(path) {
         Kind::Video => {
             if let Some(xml) = sony_sidecar(path)
                 && let Ok(text) = fs::read_to_string(&xml)
             {
-                meta = parse_sony_xml(&text);
+                add(&mut meta, parse_sony_xml(&text));
+            }
+            if ISOBMFF_EXT.contains(&ext.as_str())
+                && (meta.duration_s.is_none() || meta.width.is_none())
+                && let Some(m) = read_isobmff(path)
+            {
+                add(&mut meta, m);
             }
             if (meta.duration_s.is_none() || meta.captured.is_none())
                 && let Some(probe) = tools.ffprobe.as_ref().and_then(|ff| ffprobe(ff, path))
             {
-                fill(&mut meta, probe);
+                add(&mut meta, probe);
             }
         }
         Kind::Photo => {
-            let ext = path
-                .extension()
-                .map(|e| e.to_string_lossy().to_ascii_lowercase())
-                .unwrap_or_default();
             let native = if ext == "cr3" {
                 read_cr3(path)
             } else {
                 read_exif_file(path)
             };
             if let Some(m) = native {
-                meta = m;
+                add(&mut meta, m);
             }
             if meta.captured.is_none()
                 && let Some(m) = tools.exiftool.as_ref().and_then(|et| exiftool(et, path))
             {
-                fill(&mut meta, m);
+                add(&mut meta, m);
             }
         }
         Kind::Audio | Kind::Other => {}
@@ -172,16 +190,17 @@ pub fn read(path: &Path, tools: &Tools) -> Meta {
     {
         let dt: DateTime<chrono::Local> = t.into();
         meta.captured = Some(dt.to_rfc3339());
-        if meta.source.is_none() {
-            meta.source = Some("file-time".to_string());
-        }
+        used.push("file-time".to_string());
     }
+    meta.source = (!used.is_empty()).then(|| used.join("+"));
     meta
 }
 
-fn fill(meta: &mut Meta, other: Meta) {
+/// Take the fields `meta` lacks from `other`; true when any was taken.
+fn fill(meta: &mut Meta, other: Meta) -> bool {
+    let mut took = false;
     macro_rules! take {
-        ($($f:ident),*) => { $( if meta.$f.is_none() { meta.$f = other.$f.clone(); } )* };
+        ($($f:ident),*) => { $( if meta.$f.is_none() && other.$f.is_some() { meta.$f = other.$f.clone(); took = true; } )* };
     }
     take!(
         make,
@@ -200,9 +219,7 @@ fn fill(meta: &mut Meta, other: Meta) {
         iso,
         audio_channels
     );
-    if meta.source.is_none() {
-        meta.source = other.source;
-    }
+    took
 }
 
 // --------------------------------------------------------- Sony XML --
@@ -496,6 +513,149 @@ fn find_uuid(f: &mut fs::File, start: u64, end: u64, uuid: &[u8; 16]) -> Option<
     None
 }
 
+// --------------------------------------------------------- MP4 / MOV --
+
+/// Containers built on ISO base media (QuickTime): MP4, MOV and the camera
+/// formats that wrap them.
+const ISOBMFF_EXT: &[&str] = &["mp4", "mov", "m4v", "insv", "360", "crm", "braw"];
+
+/// Plain MP4 and MOV: the duration from `mvhd`; per track, `hdlr` says
+/// video or sound, the first `stsd` entry gives the codec, the coded size
+/// and the channel count, and `mdhd` with `stts` the frame rate. No
+/// capture time: `mvhd` holds UTC on some cameras and local time on
+/// others, so the time comes from a sidecar, ffprobe or the file.
+pub fn read_isobmff(path: &Path) -> Option<Meta> {
+    let mut f = fs::File::open(path).ok()?;
+    let len = f.metadata().ok()?.len();
+    let (ms, me) = find_box(&mut f, 0, len, b"moov")?;
+    let mut m = Meta {
+        source: Some("mp4".to_string()),
+        ..Default::default()
+    };
+    if let Some((s, e)) = find_box(&mut f, ms, me, b"mvhd")
+        && let Some(b) = read_at(&mut f, s, e, 32)
+    {
+        let (scale, dur) = if b[0] == 1 {
+            (be32(&b[20..]), be64(&b[24..]))
+        } else {
+            (be32(&b[12..]), u64::from(be32(&b[16..])))
+        };
+        if scale > 0 && dur > 0 {
+            m.duration_s = Some((dur as f64 / f64::from(scale) * 100.0).round() / 100.0);
+        }
+    }
+    for (ts, te) in all_boxes(&mut f, ms, me, b"trak") {
+        let Some((ds, de)) = find_box(&mut f, ts, te, b"mdia") else {
+            continue;
+        };
+        let handler = find_box(&mut f, ds, de, b"hdlr")
+            .and_then(|(s, e)| read_at(&mut f, s, e, 12))
+            .map(|b| [b[8], b[9], b[10], b[11]]);
+        let Some((ss, se)) =
+            find_box(&mut f, ds, de, b"minf").and_then(|(s, e)| find_box(&mut f, s, e, b"stbl"))
+        else {
+            continue;
+        };
+        // stsd: version and flags, the entry count, then the first entry.
+        let Some(stsd) =
+            find_box(&mut f, ss, se, b"stsd").and_then(|(s, e)| read_at(&mut f, s, e, 8 + 36))
+        else {
+            continue;
+        };
+        let entry = &stsd[8..];
+        match &handler {
+            Some(h) if h == b"vide" && m.width.is_none() => {
+                m.codec = Some(codec_name(&entry[4..8]));
+                m.width = Some(u32::from(be16(&entry[32..])));
+                m.height = Some(u32::from(be16(&entry[34..])));
+                m.format_fps = frame_rate(&mut f, (ds, de), (ss, se));
+            }
+            // Sound entries of version 0 and 1 (ISO and QuickTime) keep the
+            // channel count at 24; version 2 moves it.
+            Some(h) if h == b"soun" && m.audio_channels.is_none() && be16(&entry[16..]) < 2 => {
+                m.audio_channels = Some(u32::from(be16(&entry[24..])));
+            }
+            _ => {}
+        }
+    }
+    (m.duration_s.is_some() || m.width.is_some()).then_some(m)
+}
+
+/// Frames per second from the media timescale (`mdhd`) and the sample
+/// durations (`stts`), e.g. "24", "23.976", "59.94".
+fn frame_rate(f: &mut fs::File, mdia: (u64, u64), stbl: (u64, u64)) -> Option<String> {
+    let (s, e) = find_box(f, mdia.0, mdia.1, b"mdhd")?;
+    let b = read_at(f, s, e, 24)?;
+    let scale = if b[0] == 1 {
+        be32(&b[20..])
+    } else {
+        be32(&b[12..])
+    };
+    let (s, e) = find_box(f, stbl.0, stbl.1, b"stts")?;
+    let b = read_at(f, s, e, ((e - s).min(1 << 20)) as usize)?;
+    let count = be32(&b[4..]) as usize;
+    let (mut samples, mut ticks) = (0u64, 0u64);
+    for i in 0..count {
+        let at = 8 + i * 8;
+        let Some(pair) = b.get(at..at + 8) else { break };
+        let n = u64::from(be32(pair));
+        samples += n;
+        ticks += n * u64::from(be32(&pair[4..]));
+    }
+    if scale == 0 || ticks == 0 {
+        return None;
+    }
+    let fps = (f64::from(scale) * samples as f64 / ticks as f64 * 1000.0).round() / 1000.0;
+    Some(format!("{fps}"))
+}
+
+fn codec_name(fourcc: &[u8]) -> String {
+    match fourcc {
+        b"avc1" | b"avc3" => "h264".into(),
+        b"hvc1" | b"hev1" | b"dvh1" | b"dvhe" => "hevc".into(),
+        b"av01" => "av1".into(),
+        b"vp09" => "vp9".into(),
+        b"apch" | b"apcn" | b"apcs" | b"apco" | b"ap4h" | b"ap4x" => "prores".into(),
+        b"mp4v" => "mpeg4".into(),
+        b"jpeg" | b"mjpa" | b"mjpb" => "mjpeg".into(),
+        other => String::from_utf8_lossy(other).trim().to_string(),
+    }
+}
+
+/// Every child box of one type inside [start, end).
+fn all_boxes(f: &mut fs::File, start: u64, end: u64, kind: &[u8; 4]) -> Vec<(u64, u64)> {
+    let mut out = Vec::new();
+    let mut pos = start;
+    while let Some((s, e)) = find_box(f, pos, end, kind) {
+        out.push((s, e));
+        pos = e;
+    }
+    out
+}
+
+/// The first `n` bytes of a box payload, or None when it is shorter.
+fn read_at(f: &mut fs::File, start: u64, end: u64, n: usize) -> Option<Vec<u8>> {
+    if end.saturating_sub(start) < n as u64 {
+        return None;
+    }
+    let mut buf = vec![0u8; n];
+    f.seek(SeekFrom::Start(start)).ok()?;
+    f.read_exact(&mut buf).ok()?;
+    Some(buf)
+}
+
+fn be16(b: &[u8]) -> u16 {
+    u16::from_be_bytes([b[0], b[1]])
+}
+
+fn be32(b: &[u8]) -> u32 {
+    u32::from_be_bytes([b[0], b[1], b[2], b[3]])
+}
+
+fn be64(b: &[u8]) -> u64 {
+    u64::from_be_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]])
+}
+
 // ------------------------------------------------ optional helpers --
 
 #[derive(Clone, Debug, Default)]
@@ -735,5 +895,23 @@ pub mod tests {
         let m = read_cr3(&c).unwrap();
         assert_eq!(m.captured_dt().unwrap().format("%H%M").to_string(), "1327");
         assert_eq!(m.iso, Some(800));
+    }
+
+    #[test]
+    fn isobmff_reader_leaves_other_files_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("noise.MP4");
+        let mut x: u32 = 12345;
+        let bytes: Vec<u8> = (0..200_000)
+            .map(|_| {
+                x = x.wrapping_mul(1_103_515_245).wrapping_add(12345);
+                (x >> 16) as u8
+            })
+            .collect();
+        fs::write(&p, bytes).unwrap();
+        assert!(read_isobmff(&p).is_none());
+        let m = read(&p, &Tools::default());
+        assert_eq!(m.source.as_deref(), Some("file-time"));
+        assert!(m.duration_s.is_none());
     }
 }

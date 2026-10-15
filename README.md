@@ -181,7 +181,12 @@ computer. It needs no login and uploads nothing.
 nolgia dit offload /Volumes/A001 /Volumes/B001 --to /Volumes/RAID --to /Volumes/Backup --shoot "Brand film D1"
 
 # Re-check a copy later (ASC MHL or TSV manifest); exit 68 names any file that changed.
+# A card folder, or the shoot folder to check every card in it.
 nolgia dit verify "/Volumes/Backup/Brand film D1/A001"
+nolgia dit verify "/Volumes/Backup/Brand film D1"
+
+# How a running offload is doing (the destination or its shoot folder).
+nolgia dit status /Volumes/RAID
 
 # What was shot: cameras, dates, durations, frame rates, S-Log3/gamma, lenses.
 nolgia dit inventory "/Volumes/RAID/Brand film D1" --csv inventory.csv
@@ -210,16 +215,22 @@ What it guarantees:
   (`ascmhl/`), readable by Silverstack, ShotPut, Hedge and the reference
   `ascmhl` tool. A TSV and the report go in `_DIT/` beside the cards.
 - **Interruptions are safe.** Ctrl-C (exit 130) leaves no half-written file.
-  Run the same command again to resume where it stopped.
+  Run the same command again to resume where it stopped. Copies an earlier
+  run finished are not copied or listed in the manifests again.
 - **Renames can be undone.** Every rename is written to
   `_DIT/rename-map.csv` before it happens, with UNDO scripts for Windows
   and macOS. Card-structure files (thumbnails, databases) keep their names.
+  Afterwards, `nolgia dit manifest` on each card folder records the new names
+  in its ASC MHL history as renames (found by their hashes, as
+  `ascmhl create --detect_renaming` does), so the copies still verify.
 - **Camera clocks get checked.** `inventory` warns when two cameras on one
   shoot look a whole number of hours apart (a time zone or AM/PM mistake).
 
-It reads Sony XAVC sidecars, EXIF (JPEG and TIFF-based raws) and Canon CR3 on
-its own. When they are on your PATH, `ffprobe` and `exiftool` fill in the
-rest. Exit codes: 0 when everything matched, 68 for a mismatch, a missing
+It reads Sony XAVC sidecars, EXIF (JPEG and TIFF-based raws), Canon CR3 and
+plain MP4/MOV (duration, size, frame rate, codec) on its own. When they are on
+your PATH, `ffprobe` and `exiftool` fill in the rest, such as the capture time
+a plain MP4 records. A file with no capture time we can read is dated by its
+modified time, and `inventory --files` marks it `file-time`. Exit codes: 0 when everything matched, 68 for a mismatch, a missing
 file or a conflict, 130 when interrupted.
 
 ## Authentication
