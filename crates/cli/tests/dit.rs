@@ -279,6 +279,18 @@ fn offload_two_cards_to_two_drives_then_verify() {
         );
     }
     assert!(v["report"].as_str().is_some_and(|r| Path::new(r).is_file()));
+    // A report in each destination's shoot folder.
+    let reports: Vec<&str> = v["reports"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r.as_str().unwrap())
+        .collect();
+    assert_eq!(reports.len(), 2, "{v}");
+    for (r, d) in reports.iter().zip([&f.d1, &f.d2]) {
+        assert!(Path::new(r).starts_with(d.join("TEST/_DIT")), "{r}");
+        assert!(Path::new(r).is_file());
+    }
     for card in ["A001", "B001"] {
         let out = nolgia()
             .args(["--json", "dit", "verify"])
@@ -551,4 +563,291 @@ fn a_dry_run_offload_copies_nothing() {
     let v = json(&out);
     assert_eq!(v["files"], 14);
     assert!(fs::read_dir(&f.d1).unwrap().next().is_none());
+}
+
+fn mhl_generations(card_copy: &Path) -> usize {
+    fs::read_dir(card_copy.join("ascmhl"))
+        .unwrap()
+        .flatten()
+        .filter(|e| e.file_name().to_string_lossy().ends_with(".mhl"))
+        .count()
+}
+
+#[test]
+fn running_a_finished_offload_again_copies_nothing_and_adds_no_generation() {
+    let f = fixture();
+    assert!(offload(&f).output().unwrap().status.success());
+    let out = offload(&f).output().unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v = json(&out);
+    assert_eq!(v["status"], "complete");
+    assert_eq!(v["files_done_earlier"], v["files_verified"], "{v}");
+    assert_eq!(v["bytes_copied"], 0);
+    for d in [&f.d1, &f.d2] {
+        for card in ["A001", "B001"] {
+            assert_eq!(
+                mhl_generations(&d.join("TEST").join(card)),
+                1,
+                "no second \"original\" generation for {card} at {}",
+                d.display()
+            );
+        }
+    }
+    let out = nolgia()
+        .args(["dit", "offload"])
+        .arg(&f.sony)
+        .arg(&f.canon)
+        .arg("--to")
+        .arg(&f.d1)
+        .arg("--to")
+        .arg(&f.d2)
+        .args(["--shoot", "TEST", "--hash", "xxh64,md5"])
+        .output()
+        .unwrap();
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(text.contains("nothing new to copy"), "{text}");
+}
+
+#[test]
+fn a_shoot_folder_verifies_through_each_card_manifest() {
+    let f = fixture();
+    assert!(offload(&f).output().unwrap().status.success());
+    let shoot = f.d2.join("TEST");
+    let out = nolgia()
+        .args(["--json", "dit", "verify"])
+        .arg(&shoot)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+    let v = json(&out);
+    assert_eq!(v["status"], "ok");
+    assert_eq!(v["files_ok"], v["files_in_manifest"]);
+    assert_eq!(v["files_in_manifest"], 14, "{v}");
+    assert_eq!(v["not_in_manifest"].as_array().unwrap().len(), 0, "{v}");
+
+    let out = nolgia()
+        .args(["--json", "dit", "report"])
+        .arg(&shoot)
+        .arg("--verify")
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(json(&out)["verification"]["status"], "ok");
+
+    let victim = shoot.join("B001/DCIM/100EOSR6/GK1A0002.CR3");
+    let mut bytes = fs::read(&victim).unwrap();
+    let last = bytes.len() - 1;
+    bytes[last] ^= 0x01;
+    fs::write(&victim, bytes).unwrap();
+    let out = nolgia()
+        .args(["--json", "dit", "verify", "--record"])
+        .arg(&shoot)
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(68));
+    let v = json(&out);
+    assert_eq!(
+        v["mismatched"][0]["path"],
+        "B001/DCIM/100EOSR6/GK1A0002.CR3"
+    );
+    assert_eq!(
+        v["recorded_generations"].as_array().unwrap().len(),
+        2,
+        "{v}"
+    );
+    assert_eq!(mhl_generations(&shoot.join("A001")), 2);
+    assert_eq!(mhl_generations(&shoot.join("B001")), 2);
+    // Each card keeps its own history: A001 stays good, and B001's failed
+    // generation does not replace the hash it is checked against.
+    let card = |c: &str| {
+        nolgia()
+            .args(["--json", "dit", "verify"])
+            .arg(shoot.join(c))
+            .output()
+            .unwrap()
+            .status
+            .code()
+    };
+    assert_eq!(card("A001"), Some(0));
+    assert_eq!(card("B001"), Some(68));
+}
+
+#[test]
+fn status_finds_the_offload_from_the_destination() {
+    let f = fixture();
+    assert!(offload(&f).output().unwrap().status.success());
+    let out = nolgia()
+        .args(["--json", "dit", "status"])
+        .arg(&f.d1)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v = json(&out);
+    assert_eq!(v["files_done"], v["files_total"]);
+    assert!(
+        Path::new(v["folder"].as_str().unwrap()).ends_with("TEST"),
+        "{v}"
+    );
+    let out = nolgia()
+        .args(["dit", "status"])
+        .arg(&f.d1)
+        .output()
+        .unwrap();
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        text.ends_with("finished\n") || text.trim_end().ends_with("finished"),
+        "{text}"
+    );
+}
+
+/// A plain MP4 with no sidecar: `frames` of 1920x1080 H.264 at
+/// 24000/1001 fps, and a stereo AAC track.
+fn plain_mp4(frames: u32, seed: u64) -> Vec<u8> {
+    let full = |vf: u32, body: &[u8]| {
+        let mut v = vf.to_be_bytes().to_vec();
+        v.extend(body);
+        v
+    };
+    // Version and flags, creation and modification times, then the timescale.
+    let mut mvhd = vec![0u8; 12];
+    mvhd.extend(1000u32.to_be_bytes());
+    mvhd.extend((frames * 1001 / 24).to_be_bytes());
+    mvhd.resize(100, 0);
+    let mdhd = |scale: u32, dur: u32| {
+        let mut b = vec![0u8; 8];
+        b.extend(scale.to_be_bytes());
+        b.extend(dur.to_be_bytes());
+        b.extend([0u8; 4]);
+        full(0, &b)
+    };
+    let hdlr = |kind: &[u8; 4]| {
+        let mut b = vec![0u8; 4];
+        b.extend(kind);
+        b.extend([0u8; 13]);
+        full(0, &b)
+    };
+    let mut avc1 = vec![0u8; 6];
+    avc1.extend(1u16.to_be_bytes());
+    avc1.extend([0u8; 16]);
+    avc1.extend(1920u16.to_be_bytes());
+    avc1.extend(1080u16.to_be_bytes());
+    avc1.extend([0u8; 50]);
+    let mut stsd_v = 1u32.to_be_bytes().to_vec();
+    stsd_v.extend(bx(b"avc1", &avc1));
+    let mut stts = 1u32.to_be_bytes().to_vec();
+    stts.extend(frames.to_be_bytes());
+    stts.extend(1001u32.to_be_bytes());
+    let video = bx(
+        b"trak",
+        &bx(
+            b"mdia",
+            &[
+                bx(b"mdhd", &mdhd(24000, frames * 1001)),
+                bx(b"hdlr", &hdlr(b"vide")),
+                bx(
+                    b"minf",
+                    &bx(
+                        b"stbl",
+                        &[bx(b"stsd", &full(0, &stsd_v)), bx(b"stts", &full(0, &stts))].concat(),
+                    ),
+                ),
+            ]
+            .concat(),
+        ),
+    );
+    let mut mp4a = vec![0u8; 6];
+    mp4a.extend(1u16.to_be_bytes());
+    mp4a.extend([0u8; 8]);
+    mp4a.extend(2u16.to_be_bytes());
+    mp4a.extend(16u16.to_be_bytes());
+    mp4a.extend([0u8; 8]);
+    let mut stsd_a = 1u32.to_be_bytes().to_vec();
+    stsd_a.extend(bx(b"mp4a", &mp4a));
+    let audio = bx(
+        b"trak",
+        &bx(
+            b"mdia",
+            &[
+                bx(b"mdhd", &mdhd(48000, 0)),
+                bx(b"hdlr", &hdlr(b"soun")),
+                bx(b"minf", &bx(b"stbl", &bx(b"stsd", &full(0, &stsd_a)))),
+            ]
+            .concat(),
+        ),
+    );
+    let mut f = bx(b"ftyp", b"isom\0\0\x02\0isomiso2avc1mp41");
+    f.extend(bx(b"mdat", &noise(seed, 4096)));
+    f.extend(bx(b"moov", &[bx(b"mvhd", &mvhd), video, audio].concat()));
+    f
+}
+
+#[test]
+fn inventory_reads_a_plain_mp4_without_ffprobe() {
+    let tmp = tempfile::tempdir().unwrap();
+    let card = tmp.path().join("A001_CARD");
+    fs::create_dir_all(&card).unwrap();
+    fs::write(card.join("C0001.MP4"), plain_mp4(48, 1)).unwrap();
+    fs::write(card.join("C0002.MP4"), plain_mp4(240, 2)).unwrap();
+    // No ffprobe or exiftool: only the built-in readers.
+    let bare = || {
+        let mut c = nolgia();
+        c.env("PATH", tmp.path());
+        c
+    };
+    let out = bare()
+        .args(["--json", "dit", "inventory", "--files"])
+        .arg(&card)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v = json(&out);
+    let cam = &v["cameras"][0];
+    assert_eq!(cam["camera"], "unknown");
+    assert_eq!(cam["videos"], 2);
+    assert_eq!(cam["video_seconds"], 12.0, "{cam}");
+    assert_eq!(cam["frame_rates"][0], "23.976");
+    assert_eq!(cam["resolutions"][0], "1920x1080");
+    assert_eq!(cam["codecs"][0], "h264");
+    assert_eq!(cam["times_from_file"], 2);
+    let item = &v["items"][0];
+    assert_eq!(item["path"], "C0001.MP4");
+    assert_eq!(item["duration_s"], 2.0);
+    assert_eq!(item["audio_channels"], 2);
+    assert_eq!(item["source"], "mp4+file-time");
+
+    let out = bare()
+        .args(["dit", "inventory", "--files"])
+        .arg(&card)
+        .output()
+        .unwrap();
+    let text = String::from_utf8_lossy(&out.stdout);
+    for want in [
+        "unknown camera: 2 videos (12 s of footage)",
+        "(file times: the files record no capture time)",
+        "1920x1080, 23.976 fps, h264",
+        "C0002.MP4: ",
+        "source: mp4+file-time",
+    ] {
+        assert!(text.contains(want), "missing {want:?} in:\n{text}");
+    }
 }

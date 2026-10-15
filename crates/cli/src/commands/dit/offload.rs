@@ -97,6 +97,8 @@ pub struct CardResult {
     pub folder: String,
     pub verified: usize,
     pub already_there: usize,
+    /// Copies an earlier run of this offload made and verified (its journal
+    /// lists them); this run does not read them again.
     pub resumed: usize,
     pub failed: Vec<Conflict>,
     pub mhl: Option<String>,
@@ -109,11 +111,18 @@ pub struct Outcome {
     pub status: String,
     pub plan: Plan,
     pub results: Vec<CardResult>,
+    /// Copies proven to match their card: in this run, or by an earlier run
+    /// of the same offload (`files_done_earlier` of them).
     pub files_verified: usize,
+    pub files_done_earlier: usize,
+    /// Bytes copied in this run; `mb_per_s` is their rate.
     pub bytes_copied: u64,
     pub seconds: f64,
     pub mb_per_s: f64,
+    /// The DIT report in the first destination's shoot folder.
     pub report: Option<String>,
+    /// The DIT report written in each destination's shoot folder.
+    pub reports: Vec<String>,
     pub resume_hint: Option<String>,
 }
 
@@ -350,7 +359,10 @@ impl Journal {
 // ------------------------------------------------------------ copying --
 
 pub struct Progress {
+    /// Bytes done, counting files an earlier run finished (for the progress line).
     pub bytes: AtomicU64,
+    /// Bytes read from the cards and written in this run.
+    pub copied: AtomicU64,
     pub files: AtomicU64,
     pub total_bytes: u64,
     pub total_files: u64,
@@ -476,6 +488,7 @@ pub fn run(
     let started = Instant::now();
     let progress = Arc::new(Progress {
         bytes: AtomicU64::new(0),
+        copied: AtomicU64::new(0),
         files: AtomicU64::new(0),
         total_bytes: plan_only.bytes,
         total_files: plan_only.files as u64,
@@ -526,7 +539,7 @@ pub fn run(
     let mut results = results.into_inner().unwrap();
     results.sort_by(|a, b| (&a.destination, &a.card).cmp(&(&b.destination, &b.card)));
     let seconds = started.elapsed().as_secs_f64();
-    let bytes = progress.bytes.load(Ordering::Relaxed);
+    let bytes = progress.copied.load(Ordering::Relaxed);
     let status = if interrupted.load(Ordering::Relaxed) {
         "interrupted"
     } else if failed.load(Ordering::Relaxed) {
@@ -540,6 +553,7 @@ pub fn run(
             .iter()
             .map(|r| r.verified + r.already_there + r.resumed)
             .sum(),
+        files_done_earlier: results.iter().map(|r| r.resumed).sum(),
         plan: plan_only,
         results,
         bytes_copied: bytes,
@@ -550,6 +564,7 @@ pub fn run(
             0.0
         },
         report: None,
+        reports: Vec::new(),
         resume_hint: (status == "interrupted")
             .then(|| "run the same command again to resume".to_string()),
     })
@@ -667,6 +682,7 @@ fn offload_card(
                 CopyEnd::Done(h) => h,
                 CopyEnd::Stopped => return Ok((results, any_failed, true)),
             };
+            progress.copied.fetch_add(f.size, Ordering::Relaxed);
             // Read every copy back from disk and compare.
             let checks: Vec<(usize, Result<String>)> = thread::scope(|s| {
                 let hs: Vec<_> = copy_to
@@ -727,18 +743,43 @@ fn offload_card(
             progress.stop.store(true, Ordering::Relaxed);
         }
     }
-    // Manifests describe exactly the verified copies.
+    // Manifests describe exactly the verified copies. A copy this card's
+    // ASC MHL history already lists (same size and xxh64, from an earlier run
+    // of the offload) is not listed again: a second "original" would claim
+    // a copy this run did not make.
     for (i, root) in roots.iter().enumerate() {
         if records[i].is_empty() {
             continue;
         }
-        let mhl = manifest::write_mhl_generation(
-            root,
-            &records[i],
-            &card.walk.empty_dirs,
-            Process::Transfer,
-            "original",
-        )?;
+        let known = if root.join(files::MHL_DIR).is_dir() {
+            manifest::read_mhl_history(root)
+                .map(|(known, _)| known)
+                .unwrap_or_default()
+        } else {
+            BTreeMap::new()
+        };
+        let fresh: Vec<Record> = records[i]
+            .iter()
+            .filter(|r| {
+                !known.get(&r.rel).is_some_and(|k| {
+                    k.size == r.size
+                        && k.hash(Algo::Xxh64).is_some()
+                        && k.hash(Algo::Xxh64) == r.hash(Algo::Xxh64)
+                })
+            })
+            .cloned()
+            .collect();
+        let mhl = if fresh.is_empty() {
+            root.join(files::MHL_DIR)
+        } else {
+            manifest::write_mhl_generation(
+                root,
+                &fresh,
+                &card.walk.empty_dirs,
+                Process::Transfer,
+                "original",
+            )?
+        };
         let tsv = dit_dir(&opts.dests[i], shoot).join(format!("{}.manifest.tsv", card.name));
         manifest::write_tsv(&tsv, &root.display().to_string(), &records[i], &opts.algos)?;
         results[i].mhl = Some(mhl.display().to_string());
@@ -808,6 +849,15 @@ fn spawn_progress(
             thread::sleep(Duration::from_millis(200));
         }
     })
+}
+
+/// "0.6 s" under ten seconds, "42 s" above.
+pub fn seconds_text(s: f64) -> String {
+    if s < 10.0 {
+        format!("{s:.1} s")
+    } else {
+        format!("{s:.0} s")
+    }
 }
 
 pub fn human_bytes(b: u64) -> String {

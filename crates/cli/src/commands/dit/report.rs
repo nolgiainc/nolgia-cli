@@ -14,7 +14,7 @@ use serde::Serialize;
 use super::{
     files,
     meta::{self, Kind, Tools},
-    offload::human_bytes,
+    offload::{human_bytes, seconds_text},
     rename::{self, is_card_structure},
     verify,
 };
@@ -45,8 +45,12 @@ pub struct CameraSummary {
     pub video_seconds: f64,
     pub frame_rates: BTreeSet<String>,
     pub resolutions: BTreeSet<String>,
+    pub codecs: BTreeSet<String>,
     pub gamma: BTreeSet<String>,
     pub lenses: BTreeSet<String>,
+    /// Files whose time is the file's modified time: the file itself
+    /// records no capture time we can read.
+    pub times_from_file: usize,
 }
 
 #[derive(Serialize, Debug)]
@@ -131,6 +135,17 @@ pub fn inventory(dir: &Path, offsets_raw: &[String], csv_out: Option<&Path>) -> 
         if let (Some(w), Some(h)) = (it.meta.width, it.meta.height) {
             c.resolutions.insert(format!("{w}x{h}"));
         }
+        if let Some(codec) = &it.meta.codec {
+            c.codecs.insert(codec.clone());
+        }
+        if it
+            .meta
+            .source
+            .as_deref()
+            .is_some_and(|s| s.ends_with("file-time"))
+        {
+            c.times_from_file += 1;
+        }
         if let Some(g) = &it.meta.gamma {
             c.gamma.insert(g.clone());
         }
@@ -150,8 +165,10 @@ pub fn inventory(dir: &Path, offsets_raw: &[String], csv_out: Option<&Path>) -> 
         if let Some(c) = cams.get_mut(cam) {
             c.first = ts.first().copied().map(fmt_dt);
             c.last = ts.last().copied().map(fmt_dt);
-            c.video_seconds = (c.video_seconds * 10.0).round() / 10.0;
         }
+    }
+    for c in cams.values_mut() {
+        c.video_seconds = (c.video_seconds * 10.0).round() / 10.0;
     }
     warnings.extend(clock_offset_warnings(&times));
     let csv = match csv_out {
@@ -240,6 +257,7 @@ fn write_csv(path: &Path, items: &[Item]) -> Result<()> {
         "lens",
         "iso",
         "bytes",
+        "source",
     ])?;
     for it in items {
         let m = &it.meta;
@@ -265,6 +283,7 @@ fn write_csv(path: &Path, items: &[Item]) -> Result<()> {
             m.lens.clone().unwrap_or_default(),
             m.iso.map(|i| i.to_string()).unwrap_or_default(),
             it.bytes.to_string(),
+            m.source.clone().unwrap_or_default(),
         ])?;
     }
     w.flush()?;
@@ -369,13 +388,13 @@ pub fn report(opts: &ReportOptions, stop: Arc<AtomicBool>) -> Result<Report> {
         inv.card_files,
         inv.other_files
     ));
-    md.push_str("## Cameras\n\n| Camera | Videos | Photos | Size | First | Last | Clock offset | Video length | Frame rates | Resolution | Gamma | Lenses |\n|---|---|---|---|---|---|---|---|---|---|---|---|\n");
+    md.push_str("## Cameras\n\n| Camera | Videos | Photos | Size | First | Last | Clock offset | Video length | Frame rates | Resolution | Codec | Gamma | Lenses |\n|---|---|---|---|---|---|---|---|---|---|---|---|---|\n");
     for c in &inv.cameras {
         // Lens names like "24-70mm F2.8 DG DN | Art" carry a pipe, which would split a Markdown cell.
         let cell = |s: String| s.replace('|', "\\|");
         let join = |s: &BTreeSet<String>| cell(s.iter().cloned().collect::<Vec<_>>().join(", "));
         md.push_str(&format!(
-            "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |\n",
+            "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |\n",
             cell(c.camera.clone()),
             c.videos,
             c.photos,
@@ -394,15 +413,24 @@ pub fn report(opts: &ReportOptions, stop: Arc<AtomicBool>) -> Result<Report> {
             },
             join(&c.frame_rates),
             join(&c.resolutions),
+            join(&c.codecs),
             join(&c.gamma),
             join(&c.lenses)
+        ));
+    }
+    for c in inv.cameras.iter().filter(|c| c.times_from_file > 0) {
+        md.push_str(&format!(
+            "\n{}: {} of {} times are the files' modified times (the files record no capture time we can read).\n",
+            c.camera.replace('|', "\\|"),
+            c.times_from_file,
+            c.videos + c.photos + c.audio
         ));
     }
     md.push_str("\n## Verification\n\n");
     match &verification {
         Some(v) => {
             md.push_str(&format!(
-                "- Manifest: `{}` ({})\n- Checked {} of {} files ({}): **{} match**, {} differ, {} missing\n- Files on disk not in the manifest: {}\n- Took {:.0} s\n",
+                "- Manifest: `{}` ({})\n- Checked {} of {} files ({}): **{} match**, {} differ, {} missing\n- Files on disk not in the manifest: {}\n- Took {}\n",
                 v.manifest,
                 v.hash,
                 v.files_checked,
@@ -412,7 +440,7 @@ pub fn report(opts: &ReportOptions, stop: Arc<AtomicBool>) -> Result<Report> {
                 v.mismatched.len(),
                 v.missing.len(),
                 v.not_in_manifest.len(),
-                v.seconds
+                seconds_text(v.seconds)
             ));
             for p in v.mismatched.iter().chain(&v.missing) {
                 md.push_str(&format!("  - `{}`: {}\n", p.path, p.detail));
