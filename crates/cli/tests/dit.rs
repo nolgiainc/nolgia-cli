@@ -851,3 +851,90 @@ fn inventory_reads_a_plain_mp4_without_ffprobe() {
         assert!(text.contains(want), "missing {want:?} in:\n{text}");
     }
 }
+
+#[test]
+fn after_a_rename_the_manifest_records_it_and_the_shoot_still_verifies() {
+    let f = fixture();
+    assert!(offload(&f).output().unwrap().status.success());
+    let shoot = f.d1.join("TEST");
+    let rename = |extra: &[&str]| {
+        nolgia()
+            .args(["--json", "dit", "rename"])
+            .arg(&shoot)
+            .args(["--shoot", "RX_BTS"])
+            .args(extra)
+            .output()
+            .unwrap()
+    };
+    let out = rename(&["--apply"]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let renamed = json(&out)["to_rename"].as_u64().unwrap();
+    assert!(renamed > 0);
+    let verify = || {
+        nolgia()
+            .args(["--json", "dit", "verify"])
+            .arg(&shoot)
+            .output()
+            .unwrap()
+    };
+    assert_eq!(
+        verify().status.code(),
+        Some(68),
+        "the history still lists the old names"
+    );
+    let manifest = |card: &str| {
+        let out = nolgia()
+            .args(["--json", "dit", "manifest"])
+            .arg(shoot.join(card))
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stdout)
+        );
+        json(&out)
+    };
+    let mut found = 0;
+    for card in ["A001", "B001"] {
+        let v = manifest(card);
+        assert_eq!(v["missing"].as_array().unwrap().len(), 0, "{v}");
+        assert_eq!(v["differ"].as_array().unwrap().len(), 0, "{v}");
+        found += v["renamed"].as_array().unwrap().len() as u64;
+    }
+    assert_eq!(found, renamed, "every renamed file is found by its hashes");
+    let gen2 = fs::read_dir(shoot.join("A001/ascmhl"))
+        .unwrap()
+        .flatten()
+        .find(|e| e.file_name().to_string_lossy().starts_with("0002_"))
+        .unwrap();
+    assert!(
+        fs::read_to_string(gen2.path())
+            .unwrap()
+            .contains("<previousPath>PRIVATE/M4ROOT/CLIP/C0001.MP4</previousPath>")
+    );
+    let out = verify();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+
+    // Undo, record again, and the original names verify.
+    let out = nolgia()
+        .args(["--json", "dit", "undo"])
+        .arg(&shoot)
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    assert!(json(&out)["warnings"].to_string().contains("dit manifest"));
+    assert_eq!(verify().status.code(), Some(68));
+    for card in ["A001", "B001"] {
+        manifest(card);
+    }
+    assert!(verify().status.success());
+}

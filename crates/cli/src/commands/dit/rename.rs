@@ -368,16 +368,7 @@ pub fn plan(opts: &Options) -> Result<(Outcome, Vec<(PathBuf, PathBuf)>)> {
         }
     }
     if !moves.is_empty() {
-        let stale: Vec<String> = fs::read_dir(&opts.dir)
-            .into_iter()
-            .flatten()
-            .flatten()
-            .filter(|e| {
-                e.path().join(files::MHL_DIR).is_dir()
-                    || e.file_name().eq_ignore_ascii_case(files::MHL_DIR)
-            })
-            .map(|e| e.file_name().to_string_lossy().to_string())
-            .collect();
+        let stale = mhl_folders(&opts.dir);
         if !stale.is_empty() {
             warnings.push(format!(
                 "ASC MHL manifests here list the current names ({}); after renaming, run `nolgia dit manifest` on each card folder to record the new names",
@@ -520,6 +511,24 @@ pub struct UndoOutcome {
     pub map: String,
     pub restored: usize,
     pub skipped: Vec<Change>,
+    pub warnings: Vec<String>,
+}
+
+/// The card folders in `dir` (or `dir` itself, as ".") that keep an ASC MHL
+/// history, which a rename leaves listing the old names.
+fn mhl_folders(dir: &Path) -> Vec<String> {
+    let mut out: Vec<String> = fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| e.path().join(files::MHL_DIR).is_dir())
+        .map(|e| e.file_name().to_string_lossy().to_string())
+        .collect();
+    if dir.join(files::MHL_DIR).is_dir() {
+        out.push(".".to_string());
+    }
+    out.sort();
+    out
 }
 
 /// Restore every original name in the map, newest first. A file whose
@@ -557,6 +566,7 @@ pub fn undo(dir: &Path, map: Option<&Path>, stop: Arc<AtomicBool>) -> Result<Und
         map: map_path.display().to_string(),
         restored: 0,
         skipped: Vec::new(),
+        warnings: Vec::new(),
     };
     for row in rows.iter().rev() {
         if stop.load(Ordering::Relaxed) {
@@ -592,6 +602,15 @@ pub fn undo(dir: &Path, map: Option<&Path>, stop: Arc<AtomicBool>) -> Result<Und
                 fs::create_dir_all(&o)?;
             }
             _ => {}
+        }
+    }
+    if out.restored > 0 {
+        let folders = mhl_folders(dir);
+        if !folders.is_empty() {
+            out.warnings.push(format!(
+                "if you ran `nolgia dit manifest` after the rename, run it again on each card folder ({}) to record the original names",
+                folders.join(", ")
+            ));
         }
     }
     if out.status == "restored" {

@@ -220,6 +220,9 @@ What it guarantees:
 - **Renames can be undone.** Every rename is written to
   `_DIT/rename-map.csv` before it happens, with UNDO scripts for Windows
   and macOS. Card-structure files (thumbnails, databases) keep their names.
+  Afterwards, `nolgia dit manifest` on each card folder records the new names
+  in its ASC MHL history as renames (found by their hashes, as
+  `ascmhl create --detect_renaming` does), so the copies still verify.
 - **Camera clocks get checked.** `inventory` warns when two cameras on one
   shoot look a whole number of hours apart (a time zone or AM/PM mistake).
 
