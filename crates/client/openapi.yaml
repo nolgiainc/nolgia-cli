@@ -8847,6 +8847,174 @@ paths:
           $ref: '#/components/responses/ProblemResponse'
         default:
           $ref: '#/components/responses/ProblemResponse'
+  /insiders/terms:
+    get:
+      tags: [Insiders]
+      operationId: getInsiderProgramTerms
+      summary: The Insiders commission terms (no authentication).
+      description: >
+        Public: what each level earns in cash or in credits, the most an annual plan payment earns in cash, the refund hold, the payout minimum, the commission window and where cash payouts are open, as staff currently set them. nolgia.ai/insiders and the program terms render these numbers.
+
+      security: []
+      responses:
+        '200':
+          description: The current terms.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InsiderProgramTerms'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /insiders/me/earnings:
+    get:
+      tags: [Insiders]
+      operationId: getInsiderEarnings
+      summary: The caller's commission earnings, payout choice and payout account.
+      description: >
+        Cash balances in US cents (in the refund hold, available for the next payout, in a payout, paid, clawed back), credit-method commissions in credits, the cash or credits choice, the rates of the caller's level, the next payout and the status of the caller's Stripe payout account. Reading it refreshes a payout account Stripe has not reported on for a few minutes. `403` unless the caller is an Insider.
+
+      responses:
+        '200':
+          description: The caller's earnings.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InsiderEarnings'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /insiders/me/earnings/method:
+    put:
+      tags: [Insiders]
+      operationId: updateInsiderPayoutMethod
+      summary: Choose cash or credits for future commissions.
+      description: >
+        Applies to payments referred customers make from now on; commissions already recorded keep their method. Browser sessions only. `403` unless the caller is an active Insider.
+
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InsiderPayoutMethodUpdate'
+      responses:
+        '200':
+          description: The caller's earnings after the change.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InsiderEarnings'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /insiders/me/commissions:
+    get:
+      tags: [Insiders]
+      operationId: listInsiderCommissions
+      summary: The caller's commissions, newest payment first.
+      description: >
+        One row per payment a referred customer made since cash commissions launched: the net amount, what it earned, in which method and at which rate, and where it stands. Without names or email addresses. At most 200. `403` unless the caller is an Insider.
+
+      responses:
+        '200':
+          description: The commissions.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InsiderCommissionList'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /insiders/me/payouts:
+    get:
+      tags: [Insiders]
+      operationId: listInsiderPayouts
+      summary: The caller's payout history, newest first.
+      description: >
+        Every monthly payout line made for the caller: the amount, the month, and whether it is waiting for approval, being sent, paid, or rolled over. At most 100. `403` unless the caller is an Insider.
+
+      responses:
+        '200':
+          description: The payouts.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InsiderPayoutList'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /insiders/me/payouts/onboarding:
+    post:
+      tags: [Insiders]
+      operationId: startInsiderPayoutOnboarding
+      summary: Open Stripe's payout setup for the caller.
+      description: >
+        Creates the caller's Stripe payout account on first use and returns a single-use link to Stripe's hosted onboarding (identity, bank details and tax form), which returns to the portal. Cash payouts are open in the countries `GET /insiders/terms` lists (`payout_countries`); any other `country` is `422` with code `payouts_country_unavailable`. `503` with code `payouts_unavailable` while Stripe payouts cannot be set up. Browser sessions only. `403` unless the caller is an active Insider.
+
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InsiderPayoutOnboardingRequest'
+      responses:
+        '200':
+          description: The onboarding link.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InsiderPayoutLink'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '422':
+          $ref: '#/components/responses/ProblemResponse'
+        '503':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /insiders/me/payouts/dashboard:
+    post:
+      tags: [Insiders]
+      operationId: openInsiderPayoutDashboard
+      summary: Open the caller's Stripe Express dashboard.
+      description: >
+        A single-use link to the Stripe Express dashboard, where the Insider sees their transfers, bank details and tax forms. `409` until payout setup is finished. Browser sessions only. `403` unless the caller is an Insider.
+
+      responses:
+        '200':
+          description: The dashboard link.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InsiderPayoutLink'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        '503':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
   /insiders/brand-kit:
     get:
       tags: [Insiders]
@@ -19742,6 +19910,24 @@ components:
           format: date-time
           nullable: true
           description: When the level drops if paying referrals stay below the threshold (the grace month).
+        cash_pct:
+          type: number
+          format: double
+          description: The level's cash commission, percent.
+        credits_pct:
+          type: number
+          format: double
+          description: The level's credit commission, percent.
+        next_cash_pct:
+          type: number
+          format: double
+          nullable: true
+          description: The next level's cash commission; null at Elite.
+        next_credits_pct:
+          type: number
+          format: double
+          nullable: true
+          description: The next level's credit commission; null at Elite.
     InsiderSelf:
       type: object
       additionalProperties: false
@@ -19924,6 +20110,305 @@ components:
         created_at:
           type: string
           format: date-time
+    InsiderPayoutMethod:
+      type: string
+      description: >
+        How an Insider takes commissions: `cash` (paid monthly through Stripe; the default) or `credits` (a higher rate, granted as NOLGIA credits at $0.07 each).
+
+      enum: [cash, credits]
+      x-enum-varnames: [InsiderPayoutMethodCash, InsiderPayoutMethodCredits]
+    InsiderLevelTerms:
+      type: object
+      additionalProperties: false
+      required: [level, min_paying_referrals, cash_pct, credits_pct]
+      properties:
+        level:
+          $ref: '#/components/schemas/InsiderLevel'
+        min_paying_referrals:
+          type: integer
+          description: Paying referrals the level needs.
+        cash_pct:
+          type: number
+          format: double
+          description: Commission in cash, percent of what referred customers pay (20 = 20%).
+        credits_pct:
+          type: number
+          format: double
+          description: Commission in credits, percent of what referred customers pay.
+    InsiderProgramTerms:
+      type: object
+      additionalProperties: false
+      required: [levels, annual_cash_cap_pct, hold_days, payout_minimum_cents, commission_months, credit_value_usd, payout_countries, launched_at]
+      properties:
+        levels:
+          type: array
+          items:
+            $ref: '#/components/schemas/InsiderLevelTerms'
+        annual_cash_cap_pct:
+          type: number
+          format: double
+          description: The most an annual plan payment earns in cash, at every level (credits are not capped).
+        hold_days:
+          type: integer
+          description: The refund hold before a commission is available.
+        payout_minimum_cents:
+          type: integer
+          description: The smallest cash balance a monthly payout sends; smaller balances roll over.
+        commission_months:
+          type: integer
+          description: How long a referred customer's payments earn, from their first payment.
+        credit_value_usd:
+          type: string
+          description: What one credit is worth when a commission is taken in credits.
+          examples: ['0.07']
+        payout_countries:
+          type: array
+          description: Countries (ISO 3166-1 alpha-2) where cash payouts can be set up.
+          items:
+            type: string
+        launched_at:
+          type: string
+          format: date-time
+          description: Payments from this instant on earn commissions; earlier ones earned the old credit rewards.
+    InsiderEarningsBalances:
+      type: object
+      additionalProperties: false
+      required: [pending_cents, available_cents, in_payout_cents, paid_cents, clawed_back_cents, earned_cents, pending_credits, posted_credits]
+      properties:
+        pending_cents:
+          type: integer
+          format: int64
+          description: Cash commissions still in the refund hold (or held for review).
+        available_cents:
+          type: integer
+          format: int64
+          description: Cash ready for the next payout, less clawbacks not yet netted. Below zero after a clawback until later earnings cover it.
+        in_payout_cents:
+          type: integer
+          format: int64
+          description: Cash in a payout waiting for approval or being sent.
+        paid_cents:
+          type: integer
+          format: int64
+          description: Cash paid to the Insider's Stripe account, all time.
+        clawed_back_cents:
+          type: integer
+          format: int64
+          description: Cash taken back after refunds or chargebacks, all time.
+        earned_cents:
+          type: integer
+          format: int64
+          description: Cash commissions that cleared the hold, all time, before clawbacks.
+        pending_credits:
+          type: integer
+          description: Credit commissions still in the refund hold.
+        posted_credits:
+          type: integer
+          description: Credit commissions granted, all time, net of reversals.
+    InsiderPayoutAccountStatus:
+      type: string
+      description: >
+        The Stripe payout account: `none` (not set up), `incomplete` (onboarding not finished), `action_required` (Stripe needs more information), `pending` (Stripe is verifying it), `ready`.
+
+      enum: [none, incomplete, action_required, pending, ready]
+      x-enum-varnames: [InsiderPayoutAccountStatusNone, InsiderPayoutAccountStatusIncomplete, InsiderPayoutAccountStatusActionRequired, InsiderPayoutAccountStatusPending, InsiderPayoutAccountStatusReady]
+    InsiderPayoutAccountView:
+      type: object
+      additionalProperties: false
+      required: [status, requirements_due, can_open_dashboard]
+      properties:
+        status:
+          $ref: '#/components/schemas/InsiderPayoutAccountStatus'
+        country:
+          type: string
+          nullable: true
+        requirements_due:
+          type: integer
+          description: How many items Stripe still needs.
+        can_open_dashboard:
+          type: boolean
+          description: The Stripe Express dashboard is available (onboarding submitted).
+    InsiderNextPayout:
+      type: object
+      additionalProperties: false
+      required: [status, scheduled_for, amount_cents, minimum_cents]
+      properties:
+        status:
+          type: string
+          description: >
+            `scheduled` (the balance is in the next monthly payout), `below_minimum` (it rolls over), `needs_setup` (set up payouts first), `awaiting_approval` (in a batch waiting for staff), `processing` (approved, being sent), `not_started` (Stripe payouts have not been switched on yet; earnings keep adding up).
+
+          enum: [scheduled, below_minimum, needs_setup, awaiting_approval, processing, not_started]
+          x-enum-varnames: [InsiderNextPayoutScheduled, InsiderNextPayoutBelowMinimum, InsiderNextPayoutNeedsSetup, InsiderNextPayoutAwaitingApproval, InsiderNextPayoutProcessing, InsiderNextPayoutNotStarted]
+        scheduled_for:
+          type: string
+          format: date-time
+          description: When the next monthly batch is prepared (staff approve it after).
+        amount_cents:
+          type: integer
+          format: int64
+          description: What that payout would send now (the batch line's amount once one exists).
+        minimum_cents:
+          type: integer
+    InsiderEarnings:
+      type: object
+      additionalProperties: false
+      required: [method, level, rates, balances, legacy_credits_earned, next_payout, payout_account, terms, payouts_live]
+      properties:
+        method:
+          $ref: '#/components/schemas/InsiderPayoutMethod'
+        method_since:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the Insider last switched (null = the default since joining).
+        level:
+          $ref: '#/components/schemas/InsiderLevel'
+        rates:
+          $ref: '#/components/schemas/InsiderLevelTerms'
+        balances:
+          $ref: '#/components/schemas/InsiderEarningsBalances'
+        legacy_credits_earned:
+          type: integer
+          description: Credits earned from referred payments made before cash commissions launched.
+        next_payout:
+          $ref: '#/components/schemas/InsiderNextPayout'
+        payout_account:
+          $ref: '#/components/schemas/InsiderPayoutAccountView'
+        terms:
+          $ref: '#/components/schemas/InsiderProgramTerms'
+        payouts_live:
+          type: boolean
+          description: Real Stripe transfers are on. While false, commissions keep accruing and are paid once payouts start.
+    InsiderPayoutMethodUpdate:
+      type: object
+      additionalProperties: false
+      required: [method]
+      properties:
+        method:
+          $ref: '#/components/schemas/InsiderPayoutMethod'
+    InsiderPayoutOnboardingRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        country:
+          type: string
+          minLength: 2
+          maxLength: 2
+          description: The payout account's country (ISO 3166-1 alpha-2); defaults to US. Used only when the account is first created.
+    InsiderPayoutLink:
+      type: object
+      additionalProperties: false
+      required: [url]
+      properties:
+        url:
+          type: string
+          format: uri
+          description: A single-use Stripe link; open it right away.
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+    InsiderCommissionStatus:
+      type: string
+      description: >
+        `pending` (in the refund hold), `held` (the referral is under review), `available` (cash, waiting for the next payout), `paid` (cash, paid out), `posted` (credits, granted), `void` (refunded, disputed, blocked, or a team plan).
+
+      enum: [pending, held, available, paid, posted, void]
+      x-enum-varnames: [InsiderCommissionStatusPending, InsiderCommissionStatusHeld, InsiderCommissionStatusAvailable, InsiderCommissionStatusPaid, InsiderCommissionStatusPosted, InsiderCommissionStatusVoid]
+    InsiderCommissionProduct:
+      type: string
+      description: What the referred customer paid for. Team and enterprise plans (`team`) earn nothing.
+      enum: [subscription_monthly, subscription_annual, topup, team]
+      x-enum-varnames: [InsiderCommissionProductMonthly, InsiderCommissionProductAnnual, InsiderCommissionProductTopup, InsiderCommissionProductTeam]
+    InsiderCommission:
+      type: object
+      additionalProperties: false
+      required: [id, paid_at, product, method, rate_pct, net_cents, amount_cents, status, available_at, clawed_back_cents]
+      properties:
+        id:
+          type: string
+          format: uuid
+        paid_at:
+          type: string
+          format: date-time
+        product:
+          $ref: '#/components/schemas/InsiderCommissionProduct'
+        method:
+          $ref: '#/components/schemas/InsiderPayoutMethod'
+        rate_pct:
+          type: number
+          format: double
+        net_cents:
+          type: integer
+          description: What the customer paid, less refunds (zero once disputed).
+        amount_cents:
+          type: integer
+          description: The commission in US cents (for the credits method, the dollar value of the credits).
+        credits:
+          type: integer
+          nullable: true
+          description: The commission in credits (credits method only).
+        status:
+          $ref: '#/components/schemas/InsiderCommissionStatus'
+        available_at:
+          type: string
+          format: date-time
+          description: When the refund hold ends.
+        clawed_back_cents:
+          type: integer
+          description: Cash taken back after the commission became available.
+        reversed_credits:
+          type: integer
+          nullable: true
+    InsiderCommissionList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/InsiderCommission'
+    InsiderPayoutStatus:
+      type: string
+      description: >
+        A payout line: `awaiting_approval` (prepared, waiting for staff), `queued` (approved, being sent), `paid`, `failed` (Stripe refused it repeatedly; the balance rolled over), `skipped` (could not be paid, rolled over), `cancelled` (the batch was cancelled, rolled over).
+
+      enum: [awaiting_approval, queued, paid, failed, skipped, cancelled]
+      x-enum-varnames: [InsiderPayoutStatusAwaitingApproval, InsiderPayoutStatusQueued, InsiderPayoutStatusPaid, InsiderPayoutStatusFailed, InsiderPayoutStatusSkipped, InsiderPayoutStatusCancelled]
+    InsiderPayout:
+      type: object
+      additionalProperties: false
+      required: [id, period, amount_cents, status, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        period:
+          type: string
+          description: The month it pays in (YYYY-MM).
+        amount_cents:
+          type: integer
+          format: int64
+        status:
+          $ref: '#/components/schemas/InsiderPayoutStatus'
+        paid_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+    InsiderPayoutList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/InsiderPayout'
     InsiderRewardList:
       type: object
       additionalProperties: false
