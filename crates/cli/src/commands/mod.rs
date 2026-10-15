@@ -6,6 +6,7 @@ pub mod billing;
 pub mod characters;
 pub mod color_presets;
 pub mod compositions;
+pub mod dit;
 pub mod r#gen;
 pub mod jobs;
 pub mod masks;

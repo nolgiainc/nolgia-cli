@@ -18,6 +18,7 @@ The `nolgia` command-line client for the [Nolgia](https://nolgia.ai) generative-
 - [Generation](#generation)
 - [Models and cost estimates](#models-and-cost-estimates)
 - [Bundled skills and marketplace Abilities](#bundled-skills-and-marketplace-abilities)
+- [DIT: copy and verify camera cards](#dit-copy-and-verify-camera-cards)
 - [Authentication](#authentication)
 - [Credits](#credits)
 - [Organizations](#organizations)
@@ -169,6 +170,57 @@ These are separate surfaces:
   ```
 
   Administrators can author and publish an Ability with `nolgia ability init <SLUG>`, `nolgia ability pack <DIR>`, and `nolgia ability publish <DIR>`. `publish` is an admin-only API operation; `init` and `pack` work locally. `ability pack` passes the optional `python_requirements` manifest field through to the marketplace. Synced marketplace directories carry a `.nolgia-ability.json` version marker. Review an Ability's `ability.json`, `SKILL.md`, and payload before installing it: Hermes may execute the instructions and code it contains. Marketplace commands use the `ability` name; the separate bundled command remains `skills`.
+
+## DIT: copy and verify camera cards
+
+`nolgia dit` does the data wrangling at the end of a shoot day, on your own
+computer. It needs no login and uploads nothing.
+
+```sh
+# Copy two cards to two drives. Every copy is read back and checked against the card.
+nolgia dit offload /Volumes/A001 /Volumes/B001 --to /Volumes/RAID --to /Volumes/Backup --shoot "Brand film D1"
+
+# Re-check a copy later (ASC MHL or TSV manifest); exit 68 names any file that changed.
+nolgia dit verify "/Volumes/Backup/Brand film D1/A001"
+
+# What was shot: cameras, dates, durations, frame rates, S-Log3/gamma, lenses.
+nolgia dit inventory "/Volumes/RAID/Brand film D1" --csv inventory.csv
+
+# Name files by shoot, date, time and camera. A dry run until --apply; undo restores every name.
+nolgia dit rename "/Volumes/RAID/Brand film D1" --shoot BRAND_D1 --camera "ILME-FX3A=A-FX3A" --clock-offset "ILME-FX3A=-12h"
+nolgia dit rename "/Volumes/RAID/Brand film D1" --shoot BRAND_D1 --camera "ILME-FX3A=A-FX3A" --clock-offset "ILME-FX3A=-12h" --apply
+nolgia dit undo "/Volumes/RAID/Brand film D1"
+
+# The DIT report (Markdown + JSON).
+nolgia dit report "/Volumes/RAID/Brand film D1" --verify
+```
+
+On Windows, cards and drives are paths like `E:\` and `D:\Footage`.
+
+What it guarantees:
+
+- **The card is never changed.** It is only ever read.
+- **Nothing at a destination is ever replaced.** A file already there with
+  identical content counts as done. One with different content stops the
+  offload before anything is copied, and the file is reported and left alone.
+- **Every copy is proven.** Each file is read once, hashed (xxh64, plus MD5
+  or SHA-1 with `--hash xxh64,md5`) and streamed to every destination. Each
+  destination copy is then read back from disk and must match.
+- **Industry manifests.** Each card folder gets an ASC MHL history
+  (`ascmhl/`), readable by Silverstack, ShotPut, Hedge and the reference
+  `ascmhl` tool. A TSV and the report go in `_DIT/` beside the cards.
+- **Interruptions are safe.** Ctrl-C (exit 130) leaves no half-written file.
+  Run the same command again to resume where it stopped.
+- **Renames can be undone.** Every rename is written to
+  `_DIT/rename-map.csv` before it happens, with UNDO scripts for Windows
+  and macOS. Card-structure files (thumbnails, databases) keep their names.
+- **Camera clocks get checked.** `inventory` warns when two cameras on one
+  shoot look a whole number of hours apart (a time zone or AM/PM mistake).
+
+It reads Sony XAVC sidecars, EXIF (JPEG and TIFF-based raws) and Canon CR3 on
+its own. When they are on your PATH, `ffprobe` and `exiftool` fill in the
+rest. Exit codes: 0 when everything matched, 68 for a mismatch, a missing
+file or a conflict, 130 when interrupted.
 
 ## Authentication
 
@@ -408,6 +460,7 @@ Replace every `<PLACEHOLDER>` below with a real value; angle-bracket placeholder
 | `voices` | `list [--model <TTS_MODEL_ID>]` the voice ids `gen audio --voice` accepts, from the live catalog |
 | `motions` | `list` the camera-move library (push-in, orbit, crane, rack focus, ...) for `gen video --motion <id> [--motion-strength subtle\|medium\|strong]`; the server appends the move to your prompt |
 | `color-presets` | `list` the built-in color-grade preset looks for Studio compositions; `cube <slug> [-o FILE]` downloads the `.cube` LUT |
+| `dit` | `offload`, `verify`, `manifest`, `inventory`, `rename`, `undo`, `report`, `status`: copy camera cards with verified checksums and ASC MHL manifests, list and rename media, write the DIT report; local only, no login |
 | `masks` | `validate <MASK>` runs the timeline-mask sanitizer on inline JSON, `@file`, or `-` (stdin) and prints the canonical mask plus every clamp/drop diagnostic (`--strict` exits 1 on any problem); `example rectangle`, `ellipse`, or `polygon` prints a contract-true starter mask offline |
 | `completion` | `bash`, `zsh`, `fish`, `elvish`, or `powershell` completion script |
 

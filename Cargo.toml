@@ -19,6 +19,15 @@ serde_json = "1"
 thiserror = "2"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "sync", "time"] }
 uuid = { version = "1", features = ["serde", "v4"] }
+# `nolgia dit` (offline camera-card offload, verify, rename, report)
+csv = "1"
+filetime = "0.2"
+fs2 = "0.4"
+md-5 = "0.10"
+quick-xml = "0.37"
+sha1 = "0.10"
+sha2 = "0.10"
+xxhash-rust = { version = "0.8", features = ["xxh64"] }
 
 [workspace.package]
 version = "0.2.35"
