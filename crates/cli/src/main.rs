@@ -15,7 +15,7 @@ use anyhow::Result;
 use clap::{CommandFactory, Parser, Subcommand};
 use commands::{
     CommandContext, ability, account, api, assets, billing, characters, color_presets,
-    compositions, r#gen, jobs, masks, models, motions, org, pat, products, projects, render,
+    compositions, dit, r#gen, jobs, masks, models, motions, org, pat, products, projects, render,
     restore, skills, status, voices, wait,
 };
 use nolgia_client::{Client, ClientBuilder};
@@ -177,6 +177,12 @@ pub enum Commands {
         about = "Timeline masks for Studio compositions (validate, example)"
     )]
     Masks(masks::MasksCommand),
+    #[command(
+        subcommand,
+        about = "DIT on this computer, no login: copy camera cards with verified checksums, \
+                 ASC MHL manifests, inventory, rename by shoot/date/camera, report"
+    )]
+    Dit(dit::DitCommand),
     #[command(about = "Generate shell completions (bash, zsh, fish, powershell)")]
     Completion(CompletionArgs),
 }
@@ -260,10 +266,15 @@ fn report(result: Result<()>, format: OutputFormat) -> ExitCode {
                             canceled.report(format);
                             ExitCode::FAILURE
                         }
-                        Err(err) => {
-                            eprintln!("Error: {err:?}");
-                            ExitCode::FAILURE
-                        }
+                        // `nolgia dit` already printed its result (which names
+                        // every mismatch); only the exit status is left to set.
+                        Err(err) => match err.downcast::<dit::DitExit>() {
+                            Ok(exit) => ExitCode::from(exit.0),
+                            Err(err) => {
+                                eprintln!("Error: {err:?}");
+                                ExitCode::FAILURE
+                            }
+                        },
                     },
                 },
             },
@@ -293,6 +304,10 @@ pub async fn run_cli(cli: Cli) -> Result<()> {
     }
     if let Commands::Skills(command) = command {
         return skills::run(command, &output);
+    }
+    // DIT works on local drives only: no request, no login, no keyring probe.
+    if let Commands::Dit(command) = command {
+        return dit::run(command, &output).await;
     }
     if let Commands::Completion(args) = command {
         let mut cmd = <Cli as clap::CommandFactory>::command();
@@ -331,6 +346,7 @@ pub async fn run_cli(cli: Cli) -> Result<()> {
         Commands::Skills(_) => unreachable!("skills handled before client construction"),
         Commands::Ability(command) => ability::run(command, &ctx).await,
         Commands::Completion(_) => unreachable!("completion handled before client construction"),
+        Commands::Dit(_) => unreachable!("dit handled before client construction"),
         Commands::Models(command) => models::run(command, &ctx).await,
         Commands::Voices(command) => voices::run(command, &ctx).await,
         Commands::Motions(command) => motions::run(command, &ctx).await,

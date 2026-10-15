@@ -1,6 +1,6 @@
 ---
 name: nolgia-platform
-description: "Generate images, video, audio, and 3D models on the NOLGIA platform with the `nolgia` CLI or the NOLGIA MCP server (https://mcp.nolgia.ai/mcp): auth, model choice from the live catalog, async jobs, reference images, outpainting, voices, credits, and failure recovery. Use when: the user asks for AI-generated media and NOLGIA is available, e.g. 'generate an image', 'make a video', 'animate this photo', 'extend this image to 9:16', 'make a voiceover', 'check my jobs', or 'assemble these clips into one video'. NOT for: directing craft and multi-shot planning (use nolgia-video-prompting), vertical UGC ad production (use nolgia-ugc-ads), or editing media locally without the platform."
+description: "Generate images, video, audio, and 3D models on the NOLGIA platform with the `nolgia` CLI or the NOLGIA MCP server (https://mcp.nolgia.ai/mcp): auth, model choice from the live catalog, async jobs, reference images, outpainting, voices, credits, and failure recovery. Use when: the user asks for AI-generated media and NOLGIA is available, e.g. 'generate an image', 'make a video', 'animate this photo', 'extend this image to 9:16', 'make a voiceover', 'check my jobs', or 'assemble these clips into one video', or 'do my DIT / offload and verify these cards / rename the footage'. NOT for: directing craft and multi-shot planning (use nolgia-video-prompting), vertical UGC ad production (use nolgia-ugc-ads), or editing media locally without the platform."
 version: 1.1.0
 author: NOLGIA
 license: MIT
@@ -220,3 +220,36 @@ a project folder are not the video the customer asked for.
   request again on purpose.
 - Estimate before big batches with `--cost-only`, and confirm with the user
   before anything over about 2,000 credits.
+
+## DIT: offload, verify, inventory, rename (local, no login, no credits)
+
+`nolgia dit` works on the person's own drives, so it runs wherever the
+footage is mounted. Use it when someone asks you to do their DIT, offload or
+back up cards, check a copy, list what was shot, or rename footage.
+
+```bash
+# Always plan first and show the person the plan (cards, destinations, file count, size, conflicts).
+nolgia --json dit offload <CARD>... --to <DEST> [--to <DEST2>] --shoot "<SHOOT>" --dry-run
+# Then copy. Every destination copy is read back and must match the card; exit 68 names any failure.
+nolgia --json dit offload <CARD>... --to <DEST> [--to <DEST2>] --shoot "<SHOOT>"
+nolgia --json dit verify "<DEST>/<SHOOT>/<CARD>"          # later re-checks
+nolgia --json dit inventory "<FOLDER>" --csv inv.csv       # cameras, dates, fps, gamma; flags clock offsets
+nolgia --json dit rename "<FOLDER>" --shoot <NAME> [--camera "MODEL=LABEL"] [--clock-offset "MODEL=-12h"]   # dry run
+nolgia --json dit rename "<FOLDER>" ... --apply            # only after the person approves the dry run
+nolgia --json dit undo "<FOLDER>"                         # restores every original name
+nolgia --json dit report "<FOLDER>" --verify               # DIT-REPORT .md + .json
+```
+
+Rules:
+
+- Ask before any write: show the dry-run plan for `offload` and for
+  `rename`/`undo`, and wait for a yes. `verify`, `inventory`, `report` and
+  dry runs only read.
+- Never point `--to` inside a card. Never delete or reformat a card. The tool
+  never replaces a file at a destination, and you must not work around a
+  conflict it reports: tell the person and let them choose.
+- Exit 130 means it was interrupted. Re-run the same command; it resumes.
+  Exit 68 means a mismatch, a missing file or a conflict, and the JSON names
+  each file. Report it plainly. Never call such a copy safe.
+- If `inventory` warns about a clock offset, ask the person whether it was
+  one shoot before passing `--clock-offset` to `rename`.
