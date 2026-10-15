@@ -3,6 +3,39 @@
 Release notes for the Nolgia CLI. Each `## vX.Y.Z` section becomes the body of
 the matching GitHub release.
 
+## v0.3.0
+
+- **`nolgia dit`: NOLGIA does your DIT.** It copies camera cards to one to
+  three drives and reads every copy back to prove it matches the card. It
+  runs on your own computer, with no login and nothing uploaded.
+  - **`offload`** copies cards and verifies every copy.
+    - The cards are only ever read. Nothing at a destination is ever
+      replaced: a different file already there stops the offload before
+      anything is copied, and an identical one counts as done.
+    - Each file is hashed as it streams to every destination (xxh64, plus MD5
+      or SHA-1 with `--hash xxh64,md5`), then read back from disk and
+      compared.
+    - Each card gets an ASC MHL history (`ascmhl/`), which Silverstack,
+      ShotPut, Hedge and the reference `ascmhl` tool verify. A TSV and a DIT
+      report go in `_DIT/`.
+    - An interrupted offload (Ctrl-C, exit 130) resumes when you run the same
+      command again.
+  - **`verify`** re-checks a copy against its ASC MHL or TSV manifest and exits
+    68 naming every file that changed or is missing.
+  - **`inventory`** lists the media by camera: dates, durations, frame rates,
+    resolution, gamma (S-Log3 ...) and lenses. It reads Sony XAVC sidecars,
+    EXIF and Canon CR3 natively, and warns when two cameras' clocks look a
+    whole number of hours apart.
+  - **`rename`** names files by shoot, date, time and camera, keeping the
+    camera's own name. It is a dry run until `--apply`, with a lookup sheet
+    written before every rename. **`undo`** restores the original names.
+  - **`report`** writes the DIT report as Markdown and JSON. **`status`**
+    shows a running offload's progress.
+  - The NOLGIA plugins for Premiere Pro, After Effects, Illustrator and
+    DaVinci Resolve run these through a new `dit` command, and ask you to
+    approve before anything is copied or renamed.
+- Tested on Windows and Linux; macOS not yet run.
+
 ## v0.2.35
 
 - **Background removal runs from the CLI, with no prompt.** `nolgia gen image
