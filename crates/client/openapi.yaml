@@ -13946,6 +13946,25 @@ components:
         its own credits (read them from `GET /models`), fourteen Gemini
         aspect ratios including 8:1 and 1:8 (no 9:21), and editing with up to
         4 reference images. One image per request.
+        `flux-3-image` (Black Forest Labs FLUX 3 Image) generates from a
+        prompt and edits with up to 4 reference images on one id, and
+        `flux-3-image-klein` (FLUX 3 Image Klein) is its smaller, faster,
+        cheaper sibling with the same features. Both render five native
+        `quality` tiers, BFL's equal-area resolution classes: `768sq` (about
+        0.6 MP), `1k` (the default, about 1 MP), `1.5k` (about 2 MP), `2k`
+        (about 4 MP) and `4k` (about 16 MP), each priced by its own credits
+        (read them from `GET /models`), across fifteen aspect ratios from
+        21:9 to 9:21 including 7:5 and 5:7. One image per request. Both read
+        a bounding-box layout from the prompt itself: describe the image with
+        each element tagged `<id>`, then append a JSON array of rows, one per
+        element, each `{"id", "bbox": [top, left, bottom, right], "desc"}` on
+        a 0 to 1000 grid of the output frame. To edit box by box, send the
+        source as the first reference and give each row `"from":
+        "ref_image_0"`, `"src_bbox"` and `"tgt_bbox"` (keep, move or remove
+        an element), or `"from": null` with a `"tgt_bbox"` to repaint one;
+        pixels outside the boxes usually stay unchanged. The table must be the
+        last thing in the prompt. `seed` reaches the provider on
+        `flux-3-image-klein` only.
         `grok-imagine-image-2.0` is the newest Grok Imagine image model, same
         1k/2k tiers and aspect ratios as `grok-imagine-image`. The tiers are
         not priced alike across the three Grok image models: xAI charges one
@@ -14042,6 +14061,8 @@ components:
         - flux-2-klein
         - flux-kontext-pro
         - flux-kontext-max
+        - flux-3-image
+        - flux-3-image-klein
         - flux-expand
         - grok-imagine-image
         - grok-imagine-image-quality
@@ -14373,7 +14394,7 @@ components:
       type: string
       description: >-
         Native output aspect ratio for image models. Every published image model declares its supported values as `image.aspect_ratios` on `GET /models`; a ratio outside the selected model's list is rejected (400). Prefer this over `image_size`, whose closed aliases only express the 16:9/4:3/1:1 families.
-      enum: ['16:9', '9:16', '1:1', '4:3', '3:4', '3:2', '2:3', '21:9', '9:21', '2:1', '1:2', '5:4', '4:5', '3:1', '1:3', '4:1', '1:4', '8:1', '1:8']
+      enum: ['16:9', '9:16', '1:1', '4:3', '3:4', '3:2', '2:3', '21:9', '9:21', '2:1', '1:2', '5:4', '4:5', '3:1', '1:3', '4:1', '1:4', '8:1', '1:8', '7:5', '5:7']
     AspectRatio:
       type: string
       description: >-
