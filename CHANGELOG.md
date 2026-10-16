@@ -3,6 +3,34 @@
 Release notes for the Nolgia CLI. Each `## vX.Y.Z` section becomes the body of
 the matching GitHub release.
 
+## v0.3.1
+
+- **`nolgia dit` fixes from the first real offloads.**
+  - `verify` and `report --verify` work on a shoot folder, checking every
+    card folder in it against its own ASC MHL history (or `_DIT/<card>.manifest.tsv`).
+    With `--record`, each card gets its own new generation.
+  - `status` takes the destination as well as its shoot folder, and says
+    `finished` instead of `stopped` when the offload completed.
+  - Running a finished offload again no longer adds a second "original"
+    ASC MHL generation for copies an earlier run made, and its summary says
+    there was nothing new to copy. The MB/s figure counts only what this run
+    copied.
+  - After a rename, `manifest` on a card folder now records the new names
+    as renames (`<previousPath>`, found by their hashes, as the reference
+    `ascmhl create --detect_renaming` does), and files that match the
+    history as `verified`. Before, the renamed shoot failed `verify` with
+    every old name missing. `manifest` exits 68 when a file differs from the
+    history or is missing, and `undo` reminds you to run it again.
+  - The DIT report goes in every destination's shoot folder, not only the
+    first.
+  - `inventory` reads plain MP4 and MOV on its own (duration, size, frame
+    rate, codec, audio channels), so it no longer needs ffprobe for them.
+    Its summary shows footage length, sizes, frame rates and codecs, notes
+    when times come from the files' modified times, and `--files` lists
+    each file with its `source`.
+
+Tested on Windows and Linux; macOS not yet run.
+
 ## v0.3.0
 
 - **`nolgia dit`: NOLGIA does your DIT.** It copies camera cards to one to
