@@ -29,7 +29,7 @@ the matching GitHub release.
     when times come from the files' modified times, and `--files` lists
     each file with its `source`.
 
-Tested on Windows and Linux; macOS not yet run.
+Tested on Windows, Linux and macOS (Apple silicon).
 
 ## v0.3.0
 
