@@ -14393,7 +14393,7 @@ components:
     ImageAspectRatio:
       type: string
       description: >-
-        Native output aspect ratio for image models. Every published image model declares its supported values as `image.aspect_ratios` on `GET /models`; a ratio outside the selected model's list is rejected (400). Prefer this over `image_size`, whose closed aliases only express the 16:9/4:3/1:1 families.
+        Native output aspect ratio for image models. Every published image model declares its supported values as `image.aspect_ratios` on `GET /models`; a ratio outside the selected model's list is rejected (400). Prefer this over `image_size`, whose closed aliases only express the 16:9/4:3/1:1 families. When an edit names neither `aspect_ratio` nor `image_size`, the output keeps the shape of the image being edited: the first image the request attaches itself in `image_url`, `image_urls` or `reference_asset_ids`. FLUX 3 Image and FLUX 3 Image Klein keep that image's exact framing; every other model renders at the ratio in its `image.aspect_ratios` nearest to the image's displayed size, and the asset records that ratio. For those models the default stays square when the image's size cannot be read (an image at a URL outside your NOLGIA library), as it does on any request with no image of its own. References that a `character_id`, `face_reference_asset_id`, `location_id`, `product_id`, `style_id`, `element_ids` or brand kit attach never set the shape.
       enum: ['16:9', '9:16', '1:1', '4:3', '3:4', '3:2', '2:3', '21:9', '9:21', '2:1', '1:2', '5:4', '4:5', '3:1', '1:3', '4:1', '1:4', '8:1', '1:8', '7:5', '5:7']
     AspectRatio:
       type: string
