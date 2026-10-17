@@ -4034,6 +4034,51 @@ paths:
         default:
           $ref: '#/components/responses/ProblemResponse'
   /bridge/commands:
+    get:
+      tags: [Bridge]
+      operationId: listBridgeCommands
+      summary: List the commands most recently sent to your desktop apps, newest first.
+      description: |
+        The commands sent to your desktop apps by any of your own
+        credentials or your NOLGIA Agent, newest first, each with its app,
+        its status and, once it finished, its outcome: the `result` when it
+        is at most 16 KB as JSON (`result_omitted` is true for a bigger one;
+        read it in full with `GET /bridge/commands/{id}`), or the `error`.
+        A command's `args` are never listed, because a `run` carries code.
+        A command still queued or running past its `expires_at` reads as
+        `expired`. Commands sent to a session that has since been removed
+        are not listed.
+      parameters:
+        - name: app
+          in: query
+          required: false
+          description: Only the commands sent to this app.
+          schema:
+            $ref: '#/components/schemas/BridgeApp'
+        - name: limit
+          in: query
+          required: false
+          description: How many commands to list, 1 to 50.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 10
+      responses:
+        '200':
+          description: The most recent commands, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BridgeCommandList'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
     post:
       tags: [Bridge]
       operationId: createBridgeCommand
@@ -16772,6 +16817,58 @@ components:
           type: string
           format: date-time
           description: A command still queued or running at this time becomes `expired`.
+    BridgeCommandSummary:
+      type: object
+      additionalProperties: false
+      required: [id, session_id, app, kind, status, caller, created_at, result_omitted]
+      description: A command sent to a desktop app and its outcome, without its `args`.
+      properties:
+        id:
+          type: string
+          format: uuid
+        session_id:
+          type: string
+          format: uuid
+        app:
+          $ref: '#/components/schemas/BridgeApp'
+        kind:
+          type: string
+          description: What it asked the app to do (`info`, `run`, `preview`, `import_asset`, `export`, `save`, `open`, ...).
+          examples: ['preview']
+        status:
+          $ref: '#/components/schemas/BridgeCommandStatus'
+        caller:
+          type: string
+          description: '`agent` when the NOLGIA Agent sent it, `user` for any of your own credentials.'
+          examples: ['user']
+        created_at:
+          type: string
+          format: date-time
+        finished_at:
+          type: string
+          format: date-time
+          nullable: true
+        error:
+          type: string
+          nullable: true
+          description: Why it did not succeed, once `failed`, `expired` or `cancelled`.
+        result:
+          type: object
+          nullable: true
+          additionalProperties: true
+          description: What the plugin returned, once `succeeded`, when it is at most 16 KB as JSON.
+        result_omitted:
+          type: boolean
+          description: True when the command succeeded with a result bigger than 16 KB, which is left out here.
+    BridgeCommandList:
+      type: object
+      additionalProperties: false
+      required: [commands]
+      properties:
+        commands:
+          type: array
+          items:
+            $ref: '#/components/schemas/BridgeCommandSummary'
     CreateBridgeCommandRequest:
       type: object
       additionalProperties: false
