@@ -15713,7 +15713,7 @@ components:
           type: boolean
           nullable: true
           description: >-
-            What the credit ledger actually did with this job's credit hold, recorded when the hold settled. `true`: the hold was released and the job cost nothing. `false`: the hold was consumed and the credits were charged (a content-filter refusal the provider billed for is charged; one the provider did not bill for is refunded). Absent or null when there is no ledger outcome to report: the job took no hold, the hold is still settling (`GET /jobs/{id}/wait` waits a few seconds for it), or the job failed before this field existed. Never read an absent value as "no charge".
+            What the credit ledger actually did with this job's credit hold, recorded when the hold settled. `true`: the hold was released and the job cost nothing. `false`: the hold was consumed and the credits were charged (a content-filter refusal the provider billed for is charged, except on an account's first job, which is refunded once; one the provider did not bill for is refunded). Absent or null when there is no ledger outcome to report: the job took no hold, the hold is still settling (`GET /jobs/{id}/wait` waits a few seconds for it), or the job failed before this field existed. Never read an absent value as "no charge".
     JobCredits:
       type: object
       additionalProperties: false
