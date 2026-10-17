@@ -11294,7 +11294,7 @@ components:
           type: array
           items:
             type: string
-          description: Catalog model ids compatible with the submitted reference inputs and accessible on the caller's effective plan, best first by the blind-vote leaderboards. Only likeness_refused and frame_constraint can carry suggestions. A real-person likeness refusal (including ByteDance PrivacyInformation) suggests the picker models of the same modality that accept photoreal people, unless the provider's answer names copyright or a minor. Suggestions are alternatives, not a guarantee that a provider will accept the content.
+          description: Catalog model ids compatible with the submitted reference inputs and accessible on the caller's effective plan, best first by the blind-vote leaderboards. Only likeness_refused and frame_constraint can carry suggestions. A real-person likeness refusal (including ByteDance PrivacyInformation) suggests the picker models of the same modality that accept photoreal people, unless the provider's answer names a minor, or names copyright outside ByteDance's PrivacyInformation refusal (which words its face refusals that way). Suggestions are alternatives, not a guarantee that a provider will accept the content.
         retryable_same_model:
           type: boolean
           description: Whether retrying the unchanged request on this model can help. False for deterministic refusals and remembered verdicts; true for output safety checks only while the two-retry allowance remains (never for categories involving minors). Omitted for job_failed.
@@ -15688,7 +15688,7 @@ components:
           type: array
           items:
             type: string
-          description: Catalog model ids compatible with the submitted reference inputs and accessible on the caller's effective plan, best first by the blind-vote leaderboards. Only likeness_refused and frame_constraint can carry suggestions. A real-person likeness refusal (including ByteDance PrivacyInformation) suggests the picker models of the same modality that accept photoreal people, unless the provider's answer names copyright or a minor. Suggestions are alternatives, not a guarantee that a provider will accept the content.
+          description: Catalog model ids compatible with the submitted reference inputs and accessible on the caller's effective plan, best first by the blind-vote leaderboards. Only likeness_refused and frame_constraint can carry suggestions. A real-person likeness refusal (including ByteDance PrivacyInformation) suggests the picker models of the same modality that accept photoreal people, unless the provider's answer names a minor, or names copyright outside ByteDance's PrivacyInformation refusal (which words its face refusals that way). Suggestions are alternatives, not a guarantee that a provider will accept the content.
         retryable_same_model:
           type: boolean
           description: Whether retrying the unchanged request on this model can help. False for deterministic refusals and remembered verdicts; true for output safety checks only while the two-retry allowance remains (never for categories involving minors). Omitted for job_failed.
@@ -24051,7 +24051,7 @@ components:
         unchanged and stays the text to show a customer; the code is what a
         client branches on. This is a closed enum today but treat an
         unrecognised value as `job_failed`.
-        - `likeness_refused`: The reference was refused for a real-person likeness. `suggested_models` lists the models of the same kind that accept photoreal people, best first, filtered for your inputs and effective plan; none when the provider's answer names copyright or a minor.
+        - `likeness_refused`: The reference was refused for a real-person likeness. `suggested_models` lists the models of the same kind that accept photoreal people, best first, filtered for your inputs and effective plan; none when the provider's answer names a minor, or names copyright outside ByteDance's PrivacyInformation refusal.
         - `copyright_refused`: The input or generated media was refused for copyright restrictions.
         - `output_safety_blocked`: The checker blocked generated output; up to two identical retries are allowed within 30 minutes, except categories involving minors.
         - `input_safety_blocked`: The checker refused the input. Change the prompt or references.
