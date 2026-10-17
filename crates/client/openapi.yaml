@@ -6610,7 +6610,7 @@ paths:
       operationId: createComposition
       summary: Create an empty composition.
       description: >-
-        Composition names are unique per user; a duplicate name returns 409. An optional `project_id` links the composition to a caller-owned project; an unknown or foreign project returns 404. Every new composition is stamped `meta.audio_mix = "v1"`, which makes it mix-managed: its renders duck music and ambience under voice, loop and fade out beds, and normalise loudness to -14 LUFS with the true peak at or under -1 dBTP (see the `AudioMix` schema). Send `meta.audio_mix` yourself (any value, `null` included) to keep a composition unmanaged; compositions created before the stamp existed render exactly as they always did. Every new composition is also stamped `meta.text_version = 2`: its text additions render the way the Studio preview draws them, with the bundled face of the weight and style each asks for (a real Black, a true italic) and the preview's line placement and wrapping (see "Text version 2" on the render operation). Send `meta.text_version` yourself (any value, `null` included) to keep version 1; compositions created before this stamp existed keep it too, title by title, until a title asks for version 2 in its own `textStyle.version`.
+        Composition names are unique per user; a duplicate name returns 409. An optional `project_id` links the composition to a caller-owned project; an unknown or foreign project returns 404. Every new composition is stamped `meta.audio_mix = "v1"`, which makes it mix-managed: its renders duck music and ambience under voice, loop and fade out beds, and normalise loudness to -14 LUFS with the true peak at or under -1 dBTP (see the `AudioMix` schema). Send `meta.audio_mix` yourself (any value, `null` included) to keep a composition unmanaged; compositions created before the stamp existed render exactly as they always did. Every new composition is also stamped `meta.text_version = 2`: its text additions render the way the Studio preview draws them, with the bundled face of the weight and style each asks for (a real Black, a true italic) and the preview's line placement and wrapping (see "Text version 2" on the render operation). Send `meta.text_version` yourself (any value, `null` included) to keep version 1; compositions created before this stamp existed keep it too, title by title, until a title asks for version 2 in its own `textStyle.version`. And every new composition is stamped `meta.grade_version = 2`: the exposure of its color grades applies to the scene before the display transform and the film preset, so a brighter exposure rolls highlights off instead of clipping them (see "Grade version 2" on the render operation). Send `meta.grade_version` yourself (any value, `null` included) to keep version 1; compositions created before this stamp existed keep it for every grade in them. A clone keeps its source's meta, stamps included.
       requestBody:
         required: true
         content:
@@ -7035,6 +7035,17 @@ paths:
           grades per clip then on the composited canvas; masks as the
           clip's alpha (video and image clips — a mask on a text clip is
           preview-only and recorded as a warning, on audio it is ignored).
+        - Grade version 2. In a composition stamped `meta.grade_version = 2`
+          (every composition created since the stamp existed) the
+          `exposure` of every grade, per clip and on the canvas, applies to
+          the scene: on a clip with a camera `log` it scales scene linear
+          light before the log conversion's filmic curve, and on other
+          footage it scales linearized light (the display's 2.4 gamma) with
+          a smooth shoulder above display 0.68 that lands white on white.
+          One EV (an `exposure` of 100) is one stop of light, and
+          highlights roll off instead of clipping. In every other
+          composition `exposure` scales the display code value, after the
+          log conversion and with the other adjustments, exactly as before.
         - Per-clip motion (overlay `motion` on element overrides and
           additions, see the Motion tag and the `Motion` schema): a video or
           image clip is fitted to the canvas, scaled about its anchor,
@@ -19194,7 +19205,7 @@ components:
           type: object
           nullable: true
           description: >-
-            Free-form composition metadata (at most 64 KiB serialized). The server adds `audio_mix: "v1"` (the mix-managed stamp, see `AudioMix`) and `text_version: 2` (text additions render the way the Studio preview draws them, see "Text version 2" on the render operation), each unless its key is already present.
+            Free-form composition metadata (at most 64 KiB serialized). The server adds `audio_mix: "v1"` (the mix-managed stamp, see `AudioMix`), `text_version: 2` (text additions render the way the Studio preview draws them, see "Text version 2" on the render operation) and `grade_version: 2` (grade exposure applies to the scene, see "Grade version 2" on the render operation), each unless its key is already present.
     UpdateCompositionRequest:
       type: object
       additionalProperties: false
