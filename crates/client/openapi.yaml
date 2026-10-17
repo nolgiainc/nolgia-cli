@@ -24042,8 +24042,8 @@ components:
           description: After this the token is refused and a submit carrying it fails with `confirmation_rejected`. Re-quote.
     GenerationErrorCode:
       type: string
-      enum: [out_of_credits, rate_limit, prompt_nsfw, ip_detected, job_failed, timeout, validation, confirmation_rejected, canceled, job_not_cancellable, approval_required, run_ended, likeness_refused, copyright_refused, output_safety_blocked, input_safety_blocked, invalid_media, frame_constraint]
-      x-enum-varnames: [GenerationErrorCodeOutOfCredits, GenerationErrorCodeRateLimit, GenerationErrorCodePromptNsfw, GenerationErrorCodeIpDetected, GenerationErrorCodeJobFailed, GenerationErrorCodeTimeout, GenerationErrorCodeValidation, GenerationErrorCodeConfirmationRejected, GenerationErrorCodeCanceled, GenerationErrorCodeJobNotCancellable, GenerationErrorCodeApprovalRequired, GenerationErrorCodeRunEnded, GenerationErrorCodeLikenessRefused, GenerationErrorCodeCopyrightRefused, GenerationErrorCodeOutputSafetyBlocked, GenerationErrorCodeInputSafetyBlocked, GenerationErrorCodeInvalidMedia, GenerationErrorCodeFrameConstraint]
+      enum: [out_of_credits, rate_limit, prompt_nsfw, ip_detected, job_failed, timeout, validation, confirmation_rejected, canceled, job_not_cancellable, approval_required, run_ended, likeness_refused, copyright_refused, output_safety_blocked, input_safety_blocked, invalid_media, frame_constraint, media_constraint]
+      x-enum-varnames: [GenerationErrorCodeOutOfCredits, GenerationErrorCodeRateLimit, GenerationErrorCodePromptNsfw, GenerationErrorCodeIpDetected, GenerationErrorCodeJobFailed, GenerationErrorCodeTimeout, GenerationErrorCodeValidation, GenerationErrorCodeConfirmationRejected, GenerationErrorCodeCanceled, GenerationErrorCodeJobNotCancellable, GenerationErrorCodeApprovalRequired, GenerationErrorCodeRunEnded, GenerationErrorCodeLikenessRefused, GenerationErrorCodeCopyrightRefused, GenerationErrorCodeOutputSafetyBlocked, GenerationErrorCodeInputSafetyBlocked, GenerationErrorCodeInvalidMedia, GenerationErrorCodeFrameConstraint, GenerationErrorCodeMediaConstraint]
       description: |
         Stable machine-readable class of a generation failure, on the
         `/generate/*` submit responses (as `error.code`) and on a failed job
@@ -24057,6 +24057,7 @@ components:
         - `input_safety_blocked`: The checker refused the input. Change the prompt or references.
         - `invalid_media`: The provider could not decode or inspect the input media. Replace it with valid media.
         - `frame_constraint`: Frame pinning conflicts with the requested reference media. Drop the frames or the references.
+        - `media_constraint`: The input media is readable but outside what the model takes: a frame rate, an image shape or an image or clip size. The message names the limit; export or crop the media to fit it. Retrying the unchanged media is not useful.
         - `out_of_credits`: the wallet cannot pay for the job. Nothing was submitted and nothing was charged. Top up, or submit a cheaper model or fewer seconds.
         - `rate_limit`: refused for now, not refused outright — the caller's own concurrency ceiling, or the provider's. Retry later; the same request will be accepted.
         - `prompt_nsfw`: a content filter refused the request or the result it produced, on safety grounds. Editing the prompt or the reference media is the fix. Whether the credits were refunded is `failure.credits_refunded`, not this code.
