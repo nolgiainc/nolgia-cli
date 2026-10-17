@@ -3859,8 +3859,10 @@ paths:
         `status` says whether the app's NOLGIA plugin has shipped
         (`available`) or not yet (`coming_soon`). An available app carries
         the oldest app version its plugin installs into, the plugin's
-        version and its download (a pinned release of
-        https://github.com/nolgiainc/nolgia-plugins). The plugin's page is
+        version and its download (a pinned release of the plugin's own
+        repository: https://github.com/nolgiainc/nolgia-blender,
+        nolgia-adobe for After Effects, Premiere Pro and Illustrator,
+        nolgia-photoshop or nolgia-resolve). The plugin's page is
         `https://nolgia.ai/plugins/<page_slug>`.
 
         A plugin workflow (a preset whose `target.kind` is `desktop_app`)
@@ -16584,7 +16586,7 @@ components:
         download_url:
           type: string
           description: The plugin's download, an https link to a pinned release. Empty while the plugin has not shipped.
-          examples: ['https://github.com/nolgiainc/nolgia-plugins/releases/download/adobe-v0.1.1/nolgia-adobe-0.1.1.zxp']
+          examples: ['https://github.com/nolgiainc/nolgia-adobe/releases/download/adobe-v0.1.4/nolgia-adobe-0.1.4.zxp']
         page_slug:
           type: string
           description: The plugin page's path segment, `https://nolgia.ai/plugins/<page_slug>`.
