@@ -14025,11 +14025,14 @@ components:
         `flux-3-image-klein` only.
         `grok-imagine-image-2.0` is the newest Grok Imagine image model, same
         1k/2k tiers and aspect ratios as `grok-imagine-image`. The tiers are
-        not priced alike across the three Grok image models: xAI charges one
-        rate at both resolutions on `grok-imagine-image`, but more at 2k on
-        `grok-imagine-image-quality` and `grok-imagine-image-2.0`, where 2k is
-        a premium tier. Read the per-tier credits from `GET /models` rather
-        than assuming the base rate applies to every tier.
+        not priced alike across the Grok image models: xAI charges one rate at
+        both resolutions on `grok-imagine-image`, but more at 2k on
+        `grok-imagine-image-2.0`, where 2k is a premium tier. Read the
+        per-tier credits from `GET /models` rather than assuming the base
+        rate applies to every tier. `grok-imagine-image-quality` is RETIRED
+        (xAI shuts it down on 2026-11-02) and no longer listed: a request
+        that names it is served by `grok-imagine-image-2.0` at that model's
+        own price, and the job reports `grok-imagine-image-2.0`.
 
         Four families ship as ONE id each; the server dispatches
         the family's edit route whenever a reference image rides the request
@@ -14180,7 +14183,65 @@ components:
         - mmaudio-v2
     VideoModel:
       type: string
-      description: "Video model identifier. Priority models are Kling v3.0, Seedance 2.0 Pro,\nand MiniMax Hailuo 3 (`minimax-h3`, the 2K multimodal flagship). BFL\nFLUX 3 (`flux-3-video`) is the native-audio t2v/i2v flagship with hd/fhd\nresolution tiers. Alibaba Wan 3.0 (`wan-3.0`) renders 5-30 second\nclips at 480p/720p/1080p from text or a start image, and is the\ndefault text-to-video route. Wan 3.0 Prime (`wan-3.0-prime`) is its\nfast variant on the same range and tiers. Wan 2.7 (`wan-2.7`) renders\n5-10 second clips at 720p/1080p from text, a start and/or end image,\nor up to 4 reference images - the only reference-to-video route\noutside the Seedance family. Wan 2.6 (`wan-2.6`) renders exactly 5 or\n10 second clips at 720p/1080p, 16:9 or 9:16, from text or a start\nimage. MiniMax H3 Max (`minimax-h3-max-t2v` and\n`minimax-h3-max-i2v`) is the post-trained H3 variant with\n480p/768p tiers. Seedance 2.5 (`seedance-2.5`): 4 to 30 second clips\nat 480p/720p/1080p (1080p at 16:9 and 9:16 only, see the tier's\n`quality.options[].aspect_ratios`) from text, a start and/or end\nimage, or references (up\nto 9 images, 10 videos and 10 audio tracks on its\nomni-reference route: extend or edit a clip of up to 30 seconds),\noptional audio. Seedance 2.0 Fast and Mini\n(`seedance-2.0-fast`, `seedance-2.0-mini`) are the budget Seedance\nroutes: the same text, start/end-frame and image-reference modes as\n2.5 (no reference video or audio) on 4 to 15 second clips at\n480p/720p.\nVeo 3.1 Lite (`veo-3.1-lite`) is the budget Veo 3.1 tier with the\nsame 4/6/8 second and start-frame surface as `veo-3.1-fast`, 720p\ndefault and a 1080p tier, and NO reference (ingredient) images:\nGemini refuses them on Lite. `veo-3.1` and `veo-3.1-fast` take up to\nthree reference images on an 8 second clip, or a start frame, but not\nboth in one request. HappyHorse 1.1\n(`happyhorse-1.1`) and HappyHorse 1.0 (`happyhorse-1.0`) render silent\n5 to 15 second clips at 720p/1080p from text or a start image.\nHappyHorse 1.1 Reference to Video (`happyhorse-1.1-r2v`) renders 3 to\n15 second clips with audio from 1 to 9 required reference images.\nHappyHorse 1.0 Video Edit (`happyhorse-1.0-video-edit`) rewrites one\nrequired 2 to 15 second source clip, with up to 5 optional reference\nimages; both offer 720p/1080p and an honored seed.\nKling motion control (`kling-v3-motion-control`) is the human motion\ntransfer entry: one driver video plus one performer still produces\noutput copying the driver's motion, timing and camera at the driver's\nown length.\nGemini Omni 1.1 Edit (`omni-1.1-flash-edit`) rewrites one required 3 to\n10 second source clip (a video asset with a stored duration) from a text\ninstruction and is billed at the source's length; the output keeps the\nsource's duration and framing, and it takes no reference images.\nSeedance 1.5 Pro (`seedance-1-5-pro`) is the budget Seedance flagship:\n4 to 12 second clips at 480p/720p/1080p with the same start/end frame\nand reference-image surface as 2.5, and the one Seedance route whose\noptional audio carries a price of its own. \nHeyGen Avatar IV (`heygen-avatar-iv`) is\nthe LIP SYNC entry: a portrait plus a voice track becomes a talking\nhead, and both references are mandatory. Runway\nAleph 2 (`runway-aleph-2`) is the VIDEO EDIT entry: it rewrites footage\nyou supply from a text instruction, so a reference video is mandatory.\nRunway Gen-4.5 (`runway-gen-4.5`) is Runway's cinematic generation\ntier, 2 to 10 second clips at 720p from text or a start image. Read the\n`capabilities` array on GET /models rather than inferring a model's\npurpose from its inputs. Default is `wan-3.0`.\n"
+      description: |
+        Video model identifier. Priority models are Kling v3.0, Seedance 2.0 Pro,
+        and MiniMax Hailuo 3 (`minimax-h3`, the 2K multimodal flagship). BFL
+        FLUX 3 (`flux-3-video`) is the native-audio t2v/i2v flagship with hd/fhd
+        resolution tiers. Alibaba Wan 3.0 (`wan-3.0`) renders 5-30 second
+        clips at 480p/720p/1080p from text or a start image, and is the
+        default text-to-video route. Wan 3.0 Prime (`wan-3.0-prime`) is its
+        fast variant on the same range and tiers. Wan 2.7 (`wan-2.7`) renders
+        5-10 second clips at 720p/1080p from text, a start and/or end image,
+        or up to 4 reference images - the only reference-to-video route
+        outside the Seedance family. Wan 2.6 (`wan-2.6`) renders exactly 5 or
+        10 second clips at 720p/1080p, 16:9 or 9:16, from text or a start
+        image. MiniMax H3 Max (`minimax-h3-max-t2v` and
+        `minimax-h3-max-i2v`) is the post-trained H3 variant with
+        480p/768p tiers. Seedance 2.5 (`seedance-2.5`): 4 to 30 second clips
+        at 480p/720p/1080p (1080p at 16:9 and 9:16 only, see the tier's
+        `quality.options[].aspect_ratios`) from text, a start and/or end
+        image, or references (up
+        to 9 images, 10 videos and 10 audio tracks on its
+        omni-reference route: extend or edit a clip of up to 30 seconds),
+        optional audio. Seedance 2.0 Fast and Mini
+        (`seedance-2.0-fast`, `seedance-2.0-mini`) are the budget Seedance
+        routes: the same text, start/end-frame and image-reference modes as
+        2.5 (no reference video or audio) on 4 to 15 second clips at
+        480p/720p.
+        Veo 3.1 Lite (`veo-3.1-lite`) is the budget Veo 3.1 tier with the
+        same 4/6/8 second and start-frame surface as `veo-3.1-fast`, 720p
+        default and a 1080p tier, and NO reference (ingredient) images:
+        Gemini refuses them on Lite. `veo-3.1` and `veo-3.1-fast` take up to
+        three reference images on an 8 second clip, or a start frame, but not
+        both in one request. HappyHorse 1.1
+        (`happyhorse-1.1`) and HappyHorse 1.0 (`happyhorse-1.0`) render silent
+        5 to 15 second clips at 720p/1080p from text or a start image.
+        HappyHorse 1.1 Reference to Video (`happyhorse-1.1-r2v`) renders 3 to
+        15 second clips with audio from 1 to 9 required reference images.
+        HappyHorse 1.0 Video Edit (`happyhorse-1.0-video-edit`) rewrites one
+        required 2 to 15 second source clip, with up to 5 optional reference
+        images; both offer 720p/1080p and an honored seed.
+        Kling motion control (`kling-v3-motion-control`) is the human motion
+        transfer entry: one driver video plus one performer still produces
+        output copying the driver's motion, timing and camera at the driver's
+        own length.
+        Gemini Omni 1.1 Edit (`omni-1.1-flash-edit`) rewrites one required 3 to
+        10 second source clip (a video asset with a stored duration) from a text
+        instruction and is billed at the source's length; the output keeps the
+        source's duration and framing, and it takes no reference images.
+        Seedance 1.5 Pro (`seedance-1-5-pro`) is RETIRED: ByteDance shuts it
+        down on 2026-11-11, so it is no longer listed on `GET /models`, and
+        from that date a request naming it is refused with a 400 that names
+        `seedance-2.0-mini`, its successor. Until then it still renders.
+        HeyGen Avatar IV (`heygen-avatar-iv`) is
+        the LIP SYNC entry: a portrait plus a voice track becomes a talking
+        head, and both references are mandatory. Runway
+        Aleph 2 (`runway-aleph-2`) is the VIDEO EDIT entry: it rewrites footage
+        you supply from a text instruction, so a reference video is mandatory.
+        Runway Gen-4.5 (`runway-gen-4.5`) is Runway's cinematic generation
+        tier, 2 to 10 second clips at 720p from text or a start image. Read the
+        `capabilities` array on GET /models rather than inferring a model's
+        purpose from its inputs. Default is `wan-3.0`.
       enum:
         - kling-v3-t2v
         - kling-v3-master-t2v
