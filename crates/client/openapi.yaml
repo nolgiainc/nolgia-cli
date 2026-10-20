@@ -13768,10 +13768,7 @@ components:
             areas are repainted. The rest of the picture is left alone.
 
             True on `gpt-image-2`, `gpt-image-2.5-sunburst` and
-            `gpt-image-2.5-flare`, false everywhere else. `gpt-image-1` is
-            false on purpose: it accepts a mask upstream but was measured to
-            repaint the whole picture around it, which
-            is the silent substitution this flag exists to prevent. The other
+            `gpt-image-2.5-flare`, false everywhere else. The other
             reference-capable models are false because their providers have
             no mask concept and would repaint the whole image instead. A
             `mask_asset_id` sent to a model publishing `false` is rejected
@@ -13992,11 +13989,12 @@ components:
         its `native`/`2k`/`4k` tiers and its multi-reference editing, but cost
         markedly fewer credits: measured token consumption is far below
         `gpt-image-2`'s, and the two 2.5 models are priced identically to each
-        other. `gpt-image-1.5` is RETIRED (OpenAI shuts it down on
-        2026-12-01) and no longer listed on `GET /models`: a request that
-        names it is served by `gpt-image-2.5-flare` at Flare's own price, and
-        the job and its asset report `gpt-image-2.5-flare`. Generations made
-        on it before 2026-10-20 keep `gpt-image-1.5`. `nano-banana-pro`
+        other. `gpt-image-1.5` and `gpt-image-1` are RETIRED (OpenAI shuts
+        them down on 2026-12-01 and 2026-10-23) and no longer listed on
+        `GET /models`: a request that names either is served by
+        `gpt-image-2.5-flare` at Flare's own price, and the job and its asset
+        report `gpt-image-2.5-flare`. Generations made on them before
+        2026-10-20 keep their own id. `nano-banana-pro`
         (Gemini 3 Pro Image) is the flagship Gemini image model and
         `nano-banana-2-lite` (Gemini 3.1 Flash Lite Image) the budget tier,
         both with the ten Gemini aspect ratios and reference-image editing.
