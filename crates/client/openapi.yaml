@@ -14221,6 +14221,10 @@ components:
         HappyHorse 1.0 Video Edit (`happyhorse-1.0-video-edit`) rewrites one
         required 2 to 15 second source clip, with up to 5 optional reference
         images; both offer 720p/1080p and an honored seed.
+        Kling 4.0 (`kling-v4`) renders 3 to 30 second clips with its own
+        soundtrack at 720p/1080p from text, a start frame with an optional end
+        frame, or up to 8 reference images (`@Image1`, `@Image2` in the
+        prompt).
         Kling motion control (`kling-v3-motion-control`) is the human motion
         transfer entry: one driver video plus one performer still produces
         output copying the driver's motion, timing and camera at the driver's
@@ -14257,6 +14261,7 @@ components:
         - kling-v3-omni
         - kling-v3-omni-audio
         - kling-o1
+        - kling-v4
         - seedance-2.0-pro-t2v
         - seedance-2.0-pro-i2v
         - seedance-2.0-pro-r2v
