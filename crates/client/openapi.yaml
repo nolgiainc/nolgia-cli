@@ -8672,8 +8672,24 @@ paths:
       operationId: listInsiderReferrals
       summary: The accounts the caller referred.
       description: >
-        Newest first, without names or email addresses: a referral is shown by its sign-up date, its status and what it earned. `403` unless the caller is an Insider.
+        Newest first, without names or email addresses: a referral is shown by its sign-up date, its status, how it signed up (free or paid), the welcome credits it received and what it earned. One page at a time: `total` counts them all and `next_offset` is the next page's offset, null on the last page. `403` unless the caller is an Insider.
 
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
       responses:
         '200':
           description: The referrals.
@@ -19928,7 +19944,7 @@ components:
     InsiderProfile:
       type: object
       additionalProperties: false
-      required: [handle, display_name, level, social, code, offer, featured, profile_url, joined_at]
+      required: [handle, display_name, level, social, code, offer, welcome_credits, featured, profile_url, joined_at]
       properties:
         handle:
           type: string
@@ -19949,6 +19965,9 @@ components:
           examples: ['MAYA']
         offer:
           $ref: '#/components/schemas/InsiderOffer'
+        welcome_credits:
+          type: integer
+          description: The free credits a new account gets for signing up through this Insider (the program's welcome, 0 when it is off); on top of the free plan, locked until a card is on file where the card rule applies.
         featured:
           type: array
           maxItems: 12
@@ -20086,7 +20105,7 @@ components:
     InsiderStats:
       type: object
       additionalProperties: false
-      required: [signups, paying_referrals, credits_earned, credits_pending, credits_granted]
+      required: [signups, paying_referrals, credits_earned, credits_pending, credits_granted, clicks_total, free_signups, paid_referrals, welcome_credits_total]
       properties:
         signups:
           type: integer
@@ -20103,6 +20122,18 @@ components:
         credits_granted:
           type: integer
           description: Monthly Insider credits granted so far.
+        clicks_total:
+          type: integer
+          description: Clicks on the Insider's profile and referral links, every source.
+        free_signups:
+          type: integer
+          description: Attributed accounts that have not paid (blocked ones left out).
+        paid_referrals:
+          type: integer
+          description: Attributed accounts that have paid at least once (blocked ones left out).
+        welcome_credits_total:
+          type: integer
+          description: Welcome credits the referred accounts received for signing up through the Insider.
     InsiderLevelProgress:
       type: object
       additionalProperties: false
@@ -20245,10 +20276,15 @@ components:
 
       enum: [signed_up, pending, paying, lapsed, under_review, blocked]
       x-enum-varnames: [InsiderReferralStatusSignedUp, InsiderReferralStatusPending, InsiderReferralStatusPaying, InsiderReferralStatusLapsed, InsiderReferralStatusUnderReview, InsiderReferralStatusBlocked]
+    InsiderSignupKind:
+      type: string
+      description: "`free` until the referred account's first payment, then `paid`."
+      enum: [free, paid]
+      x-enum-varnames: [InsiderSignupKindFree, InsiderSignupKindPaid]
     InsiderReferral:
       type: object
       additionalProperties: false
-      required: [id, signed_up_at, status, credits_earned, credits_pending]
+      required: [id, signed_up_at, status, source, signup_kind, welcome_credits, credits_earned, credits_pending]
       properties:
         id:
           type: string
@@ -20258,6 +20294,14 @@ components:
           format: date-time
         status:
           $ref: '#/components/schemas/InsiderReferralStatus'
+        source:
+          type: string
+          description: "How the account was attributed: link, code, checkout_code or stripe_code."
+        signup_kind:
+          $ref: '#/components/schemas/InsiderSignupKind'
+        welcome_credits:
+          type: integer
+          description: The welcome credits the referred account received for signing up through the Insider (0 before the grant, or when the program's welcome is off).
         first_paid_at:
           type: string
           format: date-time
@@ -20274,12 +20318,19 @@ components:
     InsiderReferralList:
       type: object
       additionalProperties: false
-      required: [items]
+      required: [items, total]
       properties:
         items:
           type: array
           items:
             $ref: '#/components/schemas/InsiderReferral'
+        total:
+          type: integer
+          description: Every referral of the caller, across pages.
+        next_offset:
+          type: integer
+          nullable: true
+          description: The offset of the next page; null on the last page.
     InsiderRewardKind:
       type: string
       description: >
