@@ -284,7 +284,7 @@ async fn list(ctx: &CommandContext) -> Result<()> {
 // ---------------------------------------------------------------------------
 
 enum Plan {
-    Known(Subscription),
+    Known(Box<Subscription>),
     /// The API answered `404`: this context has no subscription at all (a
     /// freshly created team organization before billing is attached, or a
     /// personal account that never subscribed).
@@ -296,7 +296,7 @@ enum Plan {
 
 async fn fetch_plan(ctx: &CommandContext) -> Plan {
     match ctx.client().get_subscription().send().await {
-        Ok(response) => Plan::Known(response.into_inner()),
+        Ok(response) => Plan::Known(Box::new(response.into_inner())),
         Err(nolgia_client::ApiError::UnexpectedResponse(response))
             if response.status() == StatusCode::NOT_FOUND =>
         {
@@ -354,7 +354,7 @@ async fn status(ctx: &CommandContext) -> Result<()> {
     match ctx.format() {
         OutputFormat::Json => {
             let subscription = match &plan {
-                Plan::Known(sub) => Some(sub),
+                Plan::Known(sub) => Some(sub.as_ref()),
                 Plan::None | Plan::Unknown => None,
             };
             print_json(
@@ -780,14 +780,17 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(
-            describe_plan(&Plan::Known(sub)),
+            describe_plan(&Plan::Known(Box::new(sub))),
             "team active (3 seats, limit 5)"
         );
         let personal: Subscription = serde_json::from_value(serde_json::json!({
             "tier": "pro", "status": "active", "current_period_end": "2026-10-01T00:00:00Z"
         }))
         .unwrap();
-        assert_eq!(describe_plan(&Plan::Known(personal)), "pro active");
+        assert_eq!(
+            describe_plan(&Plan::Known(Box::new(personal))),
+            "pro active"
+        );
         assert!(describe_plan(&Plan::None).starts_with("none"));
         assert!(describe_plan(&Plan::Unknown).starts_with("unknown"));
     }

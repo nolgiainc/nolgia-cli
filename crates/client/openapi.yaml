@@ -12816,6 +12816,10 @@ components:
             - $ref: '#/components/schemas/SubscriptionTier'
           description: >-
             Minimum subscription plan required to run this model; `starter` means every plan can. Cost and eligibility are independent — an affordable model can still be out of plan, and topping up does not unlock it. Always sent (see `Model.min_tier`).
+        requires_plan:
+          type: boolean
+          description: >-
+            Mirrors `Model.requires_plan`: whether the free plan (no plan, no free trial) is below this model's floor. Always sent.
         cost:
           $ref: '#/components/schemas/ModelCost'
         quality:
@@ -12945,7 +12949,11 @@ components:
           allOf:
             - $ref: '#/components/schemas/SubscriptionTier'
           description: >-
-            Minimum subscription plan required to run this model. `starter` means every plan can run it. A model published as `pro` needs Pro or Studio, and submitting it on a lower plan is refused with a 402 "Upgrade Required" - that is a plan limit, so adding credits does not unlock it. Sent for every model so a picker can mark or disable what the account cannot run, rather than letting the user submit and be refused. Cost and eligibility are independent: an affordable model can still be out of plan. Optional in the schema only so that existing clients keep parsing; the API always sends it.
+            Minimum subscription plan required to run this model. `starter` means every plan can run it. A model published as `pro` needs Pro or Studio, and submitting it on a lower plan is refused with a 402 "Upgrade Required" - that is a plan limit, so adding credits does not unlock it. Premium video (Seedance 2.5, Kling 4.0, every Veo model and every video model at or above Seedance 2.5's credit cost per second) is `pro`; the other video models, the starter video models, are `starter` with `requires_plan` true. Sent for every model so a picker can mark or disable what the account cannot run, rather than letting the user submit and be refused. Cost and eligibility are independent: an affordable model can still be out of plan. Optional in the schema only so that existing clients keep parsing; the API always sends it.
+        requires_plan:
+          type: boolean
+          description: >-
+            Whether the model needs a plan: an account on the free plan (no plan and no free trial) cannot run it, whatever its credits, and is refused with a 402 "Upgrade Required". `min_tier` names the lowest plan that can. True for every video model except the restore and background-removal tools; false for models every account can run. Sent for every model; optional in the schema only so that existing clients keep parsing.
         cost:
           $ref: '#/components/schemas/ModelCost'
         video:
@@ -19822,6 +19830,23 @@ components:
           type: integer
           nullable: true
           description: The organization's seat cap (`null` = unlimited); absent for personal plans.
+        complimentary:
+          $ref: '#/components/schemas/ComplimentaryPlan'
+    ComplimentaryPlan:
+      type: object
+      additionalProperties: false
+      required: [tier, ends_at]
+      description: >
+        Present only when the plan in `tier` is one NOLGIA gave the account free (a complimentary plan) and it is the plan the account has now: it ranks above the account's own paid plan, if any. Nothing about it is billed. The account's own Stripe plan, if it has one, carries on unchanged underneath and is changed or canceled as usual; this response then omits the Stripe fields. Personal accounts only.
+
+      properties:
+        tier:
+          $ref: '#/components/schemas/SubscriptionTier'
+        ends_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the complimentary plan ends; `null` = until NOLGIA ends it.
     InsiderLevel:
       type: string
       description: >
@@ -21659,9 +21684,10 @@ components:
     CreditWalletType:
       type: string
       description: >
-        Launch credit buckets. The app channel (browser and device sessions, the NOLGIA Agent, organization API keys and OAuth connector tokens such as ChatGPT's) uses subscription first, then shared top-up overflow; the API channel (personal access tokens created by hand) uses shared top-up only.
+        Credit buckets. The app channel (browser and device sessions, the NOLGIA Agent, organization API keys and OAuth connector tokens such as ChatGPT's) uses free credits first, then subscription, then shared top-up overflow; the API channel (personal access tokens created by hand) uses shared top-up only. `free` holds free credits (the daily free allowance, which expires at the end of its Pacific day, and older sign-up, checklist and promo grants, which do not expire): they pay for images, audio, the agent and video below the premium line, never for premium video (Seedance 2.5, Kling 4.0, every Veo model and every video model at or above Seedance 2.5's credit cost per second) and never on the API channel. Free credits exist in the personal space only.
 
-      enum: [app_subscription, shared_topup]
+      enum: [app_subscription, shared_topup, free]
+      x-enum-varnames: [AppSubscription, SharedTopup, CreditWalletTypeFree]
     CreditRedeemRequest:
       type: object
       additionalProperties: false
@@ -21720,6 +21746,27 @@ components:
         available_for_api:
           type: integer
           description: API prepaid credits; shared top-up only at launch.
+        free:
+          type: integer
+          description: >
+            Free credits in the balance (counted in `total` and `available_for_app`, never in `available_for_api`). They pay for images, audio, the agent and video below the premium line, never for premium video. Absent inside an organization.
+
+        free_daily_credits:
+          type: integer
+          description: >
+            The free daily allowance this account gets: set only for an account on the free plan (it has never paid) while the allowance is on. Unused free daily credits expire at the end of the Pacific day; the next day's arrive with the account's first request.
+
+        free_refills_at:
+          type: string
+          format: date-time
+          description: >
+            When the next free daily allowance becomes available (the next midnight, America/Los_Angeles). Set with `free_daily_credits`, unless `free_card_required`.
+
+        free_card_required:
+          type: boolean
+          description: >
+            True for a free-plan account with no card on file: its free credits (`free`) are locked and no daily allowance arrives until it adds a card in the NOLGIA app (no charge). `free_daily_credits` then says what a card unlocks.
+
         credential_channel:
           $ref: '#/components/schemas/CreditChannel'
         available_for_credential:
@@ -21778,14 +21825,14 @@ components:
       x-enum-varnames: [CreditTransactionKindGrant, CreditTransactionKindTopup, CreditTransactionKindRedeem, CreditTransactionKindGeneration, CreditTransactionKindAgentTurn, CreditTransactionKindRender, CreditTransactionKindRefund, CreditTransactionKindAdjustment]
     CreditTransactionWallet:
       type: string
-      description: Which wallet a row moved, the expiring monthly plan wallet or the non-expiring top-up wallet.
-      enum: [subscription, topup]
-      x-enum-varnames: [CreditTransactionWalletSubscription, CreditTransactionWalletTopup]
+      description: Which wallet a row moved, the expiring monthly plan wallet, the non-expiring top-up wallet, or the free credits wallet (daily allowance and older free grants).
+      enum: [subscription, topup, free]
+      x-enum-varnames: [CreditTransactionWalletSubscription, CreditTransactionWalletTopup, CreditTransactionWalletFree]
     CreditTransactionWalletFilter:
       type: string
       description: Wallet filter for the ledger read; `all` is the default.
-      enum: [subscription, topup, all]
-      x-enum-varnames: [CreditTransactionWalletFilterSubscription, CreditTransactionWalletFilterTopup, CreditTransactionWalletFilterAll]
+      enum: [subscription, topup, free, all]
+      x-enum-varnames: [CreditTransactionWalletFilterSubscription, CreditTransactionWalletFilterTopup, CreditTransactionWalletFilterFree, CreditTransactionWalletFilterAll]
     CreditTransactionMember:
       type: object
       additionalProperties: false
@@ -24113,8 +24160,8 @@ components:
           description: After this the token is refused and a submit carrying it fails with `confirmation_rejected`. Re-quote.
     GenerationErrorCode:
       type: string
-      enum: [out_of_credits, rate_limit, prompt_nsfw, ip_detected, job_failed, timeout, validation, confirmation_rejected, canceled, job_not_cancellable, approval_required, run_ended, likeness_refused, copyright_refused, output_safety_blocked, input_safety_blocked, invalid_media, frame_constraint, media_constraint, card_required]
-      x-enum-varnames: [GenerationErrorCodeOutOfCredits, GenerationErrorCodeRateLimit, GenerationErrorCodePromptNsfw, GenerationErrorCodeIpDetected, GenerationErrorCodeJobFailed, GenerationErrorCodeTimeout, GenerationErrorCodeValidation, GenerationErrorCodeConfirmationRejected, GenerationErrorCodeCanceled, GenerationErrorCodeJobNotCancellable, GenerationErrorCodeApprovalRequired, GenerationErrorCodeRunEnded, GenerationErrorCodeLikenessRefused, GenerationErrorCodeCopyrightRefused, GenerationErrorCodeOutputSafetyBlocked, GenerationErrorCodeInputSafetyBlocked, GenerationErrorCodeInvalidMedia, GenerationErrorCodeFrameConstraint, GenerationErrorCodeMediaConstraint, GenerationErrorCodeCardRequired]
+      enum: [out_of_credits, rate_limit, prompt_nsfw, ip_detected, job_failed, timeout, validation, confirmation_rejected, canceled, job_not_cancellable, approval_required, run_ended, likeness_refused, copyright_refused, output_safety_blocked, input_safety_blocked, invalid_media, frame_constraint, media_constraint, card_required, paid_credits_required]
+      x-enum-varnames: [GenerationErrorCodeOutOfCredits, GenerationErrorCodeRateLimit, GenerationErrorCodePromptNsfw, GenerationErrorCodeIpDetected, GenerationErrorCodeJobFailed, GenerationErrorCodeTimeout, GenerationErrorCodeValidation, GenerationErrorCodeConfirmationRejected, GenerationErrorCodeCanceled, GenerationErrorCodeJobNotCancellable, GenerationErrorCodeApprovalRequired, GenerationErrorCodeRunEnded, GenerationErrorCodeLikenessRefused, GenerationErrorCodeCopyrightRefused, GenerationErrorCodeOutputSafetyBlocked, GenerationErrorCodeInputSafetyBlocked, GenerationErrorCodeInvalidMedia, GenerationErrorCodeFrameConstraint, GenerationErrorCodeMediaConstraint, GenerationErrorCodeCardRequired, GenerationErrorCodePaidCreditsRequired]
       description: |
         Stable machine-readable class of a generation failure, on the
         `/generate/*` submit responses (as `error.code`) and on a failed job
@@ -24140,7 +24187,8 @@ components:
         - `canceled`: the job was canceled by its owner (`POST /jobs/{id}/cancel`), not broken. It is the code the SDK wait helpers raise for a `canceled` job; `cancellation` on the job says what the provider did and what was refunded. A canceled job carries no `failure`.
         - `job_not_cancellable`: `POST /jobs/{id}/cancel` refused (`409`) because the job already finished, or its finished result is already being delivered. The job will reach `succeeded` or `failed` on its own; nothing was changed.
         - `approval_required`: refused with `402` (title `Approval Needed`) because the generation would take an agent run past the price its customer approved (the `credit_ceiling` a guided preset's review card showed, sent with the brief). Nothing was submitted and nothing was charged. The detail names the generation's cost and the new run total; the agent must ask the customer to approve that total before it continues, never retry, split the job or switch models to fit.
-        - `card_required`: refused with `402` (title `Card Required`) because the model is premium video (Seedance 2.5 and every video model at or above its credit cost per second) and the account has no card on file and has never paid for a plan or credits. Nothing was submitted and nothing was charged. Adding a card in the NOLGIA app unlocks it with no charge (`help_url` is the app's card page); `suggested_models` lists cheaper video models this account can run now, best first. Images and the cheaper models work without a card. Never retry the same request.
+        - `card_required`: refused with `402` (title `Card Required`) for one of two reasons. Free credits: the account is on the free plan (never paid) with no card on file and no paid credits, so its free credits are locked; adding a card (no charge) unlocks them and the daily free allowance (`suggested_models` is empty then). Premium video: the model is premium video (Seedance 2.5, Kling 4.0, every Veo model and every video model at or above Seedance 2.5's credit cost per second) and the account has no card on file and has never paid for a plan or credits. Nothing was submitted and nothing was charged. Adding a card in the NOLGIA app unlocks it with no charge (`help_url` is the app's card page); `suggested_models` lists cheaper video models this account can run now, best first. Images and the cheaper models work without a card. Never retry the same request.
+        - `paid_credits_required`: refused with `402` (title `Paid Credits Required`) because the model is premium video (Seedance 2.5, Kling 4.0, Veo and every video model at or above Seedance 2.5's credit cost per second) and the account is on the free plan (it has never paid for a plan or credits) with no paid credits to cover it. Free credits (the daily allowance and older sign-up grants) pay for images and the cheaper video models only. Nothing was submitted and nothing was charged. Subscribing or buying credits unlocks it (`help_url` is the app's billing page); `suggested_models` lists cheaper video models the free credits cover, best first. Never retry the same request.
         - `run_ended`: refused with `409` (title `Run Ended`) because the agent run this generation was started for (the turn its turn-scoped credential names) has already ended: the platform failed, swept or stopped the turn, or it finished and delivered its reply. Nothing was submitted and nothing was charged. The agent must stop working on that run, never retry or switch models; the customer's chat already shows how it ended.
     AgentMessageConflict:
       type: object
