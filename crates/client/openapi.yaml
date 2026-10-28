@@ -24205,7 +24205,24 @@ components:
         balance_credits:
           type: integer
           nullable: true
-          description: The wallet balance this quote was compared against, when one could be read.
+          description: >-
+            The wallet balance this quote was compared against, when one could be read. On a premium video quote, or for an account whose free credits are locked until a card is on file, it is the paid credits alone: `free_credits_excluded` then says how many free credits the account holds that this generation cannot spend, so a client never shows "you have N" against a larger balance without saying why.
+        free_credits_excluded:
+          type: integer
+          description: >-
+            Free credits the account holds that `balance_credits` leaves out (premium video never spends free credits; free credits are locked until a card is on file). Present only when it is above 0.
+        free_credits_excluded_reason:
+          type: string
+          enum: [premium_video, card_required]
+          x-enum-varnames: [JobCostFreeExcludedPremiumVideo, JobCostFreeExcludedCardRequired]
+          description: >-
+            Why `free_credits_excluded` are left out: `premium_video` (Seedance 2.5, Kling 4.0, Veo and every video model at or above 5.4 credits per second run on paid credits; free credits pay for images and the cheaper video models), or `card_required` (the account's free credits are locked until a card is on file). Present with `free_credits_excluded`.
+        suggested_models:
+          type: array
+          items:
+            type: string
+          description: >-
+            On a premium video quote the paid credits do not cover while free credits are left out: cheaper video models the free credits cover, best first (the same list `paid_credits_required` carries). Absent otherwise.
         sufficient_credits:
           type: boolean
           description: Whether the balance covers `credits` right now. Advisory — the submit re-checks.
