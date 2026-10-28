@@ -20166,25 +20166,25 @@ components:
         cash_pct:
           type: number
           format: double
-          description: The level's cash commission, percent.
+          description: The level's cash commission, percent; 0 for a tracking-only Insider.
         credits_pct:
           type: number
           format: double
-          description: The level's credit commission, percent.
+          description: The level's credit commission, percent; 0 for a tracking-only Insider.
         next_cash_pct:
           type: number
           format: double
           nullable: true
-          description: The next level's cash commission; null at Elite.
+          description: The next level's cash commission; null at Elite; 0 for a tracking-only Insider.
         next_credits_pct:
           type: number
           format: double
           nullable: true
-          description: The next level's credit commission; null at Elite.
+          description: The next level's credit commission; null at Elite; 0 for a tracking-only Insider.
     InsiderSelf:
       type: object
       additionalProperties: false
-      required: [handle, display_name, level, status, social, code, offer, profile_url, referral_url, featured, progress, joined_at]
+      required: [handle, display_name, level, status, social, code, offer, profile_url, referral_url, featured, progress, joined_at, tracking_only]
       properties:
         handle:
           type: string
@@ -20192,6 +20192,10 @@ components:
           type: string
         bio:
           type: string
+        tracking_only:
+          type: boolean
+          description: >-
+            The Insider's links are tracking only: every visit, sign up and payment is counted, and they earn no commission (0 percent). Staff set it. The visitor's offer, the welcome credits and the monthly credits are unchanged.
         level:
           $ref: '#/components/schemas/InsiderLevel'
         status:
@@ -20526,8 +20530,12 @@ components:
     InsiderEarnings:
       type: object
       additionalProperties: false
-      required: [method, level, rates, balances, legacy_credits_earned, next_payout, payout_account, terms, payouts_live]
+      required: [method, level, rates, balances, legacy_credits_earned, next_payout, payout_account, terms, payouts_live, tracking_only]
       properties:
+        tracking_only:
+          type: boolean
+          description: >-
+            The Insider's links are tracking only and earn no commission; `rates` then reads 0 at every level. Balances already earned stay as they are.
         method:
           $ref: '#/components/schemas/InsiderPayoutMethod'
         method_since:
