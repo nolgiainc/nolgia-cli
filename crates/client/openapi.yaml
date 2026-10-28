@@ -8666,6 +8666,37 @@ paths:
           $ref: '#/components/responses/ProblemResponse'
         default:
           $ref: '#/components/responses/ProblemResponse'
+  /insiders/me/performance:
+    get:
+      tags: [Insiders]
+      operationId: getInsiderPerformance
+      summary: How the caller's links perform.
+      description: >
+        What the caller's profile and referral links brought, over a window (the last `days` days; `days=0` is all time) and all time: visits (one per browser per 30 minutes) and distinct visitors, where the visits came from (campaign tag, referring site, landing page), the sign ups, and what each sign up did next (first creation, free trial, first payment), newest first, without names or email addresses. Days are Pacific business days. `403` unless the caller is an Insider.
+
+      parameters:
+        - name: days
+          in: query
+          required: false
+          schema:
+            type: integer
+            enum: [0, 7, 30, 90, 365]
+            default: 30
+      responses:
+        '200':
+          description: The caller's performance.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InsiderPerformance'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
   /insiders/me/referrals:
     get:
       tags: [Insiders]
@@ -20319,6 +20350,216 @@ components:
           type: integer
         credits_pending:
           type: integer
+    InsiderPerformanceTotals:
+      type: object
+      additionalProperties: false
+      required: [visits, visitors, signups, free_signups, created, trialed, paid, revenue_cents]
+      properties:
+        visits:
+          type: integer
+          description: Visits through the links (one per browser per 30 minutes).
+        visitors:
+          type: integer
+          description: Distinct browsers among the visits (a visit without the device cookie counts as its own visitor).
+        signups:
+          type: integer
+          description: Accounts attributed to the Insider in the window (blocked ones left out).
+        free_signups:
+          type: integer
+          description: Of those, the accounts that have not paid.
+        created:
+          type: integer
+          description: Of those, the accounts that made their first creation.
+        trialed:
+          type: integer
+          description: Of those, the accounts that started a free trial.
+        paid:
+          type: integer
+          description: Of those, the accounts that paid at least once.
+        revenue_cents:
+          type: integer
+          format: int64
+          description: >-
+            What referred customers paid in the window (by payment date), net of refunds, in US cents; disputed payments and blocked referrals left out.
+    InsiderPerformanceDay:
+      type: object
+      additionalProperties: false
+      required: [day, visits, visitors, signups, paid]
+      properties:
+        day:
+          type: string
+          format: date
+          description: A Pacific business day.
+        visits:
+          type: integer
+        visitors:
+          type: integer
+        signups:
+          type: integer
+        paid:
+          type: integer
+          description: First payments made that day by referred accounts.
+    InsiderPerformanceSource:
+      type: object
+      additionalProperties: false
+      required: [utm_source, utm_medium, utm_campaign, visits, visitors, signups, paid]
+      properties:
+        utm_source:
+          type: string
+          nullable: true
+          description: Null when the link carried no tag.
+        utm_medium:
+          type: string
+          nullable: true
+        utm_campaign:
+          type: string
+          nullable: true
+        visits:
+          type: integer
+        visitors:
+          type: integer
+        signups:
+          type: integer
+        paid:
+          type: integer
+    InsiderPerformanceReferrer:
+      type: object
+      additionalProperties: false
+      required: [host, visits, visitors]
+      properties:
+        host:
+          type: string
+          nullable: true
+          description: >-
+            The referring site's host (instagram.com, t.co). Null when the browser sent none (typed or pasted, an app's own browser, a privacy setting) or for visits recorded before referrers were.
+        visits:
+          type: integer
+        visitors:
+          type: integer
+    InsiderPerformanceLanding:
+      type: object
+      additionalProperties: false
+      required: [path, visits]
+      properties:
+        path:
+          type: string
+          description: The landing page's path, no query string ("" when not recorded).
+        visits:
+          type: integer
+    InsiderPerformancePage:
+      type: object
+      additionalProperties: false
+      required: [path, signups]
+      properties:
+        path:
+          type: string
+          description: A key page (pricing, a tool, presets, plugins, guides) the sign ups opened before signing up.
+        signups:
+          type: integer
+          description: Sign ups in the window that opened it before signing up.
+    InsiderPerformanceSignup:
+      type: object
+      additionalProperties: false
+      required: [id, signed_up_at, signup_kind, source, status, welcome_credits]
+      properties:
+        id:
+          type: string
+          description: The same opaque id `GET /insiders/me/referrals` shows (not the account id).
+        signed_up_at:
+          type: string
+          format: date-time
+        signup_kind:
+          $ref: '#/components/schemas/InsiderSignupKind'
+        source:
+          type: string
+          description: "How the account was attributed: link, code, checkout_code or stripe_code."
+        status:
+          $ref: '#/components/schemas/InsiderReferralStatus'
+        utm_source:
+          type: string
+          nullable: true
+        utm_campaign:
+          type: string
+          nullable: true
+        landing_path:
+          type: string
+          nullable: true
+          description: Where its first visit through the links landed, when recorded.
+        welcome_credits:
+          type: integer
+        first_creation_at:
+          type: string
+          format: date-time
+          nullable: true
+        first_creation_kind:
+          type: string
+          nullable: true
+          description: What the first creation was (image, video, audio, ...), when there is one.
+        trial_started_at:
+          type: string
+          format: date-time
+          nullable: true
+        first_paid_at:
+          type: string
+          format: date-time
+          nullable: true
+        paying_now:
+          type: boolean
+          description: The account holds an active paid personal plan now.
+    InsiderPerformance:
+      type: object
+      additionalProperties: false
+      required: [days, from, to, window, all_time, series, sources, referrers, landings, pages, signups, tracking_only]
+      properties:
+        days:
+          type: integer
+          description: The window asked for (0 = all time).
+        from:
+          type: string
+          format: date
+          description: The window's first Pacific day (the Insider's join day for all time).
+        to:
+          type: string
+          format: date
+          description: The window's last Pacific day (today).
+        window:
+          $ref: '#/components/schemas/InsiderPerformanceTotals'
+        all_time:
+          $ref: '#/components/schemas/InsiderPerformanceTotals'
+        series:
+          type: array
+          description: One row per Pacific day of the window, oldest first, zeros included (at most 365; all time starts at the join day, capped to the last 365 days).
+          items:
+            $ref: '#/components/schemas/InsiderPerformanceDay'
+        sources:
+          type: array
+          description: The window's visits and sign ups by campaign tag, the 20 tags with the most visits, then any tag with a sign up.
+          items:
+            $ref: '#/components/schemas/InsiderPerformanceSource'
+        referrers:
+          type: array
+          description: The window's 20 referring sites with the most visits.
+          items:
+            $ref: '#/components/schemas/InsiderPerformanceReferrer'
+        landings:
+          type: array
+          description: The window's 20 landing pages with the most visits.
+          items:
+            $ref: '#/components/schemas/InsiderPerformanceLanding'
+        pages:
+          type: array
+          description: >-
+            The key pages the window's sign ups opened before signing up, most sign ups first (at most 20). Only from visitors whose cookie choice allowed it, so it can be fewer than the sign ups.
+          items:
+            $ref: '#/components/schemas/InsiderPerformancePage'
+        signups:
+          type: array
+          description: The window's sign ups, newest first (at most 200), each with what it did next.
+          items:
+            $ref: '#/components/schemas/InsiderPerformanceSignup'
+        tracking_only:
+          type: boolean
+          description: The Insider's links are tracking only (no commission).
     InsiderReferralList:
       type: object
       additionalProperties: false
