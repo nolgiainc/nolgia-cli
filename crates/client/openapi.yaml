@@ -20319,7 +20319,7 @@ components:
     InsiderReferral:
       type: object
       additionalProperties: false
-      required: [id, signed_up_at, status, source, signup_kind, welcome_credits, credits_earned, credits_pending]
+      required: [id, signed_up_at, status, source, signup_kind, welcome_credits, credits_earned, credits_pending, earned_cents, earned_pending_cents, earned_credits]
       properties:
         id:
           type: string
@@ -20350,10 +20350,23 @@ components:
           type: integer
         credits_pending:
           type: integer
+        earned_cents:
+          type: integer
+          format: int64
+          description: >-
+            Cash commission this account's payments earned the Insider, in US cents, net of clawbacks: in the refund hold, held for review, available or paid (void ones left out). 0 for a tracking-only Insider and on the credits method.
+        earned_pending_cents:
+          type: integer
+          format: int64
+          description: The part of `earned_cents` still in the 30 day refund hold or held for review.
+        earned_credits:
+          type: integer
+          description: >-
+            Credit commission (the credits method) this account's payments earned, net of reversals, granted or still in the hold. Credit rewards for payments before cash commissions launched are `credits_earned` and `credits_pending` on the referral.
     InsiderPerformanceTotals:
       type: object
       additionalProperties: false
-      required: [visits, visitors, signups, free_signups, created, trialed, paid, revenue_cents]
+      required: [visits, visitors, signups, free_signups, created, trialed, paid, revenue_cents, earned_cents, earned_credits]
       properties:
         visits:
           type: integer
@@ -20381,10 +20394,18 @@ components:
           format: int64
           description: >-
             What referred customers paid in the window (by payment date), net of refunds, in US cents; disputed payments and blocked referrals left out.
+        earned_cents:
+          type: integer
+          format: int64
+          description: >-
+            Cash commission the window's payments (by payment date) earned the Insider, net of clawbacks, void ones left out (in the hold, held, available or paid). 0 for a tracking-only Insider.
+        earned_credits:
+          type: integer
+          description: Credit commission the window's payments earned (the credits method), net of reversals.
     InsiderPerformanceDay:
       type: object
       additionalProperties: false
-      required: [day, visits, visitors, signups, paid]
+      required: [day, visits, visitors, signups, paid, earned_cents]
       properties:
         day:
           type: string
@@ -20399,6 +20420,10 @@ components:
         paid:
           type: integer
           description: First payments made that day by referred accounts.
+        earned_cents:
+          type: integer
+          format: int64
+          description: Cash commission that day's referred payments earned (as `InsiderPerformanceTotals.earned_cents`).
     InsiderPerformanceSource:
       type: object
       additionalProperties: false
@@ -20460,7 +20485,7 @@ components:
     InsiderPerformanceSignup:
       type: object
       additionalProperties: false
-      required: [id, signed_up_at, signup_kind, source, status, welcome_credits]
+      required: [id, signed_up_at, signup_kind, source, status, welcome_credits, earned_cents, earned_pending_cents, earned_credits]
       properties:
         id:
           type: string
@@ -20506,6 +20531,19 @@ components:
         paying_now:
           type: boolean
           description: The account holds an active paid personal plan now.
+        earned_cents:
+          type: integer
+          format: int64
+          description: >-
+            Cash commission this account's payments earned the Insider, in US cents, net of clawbacks: in the refund hold, held for review, available or paid (void ones left out). 0 for a tracking-only Insider and on the credits method.
+        earned_pending_cents:
+          type: integer
+          format: int64
+          description: The part of `earned_cents` still in the 30 day refund hold or held for review.
+        earned_credits:
+          type: integer
+          description: >-
+            Credit commission (the credits method) this account's payments earned, net of reversals, granted or still in the hold. Credit rewards for payments before cash commissions launched are `credits_earned` and `credits_pending` on GET /insiders/me/referrals.
     InsiderPerformance:
       type: object
       additionalProperties: false
