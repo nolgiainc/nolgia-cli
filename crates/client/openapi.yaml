@@ -8661,7 +8661,7 @@ paths:
       operationId: updateInsiderProfile
       summary: Update the caller's public Insider profile.
       description: >
-        Display name, bio, social handles and featured creations. Every property is optional and replaces the stored value. Featuring an asset publishes it on the profile through a view-only share link that never expires; removing it from the list revokes that link. At most 12 featured assets, all from the caller's personal library. `403` unless the caller is an active Insider.
+        Display name, bio, social handles, handle, profile picture and featured creations. Every property is optional and replaces the stored value. A changed handle or picture is recorded on the Insider's history. Featuring an asset publishes it on the profile through a view-only share link that never expires; removing it from the list revokes that link. At most 12 featured assets, all from the caller's personal library. `403` unless the caller is an active Insider.
 
       requestBody:
         required: true
@@ -8681,6 +8681,8 @@ paths:
         '401':
           $ref: '#/components/responses/ProblemResponse'
         '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
           $ref: '#/components/responses/ProblemResponse'
         default:
           $ref: '#/components/responses/ProblemResponse'
@@ -20090,6 +20092,11 @@ components:
         image_url:
           type: string
           nullable: true
+        picture_share_token:
+          type: string
+          nullable: true
+          description: >-
+            The profile picture the Insider set in the portal, as a share token (GET /share/{token} redirects to the image); null when they have not set one, or it was removed or trashed. Prefer it over image_url, which is the account's sign-in image.
         level:
           $ref: '#/components/schemas/InsiderLevel'
         social:
@@ -20129,6 +20136,11 @@ components:
         image_url:
           type: string
           nullable: true
+        picture_share_token:
+          type: string
+          nullable: true
+          description: >-
+            The profile picture the Insider set in the portal, as a share token (GET /share/{token} redirects to the image); null when they have not set one, or it was removed or trashed. Prefer it over image_url, which is the account's sign-in image.
         level:
           $ref: '#/components/schemas/InsiderLevel'
         profile_url:
@@ -20327,6 +20339,11 @@ components:
           type: string
         bio:
           type: string
+        picture_share_token:
+          type: string
+          nullable: true
+          description: >-
+            The profile picture set in the portal, as a share token (GET /share/{token} redirects to the image); null when none is set.
         tracking_only:
           type: boolean
           description: >-
@@ -20408,6 +20425,20 @@ components:
           items:
             type: string
             format: uuid
+        handle:
+          type: string
+          minLength: 1
+          maxLength: 40
+          description: >-
+            Moves the profile to nolgia.ai/@handle, with the same rules as an application (3 to 30 characters: lowercase letters, digits, `_` and `.`, starting and ending with a letter or digit; reserved names refused). The old handle keeps working: its profile link redirects and its referrals still count. The personal code does not change. `409` when another account has or had it, and after 10 former handles.
+        picture_asset_id:
+          type: string
+          format: uuid
+          description: >-
+            Sets the profile picture: one of the caller's own finished images from their personal library (upload it with POST /assets first, cropped square). It is published through a view-only share link that never expires; the previous picture's link is revoked.
+        clear_picture:
+          type: boolean
+          description: True removes the profile picture (its link is revoked). Not with picture_asset_id.
     InsiderReferralStatus:
       type: string
       description: >
