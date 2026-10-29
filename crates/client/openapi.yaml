@@ -16899,6 +16899,8 @@ components:
           type: string
           description: The computer's name, as the plugin reports it.
           examples: ['ada-macbook']
+        os:
+          $ref: '#/components/schemas/BridgeOS'
         document:
           $ref: '#/components/schemas/BridgeDocument'
         capabilities:
@@ -16953,6 +16955,8 @@ components:
         machine_name:
           type: string
           maxLength: 128
+        os:
+          $ref: '#/components/schemas/BridgeOS'
         document:
           $ref: '#/components/schemas/BridgeDocument'
         capabilities:
@@ -16966,6 +16970,16 @@ components:
           type: boolean
           default: true
           description: Whether the NOLGIA Agent may send commands to this session.
+    BridgeOS:
+      type: string
+      enum: [macos, windows, linux]
+      x-enum-varnames: [BridgeOSMacos, BridgeOSWindows, BridgeOSLinux]
+      description: |
+        The operating system of the computer the plugin runs on, so the NOLGIA
+        Agent names the right keyboard shortcuts (Cmd on a Mac, Ctrl on
+        Windows). On a session, it is the value the plugin sent or, for a
+        plugin that sends none, the one its User-Agent names; absent when
+        neither says.
     BridgeCommandStatus:
       type: string
       enum: [queued, running, succeeded, failed, expired, cancelled]
