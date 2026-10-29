@@ -16149,9 +16149,35 @@ components:
 
           items:
             $ref: '#/components/schemas/AssetCharacterScore'
+        source:
+          $ref: '#/components/schemas/AssetSource'
         created_at:
           type: string
           format: date-time
+    AssetSource:
+      type: object
+      additionalProperties: false
+      readOnly: true
+      required: [kind, app, command]
+      description: >-
+        Where the asset came from, when that was not a NOLGIA generation or a plain upload. Today only `desktop_app`: a NOLGIA plugin made it with its `preview` or `export` command (a still of the document open in the person's app, uploaded to their Library). Set by NOLGIA when the command's result names the asset; absent for every other asset and never writable.
+      properties:
+        kind:
+          type: string
+          enum: [desktop_app]
+          x-enum-varnames: [AssetSourceKindDesktopApp]
+        app:
+          $ref: '#/components/schemas/BridgeApp'
+        document:
+          type: string
+          description: >-
+            The name of the document the command copied (its file name in the app, never its path), when the plugin said which.
+        command:
+          type: string
+          enum: [export, preview]
+          x-enum-varnames: [AssetSourceCommandExport, AssetSourceCommandPreview]
+          description: >-
+            `export`: a full-size copy the person or their agent asked to keep. `preview`: a smaller still the agent made to look at its own work.
     AssetCharacterScore:
       type: object
       additionalProperties: false
