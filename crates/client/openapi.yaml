@@ -105,8 +105,9 @@ tags:
       garbled lettering, natural eyes, sound anatomy), judged on the stored
       file itself. Legible text and real brand logos pass; garbled lettering
       is named with where it is. Every video an agent run delivers is checked
-      before the reply reaches the customer; these endpoints run the same
-      check on demand.
+      before the reply reaches the customer; a file that fails gets one fix,
+      on the platform, and is then delivered with what is still wrong named.
+      These endpoints run the same check on demand.
   - name: Activity
     description: |
       Read-only chronological feed of platform events (generations, assets,
@@ -6303,6 +6304,8 @@ paths:
         clothed (a silhouette that reads as unclothed fails), no readable or
         pseudo-readable text or numbers anywhere (only text the customer
         asked for, spelled exactly), natural eyes and faces, sound anatomy.
+        An Encore edit cut from your own clips is not judged by the rubric
+        (`picture_skipped`): its picture is your footage.
 
         Only the customer's own words relax a rule: an opt-out (`opt_outs`)
         must quote what the customer wrote in the chat (an agent credential's
@@ -23794,6 +23797,9 @@ components:
           format: int64
         error:
           type: string
+        picture_skipped:
+          type: string
+          description: Why the picture was not judged, for an Encore edit cut from the customer's own clips ("the picture is the customer's own footage"). Its sound is still checked.
         cached:
           type: boolean
           description: The verdict was read back from an earlier check of the same file under the same options.
