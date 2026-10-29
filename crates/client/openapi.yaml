@@ -24879,6 +24879,12 @@ components:
           nullable: true
           description: >-
             The marketing attribution recorded when the session was launched, or null for an organic launch. Written once at creation and never updated: it describes how the session STARTED, so a later visit from another link cannot rewrite the credit. Marketing dimensions only, never a user identifier.
+        app:
+          allOf:
+            - $ref: '#/components/schemas/AgentSessionApp'
+          nullable: true
+          description: >-
+            The desktop app window the session was started from (a chat in the NOLGIA panel inside that app), or null. Written once at creation and never updated.
         archived_at:
           type: string
           format: date-time
@@ -25004,6 +25010,26 @@ components:
             - $ref: '#/components/schemas/SessionCampaign'
           description: >-
             Marketing attribution for this launch, when the session was started from a campaign link (`nolgia.ai/p/<slug>?utm_source=...`). Recorded on the session so a campaign can be measured against the launches it produced; ignored for anything else. Blank and whitespace-only members are dropped, and a campaign whose members are all blank is stored as absent.
+        app:
+          allOf:
+            - $ref: '#/components/schemas/AgentSessionApp'
+          description: >-
+            The desktop app window this chat is started from, for a chat inside the NOLGIA panel of a desktop app. Every turn of the session then tells the agent that the person is writing from that app and that their requests are about it, aimed at that window (the plugin install's bridge session, found by `instance_id`). Set once here; it cannot be changed later.
+    AgentSessionApp:
+      type: object
+      additionalProperties: false
+      required: [app, instance_id]
+      description: >-
+        A desktop app window a chat session is pinned to: the app and the NOLGIA plugin install it runs in.
+      properties:
+        app:
+          $ref: '#/components/schemas/BridgeApp'
+        instance_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: >-
+            The plugin install's own stable id, the same `instance_id` it registers its bridge session with (`POST /bridge/sessions`). One line, no control characters.
     UpdateAgentSessionRequest:
       type: object
       additionalProperties: false
