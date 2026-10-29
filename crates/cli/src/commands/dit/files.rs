@@ -117,6 +117,98 @@ fn walk_into(root: &Path, dir: &Path, out: &mut Walk) -> Result<()> {
     Ok(())
 }
 
+/// Folders a camera writes at the root of its card (matched case-insensitively):
+/// DCIM (stills cameras, mirrorless, drones, GoPro), PRIVATE (Sony M4ROOT,
+/// AVCHD), XDROOT and M4ROOT (Sony), AVCHD, CONTENTS (Panasonic P2, Canon
+/// XF-AVC) and AVF_INFO (Panasonic). A RED card's `.RDM` folder counts too.
+const CARD_ROOT_FOLDERS: &[&str] = &[
+    "dcim", "private", "xdroot", "m4root", "avchd", "contents", "avf_info",
+];
+
+/// Does `dir` look like the root of a camera card?
+pub fn is_card_root(dir: &Path) -> bool {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return false;
+    };
+    entries.flatten().any(|e| {
+        let name = e.file_name().to_string_lossy().to_ascii_lowercase();
+        e.path().is_dir() && (CARD_ROOT_FOLDERS.contains(&name.as_str()) || name.ends_with(".rdm"))
+    })
+}
+
+/// What is directly inside a folder that is not a card itself: the card
+/// roots, and everything else (OS clutter and NOLGIA's own `_DIT` and
+/// `ascmhl` aside).
+#[derive(Debug, Default)]
+pub struct CardsInside {
+    pub cards: Vec<PathBuf>,
+    pub others: Vec<String>,
+}
+
+pub fn cards_inside(dir: &Path) -> Result<CardsInside> {
+    let mut out = CardsInside::default();
+    let mut entries: Vec<_> = fs::read_dir(dir)
+        .with_context(|| format!("could not read the folder {}", dir.display()))?
+        .flatten()
+        .collect();
+    entries.sort_by_key(|e| e.file_name());
+    for e in entries {
+        let name = e.file_name().to_string_lossy().to_string();
+        if is_skipped_name(&name) || is_dit_internal(&name) {
+            continue;
+        }
+        let path = e.path();
+        if path.is_dir() && is_card_root(&path) {
+            out.cards.push(path);
+        } else {
+            out.others.push(name);
+        }
+    }
+    Ok(out)
+}
+
+/// Reserve a file name that nothing has used yet: `path` itself, else
+/// `<stem>-2.<ext>`, `<stem>-3.<ext>` and so on. The file is created empty
+/// (create_new, so two runs in the same second can never get the same name)
+/// and none of the `siblings` extensions may exist beside it either (a
+/// report's `.json` beside its `.md`). DIT records are never overwritten.
+pub fn reserve_unique(path: &Path, siblings: &[&str]) -> Result<PathBuf> {
+    let dir = path.parent().map(PathBuf::from).unwrap_or_default();
+    let stem = path
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let ext = path
+        .extension()
+        .map(|e| format!(".{}", e.to_string_lossy()))
+        .unwrap_or_default();
+    for n in 1..10_000u32 {
+        let candidate = if n == 1 {
+            path.to_path_buf()
+        } else {
+            dir.join(format!("{stem}-{n}{ext}"))
+        };
+        if siblings
+            .iter()
+            .any(|e| candidate.with_extension(e).exists())
+        {
+            continue;
+        }
+        match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&candidate)
+        {
+            Ok(_) => return Ok(candidate),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => {
+                return Err(e).with_context(|| format!("could not create {}", candidate.display()));
+            }
+        }
+    }
+    anyhow::bail!("could not find a free name for {}", path.display())
+}
+
 /// `root/a/b.MP4` -> `a/b.MP4` with `/` separators.
 pub fn rel_path(root: &Path, path: &Path) -> String {
     let rel = path.strip_prefix(root).unwrap_or(path);
@@ -223,6 +315,46 @@ mod tests {
         assert!(is_dit_internal("A001/ascmhl/ascmhl_chain.xml"));
         assert!(is_dit_internal("a/C0001.MP4.nolgia-part"));
         assert!(!is_dit_internal("PRIVATE/C0001.MP4"));
+    }
+
+    #[test]
+    fn reserve_unique_never_reuses_a_name() {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = tmp.path().join("DIT-REPORT-20261029-114410.md");
+        let a = reserve_unique(&p, &["json"]).unwrap();
+        assert_eq!(a, p);
+        fs::write(&a, "offload report").unwrap();
+        let b = reserve_unique(&p, &["json"]).unwrap();
+        assert_eq!(b.file_name().unwrap(), "DIT-REPORT-20261029-114410-2.md");
+        // A stray .json beside a free .md name also moves the name on.
+        fs::write(tmp.path().join("DIT-REPORT-20261029-114410-3.json"), "{}").unwrap();
+        let c = reserve_unique(&p, &["json"]).unwrap();
+        assert_eq!(c.file_name().unwrap(), "DIT-REPORT-20261029-114410-4.md");
+        assert_eq!(fs::read_to_string(&a).unwrap(), "offload report");
+    }
+
+    #[test]
+    fn card_roots_are_found_inside_a_folder() {
+        let tmp = tempfile::tempdir().unwrap();
+        let top = tmp.path().join("cards");
+        fs::create_dir_all(top.join("A001/PRIVATE/M4ROOT/CLIP")).unwrap();
+        fs::create_dir_all(top.join("B001/DCIM/100EOSR6")).unwrap();
+        fs::create_dir_all(top.join("_DIT")).unwrap();
+        fs::write(top.join(".DS_Store"), "x").unwrap();
+        assert!(!is_card_root(&top));
+        assert!(is_card_root(&top.join("A001")));
+        let inside = cards_inside(&top).unwrap();
+        let names: Vec<_> = inside
+            .cards
+            .iter()
+            .map(|p| p.file_name().unwrap().to_string_lossy().to_string())
+            .collect();
+        assert_eq!(names, ["A001", "B001"]);
+        assert!(inside.others.is_empty());
+        fs::write(top.join("notes.txt"), "x").unwrap();
+        assert_eq!(cards_inside(&top).unwrap().others, ["notes.txt"]);
+        fs::create_dir_all(tmp.path().join("R/A001_C001.RDM")).unwrap();
+        assert!(is_card_root(&tmp.path().join("R")));
     }
 
     #[test]

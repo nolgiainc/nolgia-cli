@@ -360,12 +360,19 @@ pub fn report(opts: &ReportOptions, stop: Arc<AtomicBool>) -> Result<Report> {
     let made = chrono::Local::now()
         .format("%Y-%m-%d %H:%M:%S %:z")
         .to_string();
-    let out_md = opts.out.clone().unwrap_or_else(|| {
+    let wanted_md = opts.out.clone().unwrap_or_else(|| {
         opts.dir.join(files::DIT_DIR).join(format!(
             "DIT-REPORT-{}.md",
             chrono::Local::now().format("%Y%m%d-%H%M%S")
         ))
     });
+    if let Some(p) = wanted_md.parent() {
+        fs::create_dir_all(p)?;
+    }
+    // A report made in the same second as another (an offload's own report,
+    // then `report --verify`) gets the next free name: a DIT record is never
+    // overwritten.
+    let out_md = files::reserve_unique(&wanted_md, &["json"])?;
     let out_json = out_md.with_extension("json");
 
     let mut md = String::new();
@@ -483,9 +490,6 @@ pub fn report(opts: &ReportOptions, stop: Arc<AtomicBool>) -> Result<Report> {
         markdown: out_md.display().to_string(),
         json: out_json.display().to_string(),
     };
-    if let Some(p) = out_md.parent() {
-        fs::create_dir_all(p)?;
-    }
     fs::write(&out_md, md).with_context(|| format!("could not write {}", out_md.display()))?;
     // The JSON copy carries every item; the returned value stays readable.
     fs::write(&out_json, serde_json::to_vec_pretty(&report)?)?;

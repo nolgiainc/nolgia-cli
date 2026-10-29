@@ -242,6 +242,11 @@ nolgia --json dit report "<FOLDER>" --verify               # DIT-REPORT .md + .j
 
 Rules:
 
+- Name each card as its own `<CARD>`: the card's mount (`/Volumes/A001`,
+  `E:\`) or each card folder (`cards/A001 cards/B001`), not the folder that
+  holds them. If you do pass a folder that holds only cards, the plan's
+  `split_sources` shows it was split card by card; a folder with cards beside
+  other files is copied whole as one card, with a warning in the plan.
 - Ask before any write: show the dry-run plan for `offload` and for
   `rename`/`undo`, and wait for a yes. `verify`, `inventory`, `report` and
   dry runs only read.

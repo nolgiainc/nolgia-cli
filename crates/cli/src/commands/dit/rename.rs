@@ -493,8 +493,10 @@ fn write_undo_scripts(dit: &Path, root: &Path, done: &[(PathBuf, PathBuf)]) -> R
         ));
     }
     let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
-    fs::write(dit.join(format!("UNDO-RENAME-{stamp}.ps1")), ps)?;
-    let shp = dit.join(format!("UNDO-RENAME-{stamp}.command"));
+    // Two renames in the same second each keep their own undo scripts.
+    let ps1 = files::reserve_unique(&dit.join(format!("UNDO-RENAME-{stamp}.ps1")), &["command"])?;
+    fs::write(&ps1, ps)?;
+    let shp = ps1.with_extension("command");
     fs::write(&shp, sh)?;
     #[cfg(unix)]
     {
@@ -614,11 +616,16 @@ pub fn undo(dir: &Path, map: Option<&Path>, stop: Arc<AtomicBool>) -> Result<Und
         }
     }
     if out.status == "restored" {
-        let retired = map_path.with_file_name(format!(
-            "rename-map.undone-{}.csv",
-            chrono::Local::now().format("%Y%m%d-%H%M%S")
-        ));
-        let _ = fs::rename(&map_path, retired);
+        // Never replace an earlier retired map (two undos in the same second).
+        if let Ok(retired) = files::reserve_unique(
+            &map_path.with_file_name(format!(
+                "rename-map.undone-{}.csv",
+                chrono::Local::now().format("%Y%m%d-%H%M%S")
+            )),
+            &[],
+        ) {
+            let _ = fs::rename(&map_path, retired);
+        }
     }
     Ok(out)
 }
