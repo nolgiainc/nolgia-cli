@@ -3880,6 +3880,44 @@ paths:
                 $ref: '#/components/schemas/DesktopAppList'
         default:
           $ref: '#/components/responses/ProblemResponse'
+  /desktop-apps/{app}/rules:
+    parameters:
+      - name: app
+        in: path
+        required: true
+        description: The desktop app.
+        schema:
+          $ref: '#/components/schemas/BridgeApp'
+    get:
+      tags: [Bridge]
+      operationId: getDesktopAppRules
+      summary: Read the rules every agent follows when it works in one desktop app. Public, identical for every caller.
+      description: |
+        The app's shared rules, the same text every plugin workflow for that
+        app carries first in its served `instructions` (under the heading
+        `# Rules for every <App> workflow`): how to check the app is
+        connected, read what is open, run code in the app's language, look
+        at previews and keep the person's work safe. An agent working in the
+        app without a workflow (a request like "make an abstract painting in
+        my Photoshop") reads them here.
+
+        `404` when the app has no shared rules yet (its plugin has not
+        shipped).
+      security:
+        - {}
+        - bearerAuth: []
+        - patAuth: []
+      responses:
+        '200':
+          description: The app's shared rules.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DesktopAppRules'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
   /bridge/sessions:
     get:
       tags: [Bridge]
@@ -16781,6 +16819,21 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/DesktopApp'
+    DesktopAppRules:
+      type: object
+      additionalProperties: false
+      required: [app, name, rules]
+      description: The rules every agent follows when it works in one desktop app.
+      properties:
+        app:
+          $ref: '#/components/schemas/BridgeApp'
+        name:
+          type: string
+          description: The app as a person knows it.
+        rules:
+          type: string
+          description: >-
+            Markdown, starting with the heading `# Rules for every <App> workflow`, exactly as plugin workflows carry it at the top of their `instructions`.
     BridgeDocument:
       type: object
       additionalProperties: false
