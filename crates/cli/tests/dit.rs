@@ -938,3 +938,165 @@ fn after_a_rename_the_manifest_records_it_and_the_shoot_still_verifies() {
     }
     assert!(verify().status.success());
 }
+
+/// The Mac test 2 report: an agent passed the folder holding both cards
+/// (`cards/` with `A001/` and `B001/`) as one source. Each card must still
+/// land in its own card folder, as if they had been named one by one.
+#[test]
+fn a_folder_holding_two_cards_is_offloaded_card_by_card() {
+    let f = fixture();
+    let cards_dir = f.sony.parent().unwrap().to_path_buf();
+    // macOS leaves a .DS_Store in the folder; it does not stop the split.
+    fs::write(cards_dir.join(".DS_Store"), "x").unwrap();
+    let out = nolgia()
+        .args(["--json", "dit", "offload"])
+        .arg(&cards_dir)
+        .arg("--to")
+        .arg(&f.d1)
+        .arg("--to")
+        .arg(&f.d2)
+        .args(["--shoot", "TEST"])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v = json(&out);
+    assert_eq!(v["status"], "complete");
+    let cards: Vec<&str> = v["plan"]["cards"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["card"].as_str().unwrap())
+        .collect();
+    assert_eq!(cards, ["A001", "B001"], "{v}");
+    assert_eq!(
+        v["plan"]["split_sources"][0]["cards"],
+        serde_json::json!(["A001", "B001"])
+    );
+    for d in [&f.d1, &f.d2] {
+        assert!(d.join("TEST/A001/PRIVATE/M4ROOT/CLIP/C0001.MP4").is_file());
+        assert!(d.join("TEST/B001/DCIM/100EOSR6/GK1A0001.CR3").is_file());
+        assert!(
+            !d.join("TEST/cards").exists(),
+            "no card named after the folder"
+        );
+        assert!(d.join("TEST/A001/ascmhl/ascmhl_chain.xml").is_file());
+        assert!(d.join("TEST/B001/ascmhl/ascmhl_chain.xml").is_file());
+    }
+    // The text output says what happened.
+    let text = nolgia()
+        .args(["dit", "offload"])
+        .arg(&cards_dir)
+        .arg("--to")
+        .arg(&f.d1)
+        .args(["--shoot", "TEST", "--dry-run"])
+        .output()
+        .unwrap();
+    let t = String::from_utf8_lossy(&text.stdout);
+    assert!(
+        t.contains("holds 2 cards (A001, B001): each is offloaded as its own card"),
+        "{t}"
+    );
+}
+
+#[test]
+fn a_folder_with_cards_and_other_files_is_copied_whole_with_a_note() {
+    let f = fixture();
+    let cards_dir = f.sony.parent().unwrap().to_path_buf();
+    fs::write(cards_dir.join("camera-notes.txt"), "roll 1").unwrap();
+    let out = nolgia()
+        .args(["--json", "dit", "offload"])
+        .arg(&cards_dir)
+        .arg("--to")
+        .arg(&f.d1)
+        .args(["--shoot", "TEST", "--dry-run"])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v = json(&out);
+    assert_eq!(v["cards"][0]["card"], "cards", "{v}");
+    assert!(v.get("split_sources").is_none(), "{v}");
+    let warned = v["warnings"].as_array().unwrap().iter().any(|w| {
+        w.as_str()
+            .unwrap()
+            .contains("holds the cards A001, B001 beside other things (camera-notes.txt)")
+    });
+    assert!(warned, "{v}");
+}
+
+#[test]
+fn a_card_named_with_card_is_never_split() {
+    let f = fixture();
+    let cards_dir = f.sony.parent().unwrap().to_path_buf();
+    let out = nolgia()
+        .args(["--json", "dit", "offload"])
+        .arg(&cards_dir)
+        .arg("--to")
+        .arg(&f.d1)
+        .args(["--card", "ROLL1", "--dry-run"])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v = json(&out);
+    assert_eq!(v["cards"].as_array().unwrap().len(), 1, "{v}");
+    assert_eq!(v["cards"][0]["card"], "ROLL1");
+}
+
+/// The Mac test 2 report: `report --verify` in the same second as the
+/// offload took the offload's report name and replaced it.
+#[test]
+fn a_report_never_replaces_an_earlier_report() {
+    let f = fixture();
+    let out = offload(&f).output().unwrap();
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let first = PathBuf::from(json(&out)["reports"][0].as_str().unwrap().to_string());
+    let first_text = fs::read_to_string(&first).unwrap();
+    let shoot = f.d1.join("TEST");
+    let mut made = vec![first.clone()];
+    // Several reports as fast as possible: many land in the offload's second.
+    for _ in 0..3 {
+        let out = nolgia()
+            .args(["--json", "dit", "report", "--verify"])
+            .arg(&shoot)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "stderr: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let md = PathBuf::from(json(&out)["markdown"].as_str().unwrap().to_string());
+        assert!(!made.contains(&md), "{} was used twice", md.display());
+        assert!(md.with_extension("json").is_file());
+        made.push(md);
+    }
+    assert_eq!(
+        fs::read_to_string(&first).unwrap(),
+        first_text,
+        "the offload's report is untouched"
+    );
+    let reports = fs::read_dir(shoot.join("_DIT"))
+        .unwrap()
+        .flatten()
+        .filter(|e| {
+            let n = e.file_name().to_string_lossy().to_string();
+            n.starts_with("DIT-REPORT-") && n.ends_with(".md")
+        })
+        .count();
+    assert_eq!(reports, 4);
+}

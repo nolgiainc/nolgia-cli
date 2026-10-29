@@ -79,7 +79,9 @@ pub enum DitCommand {
 
 #[derive(Args, Debug)]
 pub struct OffloadArgs {
-    /// Cards or folders to copy (a mounted card like E:\ or /Volumes/A001)
+    /// Cards or folders to copy (a mounted card like E:\ or /Volumes/A001).
+    /// A folder that holds only cards (cards/A001, cards/B001) is copied card
+    /// by card, each into its own card folder
     #[arg(value_name = "CARD", required = true)]
     pub sources: Vec<PathBuf>,
     /// A destination drive or folder; repeat for a second and third copy
@@ -89,7 +91,8 @@ pub struct OffloadArgs {
     #[arg(long, value_name = "NAME")]
     pub shoot: Option<String>,
     /// Name for each card's folder, in the order the cards are given
-    /// (default: the card's own folder or volume name)
+    /// (default: the card's own folder or volume name). A named source is
+    /// always copied as one card
     #[arg(long = "card", value_name = "NAME")]
     pub cards: Vec<String>,
     /// Hashes to compute, comma-separated: xxh64 (always), md5, sha1
@@ -200,7 +203,8 @@ pub struct ReportArgs {
     #[arg(long = "clock-offset", value_name = "MODEL=OFFSET")]
     pub offsets: Vec<String>,
     /// Where to write the report (.md; a .json is written beside it).
-    /// Default DIR/_DIT/DIT-REPORT-<time>.md
+    /// Default DIR/_DIT/DIT-REPORT-<time>.md. An existing report is never
+    /// replaced: the new one takes the next free name (-2, -3)
     #[arg(long, value_name = "PATH")]
     pub out: Option<PathBuf>,
 }
@@ -283,6 +287,10 @@ async fn offload_cmd(a: OffloadArgs, output: &OutputContext) -> Result<()> {
                     c.files,
                     offload::human_bytes(c.bytes)
                 ));
+            }
+            s.push_str(&split_text(&plan.split_sources));
+            for w in &plan.warnings {
+                s.push_str(&format!("  note: {w}\n"));
             }
             for d in &plan.destinations {
                 s.push_str(&format!(
@@ -377,6 +385,10 @@ async fn offload_cmd(a: OffloadArgs, output: &OutputContext) -> Result<()> {
             s.push('\n');
             s
         };
+        s.push_str(&split_text(&outcome.plan.split_sources));
+        for w in &outcome.plan.warnings {
+            s.push_str(&format!("  note: {w}\n"));
+        }
         for r in &outcome.results {
             s.push_str(&format!(
                 "  {} -> {}: {} copied and verified, {} already there, {} done by an earlier run, {} failed\n",
@@ -404,6 +416,21 @@ async fn offload_cmd(a: OffloadArgs, output: &OutputContext) -> Result<()> {
         "interrupted" => Err(DitExit(EXIT_INTERRUPTED).into()),
         _ => Err(DitExit(EXIT_MISMATCH).into()),
     }
+}
+
+/// "  cards holds 2 cards (A001, B001): each is offloaded as its own card".
+fn split_text(split: &[offload::SplitSource]) -> String {
+    split
+        .iter()
+        .map(|sp| {
+            format!(
+                "  {} holds {} cards ({}): each is offloaded as its own card\n",
+                sp.source,
+                sp.cards.len(),
+                sp.cards.join(", ")
+            )
+        })
+        .collect()
 }
 
 async fn verify_cmd(a: VerifyArgs, output: &OutputContext) -> Result<()> {

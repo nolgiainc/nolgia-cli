@@ -88,6 +88,16 @@ pub struct Plan {
     pub hashes: Vec<&'static str>,
     pub conflicts: Vec<Conflict>,
     pub warnings: Vec<String>,
+    /// Sources that were folders holding several cards: each card in them is
+    /// offloaded as its own card.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub split_sources: Vec<SplitSource>,
+}
+
+#[derive(Serialize, Clone, Debug)]
+pub struct SplitSource {
+    pub source: String,
+    pub cards: Vec<String>,
 }
 
 #[derive(Serialize, Debug, Default)]
@@ -177,17 +187,53 @@ pub fn plan(opts: &Options) -> Result<(Plan, Vec<Card>)> {
         bail!("give one to three destinations with --to");
     }
     let mut warnings = Vec::new();
-    let mut cards = Vec::new();
-    let mut names = HashSet::new();
+    let mut split_sources = Vec::new();
+    // A source that is not a card but a folder holding only cards (like
+    // `cards/` with `A001/` and `B001/` in it) is offloaded card by card, so
+    // each lands in its own card folder. A name given with --card keeps the
+    // source whole.
+    let mut sources: Vec<(PathBuf, Option<String>)> = Vec::new();
     for (i, src) in opts.sources.iter().enumerate() {
         if !src.is_dir() {
             bail!("{} is not a folder or mounted card", src.display());
         }
-        let name = opts
+        let given = opts
             .cards
             .get(i)
             .map(|n| files::sanitize_component(n))
-            .filter(|n| !n.is_empty())
+            .filter(|n| !n.is_empty());
+        if given.is_none() && !files::is_card_root(src) {
+            let inside = files::cards_inside(src)?;
+            let names_of = |v: &[PathBuf]| {
+                v.iter()
+                    .map(|p| files::default_card_name(p, 0))
+                    .collect::<Vec<_>>()
+            };
+            if !inside.cards.is_empty() && inside.others.is_empty() {
+                split_sources.push(SplitSource {
+                    source: src.display().to_string(),
+                    cards: names_of(&inside.cards),
+                });
+                sources.extend(inside.cards.into_iter().map(|c| (c, None)));
+                continue;
+            }
+            if !inside.cards.is_empty() {
+                warnings.push(format!(
+                    "{} holds the cards {} beside other things ({}), so it is copied whole as one card; \
+                     to keep each card separate, give each card as its own source",
+                    src.display(),
+                    names_of(&inside.cards).join(", "),
+                    inside.others.join(", ")
+                ));
+            }
+        }
+        sources.push((src.clone(), given));
+    }
+    let mut cards = Vec::new();
+    let mut names = HashSet::new();
+    for (i, (src, given)) in sources.iter().enumerate() {
+        let name = given
+            .clone()
             .unwrap_or_else(|| files::default_card_name(src, i));
         if !names.insert(name.to_ascii_lowercase()) {
             bail!(
@@ -301,6 +347,7 @@ pub fn plan(opts: &Options) -> Result<(Plan, Vec<Card>)> {
         hashes: opts.algos.iter().map(|a| a.name()).collect(),
         conflicts,
         warnings,
+        split_sources,
     };
     Ok((plan, cards))
 }
