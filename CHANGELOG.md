@@ -3,6 +3,26 @@
 Release notes for the Nolgia CLI. Each `## vX.Y.Z` section becomes the body of
 the matching GitHub release.
 
+## v0.3.2
+
+- **`nolgia dit` fixes from the first macOS run.**
+  - A DIT report is never overwritten. Two reports made in the same second
+    (an offload's own report, then `report --verify`) used to share
+    `DIT-REPORT-<time>.md`, and the second replaced the first. The second now
+    takes the next free name, `DIT-REPORT-<time>-2.md`, and so on. The same
+    goes for `--out`, the undo-rename scripts and a retired rename map.
+  - Point `offload` at a folder that holds only cards (`cards/` with `A001/`
+    and `B001/` in it) and each card is copied as its own card, into
+    `<shoot>/A001` and `<shoot>/B001`, instead of one card named `cards`. The
+    plan lists it in `split_sources` and the text says so. A folder with cards
+    beside other files is still copied whole, with a note, and a source named
+    with `--card` is never split.
+  - The plan's notes (OS files left out, a folder copied whole) now show in
+    the text output too.
+
+Tested on Linux: the test suite, and the macOS run's steps repeated with
+synthetic Sony and Canon cards.
+
 ## v0.3.1
 
 - **`nolgia dit` fixes from the first real offloads.**
