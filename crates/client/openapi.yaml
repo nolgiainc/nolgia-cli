@@ -4152,6 +4152,14 @@ paths:
         `args` is at most 256 KB. `timeout_seconds` (5 to 900, default 120)
         sets `expires_at`: a command still queued or running then becomes
         `expired`. Commands are free: they cost no credits.
+
+        Each `kind` takes its own `args`, and some commands wait in the
+        plugin for the person's approval: both are in the Desktop apps guide,
+        https://docs.nolgia.ai/guides/desktop-apps.html. Drive a desktop app
+        only this way, through its NOLGIA plugin, never by scripting the app
+        from outside (AppleScript, osascript, COM, UI automation): the plugin
+        shows the person every command, asks before running code when they
+        want it, and catches the errors that could otherwise crash the app.
       requestBody:
         required: true
         content:
@@ -17116,7 +17124,7 @@ components:
         args:
           type: object
           additionalProperties: true
-          description: The command's arguments, at most 256 KB as JSON. Default `{}`.
+          description: The command's arguments, at most 256 KB as JSON, each `kind` its own (https://docs.nolgia.ai/guides/desktop-apps.html). Default `{}`.
           examples: [{language: python, code: "import bpy\nresult = bpy.context.scene.name"}]
         timeout_seconds:
           type: integer
