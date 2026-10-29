@@ -207,6 +207,30 @@ nolgia compositions status <render_id>
 **succeeded** and you can name the produced asset id/URL. Clips dropped into
 a project folder are not the video the customer asked for.
 
+## Desktop apps (the NOLGIA plugins)
+
+The NOLGIA plugins for Blender, After Effects, Premiere Pro, Illustrator,
+Photoshop and DaVinci Resolve Studio (https://nolgia.ai/plugins) connect the
+person's own app once it is signed in with **Connected** on. NOLGIA Agent at
+nolgia.ai/agent works in those apps through the same plugins.
+
+```bash
+nolgia api GET /bridge/sessions                       # the connected apps on their computer
+nolgia api GET /desktop-apps/<app>/rules              # the rules for working in that app
+nolgia api POST /bridge/commands --body @command.json # e.g. {"app":"blender","kind":"info"}
+nolgia api GET /bridge/commands/<id> --query wait=25  # repeat until it is not queued or running
+```
+
+With the MCP server the same commands are the `nolgia_app_*` tools. Every
+command kind, its arguments, the code each app runs and the commands that
+wait for the person's approval: https://docs.nolgia.ai/guides/desktop-apps.html
+
+Reach an app only through its NOLGIA plugin. Never script it from outside:
+no AppleScript or `osascript`, no COM, no Windows UI automation, no simulated
+keystrokes or clicks. Those skip the person's Activity list, **Ask before
+running code** and the plugin's error handling, and a bad call can crash the
+app and lose unsaved work.
+
 ## Failure recovery
 
 - `content_policy_violation` / `partner_validation_failed`: the upstream
