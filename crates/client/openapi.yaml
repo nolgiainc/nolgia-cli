@@ -16167,6 +16167,8 @@ components:
 
           items:
             $ref: '#/components/schemas/AssetCharacterScore'
+        shape:
+          $ref: '#/components/schemas/AssetShape'
         source:
           $ref: '#/components/schemas/AssetSource'
         created_at:
@@ -16196,6 +16198,32 @@ components:
           x-enum-varnames: [AssetSourceCommandExport, AssetSourceCommandPreview]
           description: >-
             `export`: a full-size copy the person or their agent asked to keep. `preview`: a smaller still the agent made to look at its own work.
+    AssetShape:
+      type: object
+      nullable: true
+      additionalProperties: false
+      required: [asked, frame, picture, bars, matches, redos]
+      description: >-
+        What the shape check measured on a generated video (2026-10-30): the shape the request asked for (an explicit `aspect_ratio`, or the one taken from its start frame), the file's frame, and the picture inside any black bars. A render in the wrong shape is redone once on the same job and charge, and the closer of the two is delivered; this says what was delivered, so a client can report it without opening the file. Absent on images, on videos whose model does not offer the asked shape, on clips checked by the identity gate, and on videos made before the check existed.
+      properties:
+        asked:
+          type: string
+          description: The aspect ratio asked for, like `9:16`.
+        frame:
+          type: string
+          description: The file's frame, like `720x1280`.
+        picture:
+          type: string
+          description: The picture inside any black bars, like `602x1080`; the frame when there are none.
+        bars:
+          type: boolean
+          description: The picture is boxed inside black bars (more than 2% of a side).
+        matches:
+          type: boolean
+          description: Both the frame and the picture have the asked shape.
+        redos:
+          type: integer
+          description: 1 when the render was redone for its shape, else 0.
     AssetCharacterScore:
       type: object
       additionalProperties: false
