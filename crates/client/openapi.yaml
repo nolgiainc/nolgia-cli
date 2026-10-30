@@ -7382,8 +7382,13 @@ paths:
         up with pitch-preserving atempo, up to 1.25x. A take longer than 1.25x
         the block is refused with a 400 naming the block and both asset ids.
         Videos are trimmed from their start or have their last frame held to
-        fill the block, centered on the canvas. Video audio is muted unless
-        `keep_video_audio` is true.
+        fill the block. A video whose shape differs from the canvas (a 16:9
+        clip in a 9:16 cut) is cropped to the canvas on its subject, following
+        it when it moves, and any black bars it carries are cut away, so the
+        output has no bars; `fit: letterbox` shows every clip whole with bars
+        instead. The succeeded render's `framing` reports each clip's source,
+        picture and crop. Video audio is muted unless `keep_video_audio` is
+        true.
 
         Durations come from stored asset rows. If a duration is not recorded
         yet, the render job measures its downloaded copy of the stored object
@@ -14628,7 +14633,7 @@ components:
     AspectRatio:
       type: string
       description: >-
-        The shape of the rendered clip. Only the values in the selected model's `video.aspect_ratios` are accepted; anything else is a `400`. The choice never changes the price.
+        The shape of the rendered clip. Only the values in the selected model's `video.aspect_ratios` are accepted; anything else is a `400`. On `POST /generate/video` an omitted value follows the start frame (`image_url`) when there is one: the nearest of the model's `video.aspect_ratios` that the selected quality renders, so a portrait frame makes a 9:16 clip instead of a 16:9 one with the picture boxed in the middle; with no start frame it is 16:9. Edit and extend keep the source clip's shape. The choice never changes the price.
       enum: ['16:9', '9:16', '1:1', '4:3', '3:4', '3:2', '2:3', '21:9']
     BitrateMode:
       type: string
@@ -19753,6 +19758,11 @@ components:
         aspect_ratio:
           $ref: '#/components/schemas/RenderAspectRatio'
           description: Output canvas aspect ratio. Defaults to 16:9.
+        fit:
+          type: string
+          enum: [follow_subject, letterbox]
+          description: >-
+            How a clip whose shape differs from the canvas reaches it. `follow_subject` (the default) crops it to the canvas's shape on its subject: on the faces where there are faces, else on the most active part of the picture, moving smoothly when the subject moves; any black bars a clip already carries are cut away. The output never has bars. `letterbox` shows every clip whole inside the canvas with black bars, only when asked for. The render's `framing` says what was done to each clip.
         keep_video_audio:
           type: boolean
           description: Preserve each video's own audio alongside narration. Defaults to false.
@@ -19793,7 +19803,7 @@ components:
           $ref: '#/components/schemas/RenderStatus'
         params:
           type: object
-          description: 'Empty for a video composition render. For a still render, carries mode: still, background, either frame or at_seconds (resolved using the plan FPS by the worker), and optional max_dimension. For a blocks render, carries mode: blocks plus the normalized request (blocks, block_seconds, aspect_ratio, keep_video_audio, and optional captions).'
+          description: 'Empty for a video composition render. For a still render, carries mode: still, background, either frame or at_seconds (resolved using the plan FPS by the worker), and optional max_dimension. For a blocks render, carries mode: blocks plus the normalized request (blocks, block_seconds, aspect_ratio, fit, keep_video_audio, and optional captions).'
         asset_id:
           type: string
           format: uuid
@@ -19804,6 +19814,8 @@ components:
           description: Human-readable notes about skipped/unsupported timeline nodes and per-block narration speed-up or last-frame hold.
           items:
             type: string
+        framing:
+          $ref: '#/components/schemas/RenderFraming'
         error:
           type: string
           nullable: true
@@ -19822,6 +19834,66 @@ components:
         updated_at:
           type: string
           format: date-time
+    RenderFraming:
+      type: object
+      nullable: true
+      additionalProperties: false
+      required: [output_width, output_height, fit, bars_added, blocks]
+      description: >-
+        What a succeeded blocks render measured and did to fit each clip to its canvas, read from the files themselves, so a client can report it truthfully without opening the MP4. Null for other renders and for blocks renders made before 2026-10-30.
+      properties:
+        output_width:
+          type: integer
+        output_height:
+          type: integer
+        fit:
+          type: string
+          enum: [follow_subject, letterbox]
+        bars_added:
+          type: boolean
+          description: True only when `fit` was `letterbox` and some clip did not fill the canvas.
+        blocks:
+          type: array
+          items:
+            $ref: '#/components/schemas/RenderBlockFraming'
+    RenderBlockFraming:
+      type: object
+      additionalProperties: false
+      required: [block, source_width, source_height, picture_x, picture_y, picture_width, picture_height, mode, subject, faces_read, notes]
+      properties:
+        block:
+          type: integer
+          description: The block's number, 1 for the first pair.
+        source_width:
+          type: integer
+        source_height:
+          type: integer
+        picture_x:
+          type: integer
+          description: The picture inside the clip's frame, in its pixels; smaller than the frame when the clip carried black bars.
+        picture_y:
+          type: integer
+        picture_width:
+          type: integer
+        picture_height:
+          type: integer
+        mode:
+          type: string
+          enum: [native, fixed, follow, letterbox]
+          description: >-
+            `native`: the picture already had the canvas's shape (bars it carried are cropped off). `fixed`: one still crop on the subject. `follow`: a crop that follows the subject. `letterbox`: shown whole with bars (only with `fit: letterbox`).
+        subject:
+          type: string
+          enum: [face, faces, active_area, centre]
+          description: What the crop was placed on.
+        faces_read:
+          type: boolean
+          description: Whether faces were looked for on the clip's frames.
+        notes:
+          type: array
+          items:
+            type: string
+          description: What the crop could not hold, in plain words.
     RenderList:
       type: object
       additionalProperties: false
