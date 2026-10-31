@@ -7301,6 +7301,105 @@ paths:
           $ref: '#/components/responses/ProblemResponse'
         default:
           $ref: '#/components/responses/ProblemResponse'
+  /compositions/{id}/follow-plans:
+    post:
+      tags: [Compositions]
+      operationId: createFollowPlan
+      summary: Plan a clip's crop so it fills the timeline's frame and follows its subject.
+      description: |
+        Studio's "Fill and follow subject". For a clip whose shape differs
+        from the composition's frame (a 16:9 clip on a 9:16 timeline, for
+        example), reads the part of the clip the timeline plays and plans a
+        crop that fills the frame and follows the subject, the way
+        `POST /renders/reframe` frames a whole video: faces where there are
+        faces, else the most active part of the picture, every shot framed on
+        its own, and the person talking held where two people cannot share
+        the frame. Nothing is letterboxed. An image gets one still crop.
+
+        The plan is the clip's `motion` in the timeline motion contract (the
+        `Motion` schema), keyframed in seconds from the clip's start when the
+        crop moves. Put it on the clip in the `nolgia-edits.json` overlay and
+        the Studio preview and every export place the clip with it.
+
+        Planning is free (`credits` is 0) and renders nothing. A plan of the
+        same clip, stretch and frame already made in your library is returned
+        at once (`200`); otherwise one is queued (`202`): poll
+        `GET /compositions/{id}/follow-plans/{planId}` until `status` is
+        `succeeded` (with `motion`) or `failed` (with `error`). `start` and
+        `duration` are the clip's played stretch of its source in seconds
+        (the timeline clip's `srcOffset` and length; up to 600 seconds, both
+        ignored for an image). The clip must be a ready video or image in your
+        library and the composition yours (`404` otherwise).
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateFollowPlanRequest'
+      responses:
+        '200':
+          description: A plan of this clip, stretch and frame already made or under way.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FollowPlan'
+        '202':
+          description: Plan queued.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FollowPlan'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /compositions/{id}/follow-plans/{planId}:
+    get:
+      tags: [Compositions]
+      operationId: getFollowPlan
+      summary: Read a follow plan.
+      description: >
+        The follow plan made by `POST /compositions/{id}/follow-plans`: its status and, once it succeeded, the clip's `motion`.
+
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: planId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The follow plan.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FollowPlan'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
   /compositions/{id}/export:
     get:
       tags: [Compositions]
@@ -19964,6 +20063,111 @@ components:
           type: number
           format: double
           description: The longest video a new shape can be made from (600).
+    CreateFollowPlanRequest:
+      type: object
+      additionalProperties: false
+      required: [asset_id, canvas_width, canvas_height]
+      description: Which clip, which stretch of it and which frame to plan the crop for.
+      properties:
+        asset_id:
+          type: string
+          format: uuid
+          description: The clip, a ready video or image in your library.
+        start:
+          type: number
+          format: double
+          minimum: 0
+          default: 0
+          description: Where the clip's played stretch begins in its source, in seconds (the timeline clip's `srcOffset`). Ignored for an image.
+        duration:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 600
+          description: How long the clip plays, in seconds. Omitted or 0 reads to the end of the video. Ignored for an image.
+        canvas_width:
+          type: integer
+          minimum: 16
+          maximum: 8192
+          description: The timeline frame's width in pixels.
+        canvas_height:
+          type: integer
+          minimum: 16
+          maximum: 8192
+          description: The timeline frame's height in pixels.
+    FollowPlan:
+      type: object
+      additionalProperties: false
+      required: [id, composition_id, asset_id, status, start, duration, canvas_width, canvas_height, credits, notes, created_at]
+      description: |
+        A clip's crop planned to fill a timeline frame and follow its subject
+        (Studio's "Fill and follow subject"). Once `status` is `succeeded`,
+        `motion` is the clip's motion: put it on the clip and the preview and
+        every export place the clip with it.
+      properties:
+        id:
+          type: string
+          format: uuid
+        composition_id:
+          type: string
+          format: uuid
+        asset_id:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/RenderStatus'
+        start:
+          type: number
+          format: double
+        duration:
+          type: number
+          format: double
+        canvas_width:
+          type: integer
+        canvas_height:
+          type: integer
+        credits:
+          type: integer
+          description: What planning costs. Always 0.
+        mode:
+          type: string
+          nullable: true
+          enum: [native, fixed, follow]
+          description: How the clip reaches the frame once planned. native = it already has the frame's shape (no motion needed); fixed = one still crop; follow = a crop that moves with the subject.
+        subject:
+          type: string
+          nullable: true
+          enum: [face, faces, active_area, centre]
+          description: What the crop was placed on.
+        motion:
+          type: object
+          nullable: true
+          additionalProperties: true
+          description: The clip's motion in the timeline motion contract (see the `Motion` schema), keyframed in seconds from the clip's start when the crop moves. Null until the plan succeeds, and for a clip that already fills the frame as it is.
+        source_width:
+          type: integer
+          nullable: true
+          description: The clip's frame width, once read.
+        source_height:
+          type: integer
+          nullable: true
+          description: The clip's frame height, once read.
+        notes:
+          type: array
+          description: What the crop could not hold, in plain words.
+          items:
+            type: string
+        error:
+          type: string
+          nullable: true
+          description: Why the plan failed, when `status` is `failed`.
+        created_at:
+          type: string
+          format: date-time
+        finished_at:
+          type: string
+          format: date-time
+          nullable: true
     RenderStatus:
       type: string
       enum: [queued, running, succeeded, failed]
@@ -19992,7 +20196,7 @@ components:
           $ref: '#/components/schemas/RenderStatus'
         params:
           type: object
-          description: 'Empty for a video composition render. For a still render, carries mode: still, background, either frame or at_seconds (resolved using the plan FPS by the worker), and optional max_dimension. For a blocks render, carries mode: blocks plus the normalized request (blocks, block_seconds, aspect_ratio, fit, keep_video_audio, and optional captions). For a reframe render (POST /renders/reframe), carries mode: reframe, asset_id and aspect_ratio.'
+          description: 'Empty for a video composition render. For a still render, carries mode: still, background, either frame or at_seconds (resolved using the plan FPS by the worker), and optional max_dimension. For a blocks render, carries mode: blocks plus the normalized request (blocks, block_seconds, aspect_ratio, fit, keep_video_audio, and optional captions). For a reframe render (POST /renders/reframe), carries mode: reframe, asset_id and aspect_ratio. A follow plan (POST /compositions/{id}/follow-plans) carries mode: follow_plan; follow plans render nothing and are left out of the render lists.'
         asset_id:
           type: string
           format: uuid
