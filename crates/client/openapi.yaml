@@ -7435,6 +7435,94 @@ paths:
           $ref: '#/components/responses/ProblemResponse'
         default:
           $ref: '#/components/responses/ProblemResponse'
+  /renders/reframe:
+    post:
+      tags: [Compositions]
+      operationId: createReframeRender
+      summary: Make a version of a video in another shape, framed on its subject.
+      description: |
+        Makes a new video from one video in your library, in the shape of
+        `aspect_ratio` (9:16 by default, for Reels, TikTok and Shorts), the
+        whole length, with its own sound. Nothing is letterboxed or laid over
+        a blurred copy: the picture is cropped to the new shape on its
+        subject. It holds the faces where there are faces, else the most
+        active part of the picture, and moves smoothly when the subject
+        moves. Every shot of an edited video is framed on its own, so the
+        crop cuts with the picture instead of panning from the last shot's
+        subject. Where two people are too far apart for one frame, the crop
+        cuts to whoever is talking (mouth movement, trusted only where the
+        sound carries speech), holding each speaker long enough never to
+        flicker; a shot where only one of them talks holds that one. Any
+        black bars the video already carries are cut away.
+
+        Videos up to 600 seconds. Renders are not billed: the quote
+        (`GET /renders/reframe/quote`) answers 0 credits. Creates a named
+        carrier composition (in `project_id` when given, else in the video's
+        own project) whose `index.html` shows the video cover-fitted to the
+        new canvas; the MP4 is published as a platform asset. Returns the
+        queued render; poll `GET /renders/{id}` until it succeeds with
+        `asset_id` (and `framing`, saying what was done) or fails with
+        `error`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateReframeRenderRequest'
+      responses:
+        '202':
+          description: Reframe render queued.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Render'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /renders/reframe/quote:
+    get:
+      tags: [Compositions]
+      operationId: getReframeQuote
+      summary: Price and check a new-shape version of a video before making it.
+      description: >
+        What `POST /renders/reframe` would make from this video and what it costs (renders are not billed, so `credits` is 0), before anything runs: the source and output sizes, whether the video already has the shape, and whether it can be made (`eligible`, with `reason` in plain words when it cannot). The video must be in the caller's library (`404` otherwise).
+
+      parameters:
+        - name: asset_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: aspect_ratio
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/RenderAspectRatio'
+      responses:
+        '200':
+          description: The quote.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReframeQuote'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
   /assets/{id}/share:
     parameters:
       - name: id
@@ -19808,6 +19896,69 @@ components:
           type: string
           format: uuid
           description: Project for the carrier composition and output MP4 asset.
+    CreateReframeRenderRequest:
+      type: object
+      additionalProperties: false
+      required: [asset_id]
+      properties:
+        asset_id:
+          type: string
+          format: uuid
+          description: The video to make the new version of; it must be ready and in your library.
+        aspect_ratio:
+          $ref: '#/components/schemas/RenderAspectRatio'
+          description: The new shape. Defaults to 9:16.
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+          description: Name for the carrier composition and the new video; the video's name plus the shape when omitted.
+        project_id:
+          type: string
+          format: uuid
+          description: Project for the carrier composition and output MP4; the video's own project when omitted.
+    ReframeQuote:
+      type: object
+      additionalProperties: false
+      required: [asset_id, aspect_ratio, credits, eligible, already_fits, output_width, output_height, max_seconds]
+      properties:
+        asset_id:
+          type: string
+          format: uuid
+        aspect_ratio:
+          $ref: '#/components/schemas/RenderAspectRatio'
+        credits:
+          type: integer
+          description: What making it costs. Renders are not billed, so this is 0.
+        eligible:
+          type: boolean
+          description: True when `POST /renders/reframe` can make it now.
+        reason:
+          type: string
+          nullable: true
+          description: Why it cannot be made yet, in plain words; null when eligible.
+        already_fits:
+          type: boolean
+          description: True when the video already has the requested shape (any black bars it carries would still be cut away).
+        seconds:
+          type: number
+          format: double
+          nullable: true
+          description: The video's length, when recorded.
+        source_width:
+          type: integer
+          nullable: true
+        source_height:
+          type: integer
+          nullable: true
+        output_width:
+          type: integer
+        output_height:
+          type: integer
+        max_seconds:
+          type: number
+          format: double
+          description: The longest video a new shape can be made from (600).
     RenderStatus:
       type: string
       enum: [queued, running, succeeded, failed]
@@ -19836,7 +19987,7 @@ components:
           $ref: '#/components/schemas/RenderStatus'
         params:
           type: object
-          description: 'Empty for a video composition render. For a still render, carries mode: still, background, either frame or at_seconds (resolved using the plan FPS by the worker), and optional max_dimension. For a blocks render, carries mode: blocks plus the normalized request (blocks, block_seconds, aspect_ratio, fit, keep_video_audio, and optional captions).'
+          description: 'Empty for a video composition render. For a still render, carries mode: still, background, either frame or at_seconds (resolved using the plan FPS by the worker), and optional max_dimension. For a blocks render, carries mode: blocks plus the normalized request (blocks, block_seconds, aspect_ratio, fit, keep_video_audio, and optional captions). For a reframe render (POST /renders/reframe), carries mode: reframe, asset_id and aspect_ratio.'
         asset_id:
           type: string
           format: uuid
@@ -19873,7 +20024,7 @@ components:
       additionalProperties: false
       required: [output_width, output_height, fit, bars_added, blocks]
       description: >-
-        What a succeeded blocks render measured and did to fit each clip to its canvas, read from the files themselves, so a client can report it truthfully without opening the MP4. Null for other renders and for blocks renders made before 2026-10-30.
+        What a succeeded blocks or reframe render measured and did to fit each clip to its canvas, read from the files themselves, so a client can report it truthfully without opening the MP4. A reframe render reports its one video as block 1. Null for other renders and for blocks renders made before 2026-10-30.
       properties:
         output_width:
           type: integer
