@@ -223,6 +223,8 @@ paths:
       tags: [Models]
       operationId: listModels
       summary: List available models and their capabilities.
+      description: >-
+        The catalog for THIS caller. A model whose generate request this caller would be refused before any quote or charge is left out. Today that is `omni-1.1-flash-edit` (Gemini Omni 1.1 video edit), which its provider does not offer for uploaded footage in the EEA, the UK and Switzerland: it is listed only for a customer placed outside those regions, by the request's own location or, when the request carries none (a call relayed by the hosted MCP server for Claude or ChatGPT, say), by the country the account was placed in at sign-up or on a later request.
       responses:
         '200':
           description: Model catalog.
@@ -1950,13 +1952,16 @@ paths:
 
         **Some edit models are not offered everywhere.** `omni-1.1-flash-edit`
         edits uploaded footage only for customers outside the regions where
-        its provider withholds that feature. A request from a customer in one
-        of those regions, or one whose region cannot be determined, is refused
-        with `400` and `error.code` `validation` before any charge, naming
-        the models that do the same job (`seedance-2.5` with `video_task`
-        `edit`, `runway-aleph-2`, `happyhorse-1.0-video-edit`). The region is
-        the caller's, as the platform's load balancer locates it; generating
-        on `omni-1.1-flash` from text or a start frame is unaffected.
+        its provider withholds that feature, and `GET /models` lists it only
+        for them. A request from a customer in one of those regions, or one
+        whose region cannot be determined, is refused with `400` and
+        `error.code` `validation` before any charge, naming the models that do
+        the same job (`seedance-2.5` with `video_task` `edit`,
+        `runway-aleph-2`, `happyhorse-1.0-video-edit`). The region is the
+        caller's, as the platform's load balancer locates it on this request,
+        or, when the request carries none, the country the account was placed
+        in at sign-up or on a later request; generating on `omni-1.1-flash`
+        from text or a start frame is unaffected.
       requestBody:
         required: true
         content:
@@ -13230,8 +13235,8 @@ components:
         unavailable_reason:
           type: string
           description: >-
-            Present only when a generate request for this model from THIS caller would be refused before any quote or charge, saying why and which models to use instead. Today that is the uploaded-video editing region rule: `omni-1.1-flash-edit` is withheld from customers in the EEA, the UK and Switzerland, and whenever the customer's region cannot be determined, which includes every request relayed by the hosted MCP server (mcp.nolgia.ai), because that hop only knows its own location. A picker should list the model as unavailable, or leave it out, rather than let the person submit and be refused. Absent when the model runs for this caller.
-          examples: ['model "omni-1.1-flash-edit" cannot edit uploaded footage unless the customer''s region is known.']
+            Reserved for a model that is listed for this caller but would be refused before any quote or charge, saying why and which models to use instead. Nothing sets it today: the one such rule, the uploaded-video editing region rule, now leaves `omni-1.1-flash-edit` out of this list entirely for a customer in the EEA, the UK or Switzerland, or one the platform cannot place (see `GET /models`). A picker that finds it should list the model as unavailable, or leave it out.
+          examples: ['model "omni-1.1-flash-edit" cannot edit uploaded footage for customers in your region.']
     ThreeDCapabilities:
       type: object
       additionalProperties: false
