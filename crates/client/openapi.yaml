@@ -7187,7 +7187,7 @@ paths:
           (`textStyle.version = 2`, which Studio writes on a title it adds
           to, or restyles in, an older composition). A version 2 title is
           rendered the way the Studio preview draws it:
-          it uses real faces. 43 families are bundled, each in the weights
+          it uses real faces. 58 families are bundled, each in the weights
           and italics it really has: Anton, Bebas Neue, Lobster, Oswald,
           Pacifico, JetBrains Mono, Roboto Mono, Inter, Manrope, Montserrat,
           Nunito, Open Sans, Poppins, Raleway, Roboto, Work Sans, Caveat,
@@ -7195,7 +7195,10 @@ paths:
           Archivo, Inter Tight, Jost, Chakra Petch, Bodoni Moda, Fraunces,
           Instrument Serif, Bangers, Comic Neue, Libre Barcode 128, Unbounded,
           Space Mono, TikTok Sans, League Gothic, Luckiest Guy, Rubik Glitch,
-          Rampart One, VT323, Kristi, Imperial Script and Euphoria Script.
+          Rampart One, VT323, Kristi, Imperial Script, Euphoria Script,
+          Six Caps, Antonio, Gasoek One, Schibsted Grotesk, Gloock, Bagel Fat
+          One, Shrikhand, Pinyon Script, Great Vibes, Cormorant Garamond,
+          Titan One, Bungee, Bricolage Grotesque, Questrial and Young Serif.
           The face is chosen the way a browser chooses one
           (CSS font matching): `italic` takes the family's true italic, and
           `fontWeight` the face of that weight, or the nearest one the
