@@ -3,6 +3,62 @@
 Release notes for the Nolgia CLI. Each `## vX.Y.Z` section becomes the body of
 the matching GitHub release.
 
+## v0.3.3
+
+- **The bundled film skill is current.** `nolgia-video-prompting` goes from
+  the old 1.1.0 copy to 1.10.1, matching nolgiainc/nolgia-skills.
+  Run `nolgia skills install --force` to replace a copy you installed
+  before. What it now teaches an agent:
+  - **A LOOK block before the first still.** Every film, commercial, music
+    video or trailer writes one and pastes it into every still and take
+    prompt. Camera, lens, moves and grade read as a director of
+    photography's spec in real film terms: the camera and format, the lens
+    and T-stop, the move (dolly, Steadicam, handheld), the named lighting
+    setup (low key, Rembrandt, top light, motivated practicals) and the
+    stock or grade. Palette spread and bits per pixel are warnings, never
+    targets.
+  - **Light written as its effect, with no gear named.** The prompt says
+    what the light does and where it comes from, not which fixture,
+    modifier or grip makes it.
+  - **Rules for each model.** The long structured prompt is for
+    `seedance-2.5`; Kling and Wan get short prompts. Keyframes ride as
+    elements on Seedance and H3, `kling-v4` takes a start frame beside its
+    elements, and `wan-3.0` a start frame only. Kling has no multi-shot
+    flag, and Seedance 2.0 follows "Shot N" beats instead of timestamps.
+  - **People speak on `seedance-2.5`** at 720p (21:9 for films), with one
+    5 to 8 second voice reference per speaker, a voice lock and a script
+    that says "only these N lines".
+  - **Sung shots on `minimax-h3`** at 768p, with the song slice as the
+    audio reference. H3 is used only for a shot that needs song lip sync.
+  - **What the distilled films do.** Camera moves and lighting setups are
+    ranked by what NOLGIA's studied films actually use, fine grain is
+    written into takes, stills are made with the model suited to the job,
+    and the list of things to avoid is longer (a CGI look, morphing,
+    flicker, extra limbs).
+  - References instead of keyframes: 2 to 5 references per take, each with
+    its job, plus a written first frame; one cast sheet per role made with
+    `--aura false`; an empty location plate for each camera direction.
+- **`nolgia-platform` skill:** a new section on driving a desktop app
+  through its NOLGIA plugin (`nolgia api GET /bridge/sessions`,
+  `POST /bridge/commands`, waiting for the result), and the current model
+  lanes.
+- All three bundled skills now share version 1.10.1, as in nolgia-skills.
+  The `nolgia-ugc-ads` text is unchanged.
+- **Refreshed API spec.** The client is built from today's nolgia-api
+  contract.
+  - Long prompts get through. Up to v0.3.2 the CLI refused any prompt over
+    4,000 characters before sending it. Prompts up to 32,000 characters now
+    reach the API, which applies each model's own limit (its
+    `max_prompt_chars` in `nolgia api GET /models`).
+  - `gen video --aspect-ratio` accepts `2:1` on the models that list it.
+  - The Aura setting (`aura`) is documented on image sets as well as single
+    images.
+  - New API routes, reachable with `nolgia api`: 9:16 reframe renders
+    (`GET /renders/reframe/quote`, `POST /renders/reframe`) and follow-subject
+    plans (`/compositions/{id}/follow-plans`). Assets carry a `shape`.
+
+Tested on Linux: the full test suite, clippy and fmt.
+
 ## v0.3.2
 
 - **`nolgia dit` fixes from the first macOS run.**
