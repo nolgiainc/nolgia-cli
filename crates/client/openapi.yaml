@@ -14000,9 +14000,9 @@ components:
             re-route: when a model's provider refuses your reference media
             (Seedance's lifelike-human moderation) and the job is re-dispatched
             to a fallback model with a stricter cap, the prompt is cut at a
-            word boundary to fit it, and the asset's generation metadata
+            word boundary to fit it, the asset's generation metadata
             records `prompt_truncated_for_fallback: true` with
-            `original_prompt_chars`.
+            `original_prompt_chars`, and the job's `warnings` says so.
           minimum: 1
           example: 4096
     ImageCapabilities:
@@ -14237,6 +14237,26 @@ components:
           nullable: true
           description: Human-friendly display name for the voice.
           examples: ['Bella (American female)']
+        gender:
+          type: string
+          nullable: true
+          description: The voice's gender as its vendor labels it (`female`, `male` or `neutral`). Absent when the vendor states none; NOLGIA never guesses one.
+          examples: [female]
+        age:
+          type: string
+          nullable: true
+          description: The voice's age as its vendor labels it (`young`, `middle-aged` or `old`). Absent when the vendor states none.
+          examples: [middle-aged]
+        accent:
+          type: string
+          nullable: true
+          description: The voice's accent as its vendor labels it, such as `American`, `British` or `Australian`. Absent when the vendor states none.
+          examples: [American]
+        description:
+          type: string
+          nullable: true
+          description: The vendor's own short description of the voice. Absent when the vendor gives none.
+          examples: ['Warm, soft and reassuring.']
     UploadAssetRequest:
       type: object
       additionalProperties: false
@@ -16110,7 +16130,7 @@ components:
           items:
             type: string
           description: >-
-            Plain statements about how this job ran differently from the request, safe to show the customer as-is: a `negative_prompt` or `seed` this model's provider never receives (for example "negative_prompt not supported by nano-banana-pro; not sent"), which was accepted and not sent while the render still ran. Absent when there is nothing to say. `image.negative_prompt_supported`, `image.seed_supported` and `video.negative_prompt_supported` on `GET /models` say ahead of time which models take each field.
+            Plain statements about how this job ran differently from the request, safe to show the customer as-is: a `negative_prompt` or `seed` this model's provider never receives (for example "negative_prompt not supported by nano-banana-pro; not sent"), which was accepted and not sent while the render still ran; or a re-route: when the requested model's provider refuses the request's reference media (a lifelike person on Seedance 2.0 Fast or Mini, for example), the job is re-sent to a fallback at the same price, `model` then names the model that rendered it, and a warning says which model was asked for and why it changed (and when the prompt was shortened to fit the fallback). Absent when there is nothing to say. `image.negative_prompt_supported`, `image.seed_supported` and `video.negative_prompt_supported` on `GET /models` say ahead of time which models take each field.
     JobCancellation:
       type: object
       additionalProperties: false
