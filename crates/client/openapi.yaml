@@ -1845,13 +1845,17 @@ paths:
         `GET /jobs/{id}/wait` to track completion, then `GET /assets?job_id={id}`
         to retrieve the produced asset(s).
 
-        **Duplicate submissions are refused, not billed.** Submitting the same
-        request twice within five minutes returns `409` naming the job that
-        already exists, so a lost response — a closed tab, a dropped
-        connection, a timed-out request — cannot turn into a second charge.
-        Send a distinct `Idempotency-Key` header to declare a deliberate new
-        generation of an identical prompt; repeat the same key to make your
-        own retries collapse onto one job.
+        **Duplicate submissions are never billed twice.** Without an
+        `Idempotency-Key`, submitting the same request twice within five
+        minutes returns `409` naming the job that already exists, so a lost
+        response — a closed tab, a dropped connection, a timed-out request —
+        cannot turn into a second charge. An `Idempotency-Key` header names one request for your account while
+        its job runs and for 24 hours after it finishes: repeating the key with
+        the same request (the body may differ only in `confirmation_token`,
+        key order or spacing) returns `202` with that job as it is now and the
+        header `Idempotent-Replayed: true`, charging nothing; the same key with
+        a different request returns `409` with code `idempotency_key_reused`.
+        Send a new key to run an identical request again on purpose.
 
         **Failures carry a machine-readable code.** A refusal sets `error.code` and a failed job sets
         `failure.code` to a `GenerationErrorCode`, so a client can branch without parsing prose.
@@ -1888,11 +1892,15 @@ paths:
         `GET /jobs/{id}/wait` to track completion, then `GET /assets?job_id={id}`
         to retrieve the produced asset.
 
-        **Duplicate submissions are refused, not billed.** Submitting the same
-        request twice within five minutes returns `409` naming the job that
-        already exists. Send a distinct `Idempotency-Key` header to declare a
-        deliberate new generation of an identical prompt; repeat the same key
-        to make your own retries collapse onto one job.
+        **Duplicate submissions are never billed twice.** Without an
+        `Idempotency-Key`, submitting the same request twice within five
+        minutes returns `409` naming the job that already exists. An `Idempotency-Key` header names one request for your account while
+        its job runs and for 24 hours after it finishes: repeating the key with
+        the same request (the body may differ only in `confirmation_token`,
+        key order or spacing) returns `202` with that job as it is now and the
+        header `Idempotent-Replayed: true`, charging nothing; the same key with
+        a different request returns `409` with code `idempotency_key_reused`.
+        Send a new key to run an identical request again on purpose.
 
         **Text to speech is billed by the length of `prompt`**, in characters,
         not per request. `GET /models` publishes the meter for each voice as
@@ -1939,13 +1947,17 @@ paths:
         Returns immediately with a job. Default model is Kling v3.0 text-to-video.
         Use `GET /jobs/{id}` or `GET /jobs/{id}/wait` to retrieve the final asset.
 
-        **Duplicate submissions are refused, not billed.** Submitting the same
-        request twice within five minutes returns `409` naming the job that
-        already exists, so a lost response — a closed tab, a dropped
-        connection, a `wait` that timed out — cannot turn into a second
-        charge. Send a distinct `Idempotency-Key` header to declare a
-        deliberate new take of an identical prompt; repeat the same key to
-        make your own retries collapse onto one job.
+        **Duplicate submissions are never billed twice.** Without an
+        `Idempotency-Key`, submitting the same request twice within five
+        minutes returns `409` naming the job that already exists, so a lost
+        response — a closed tab, a dropped connection, a `wait` that timed
+        out — cannot turn into a second charge. An `Idempotency-Key` header names one request for your account while
+        its job runs and for 24 hours after it finishes: repeating the key with
+        the same request (the body may differ only in `confirmation_token`,
+        key order or spacing) returns `202` with that job as it is now and the
+        header `Idempotent-Replayed: true`, charging nothing; the same key with
+        a different request returns `409` with code `idempotency_key_reused`.
+        Send a new key to run an identical request again on purpose.
 
         **Failures carry a machine-readable code.** A refusal sets `error.code` and a failed job sets
         `failure.code` to a `GenerationErrorCode`, so a client can branch without parsing prose.
@@ -2181,13 +2193,17 @@ paths:
         are 21, 30 with PBR, 30 with extra views, or 39 with both; untextured
         totals are 13 or 22 with extra views. Trellis costs 2 credits.
 
-        **Duplicate submissions are refused, not billed.** Submitting the same
-        request twice within five minutes returns `409` naming the job that
-        already exists, so a lost response - a closed tab, a dropped
-        connection, a `wait` that timed out - cannot turn into a second
-        charge. Send a distinct `Idempotency-Key` header to declare a
-        deliberate new take of an identical prompt; repeat the same key to
-        make your own retries collapse onto one job.
+        **Duplicate submissions are never billed twice.** Without an
+        `Idempotency-Key`, submitting the same request twice within five
+        minutes returns `409` naming the job that already exists, so a lost
+        response - a closed tab, a dropped connection, a `wait` that timed
+        out - cannot turn into a second charge. An `Idempotency-Key` header names one request for your account while
+        its job runs and for 24 hours after it finishes: repeating the key with
+        the same request (the body may differ only in `confirmation_token`,
+        key order or spacing) returns `202` with that job as it is now and the
+        header `Idempotent-Replayed: true`, charging nothing; the same key with
+        a different request returns `409` with code `idempotency_key_reused`.
+        Send a new key to run an identical request again on purpose.
 
         **Failures carry a machine-readable code.** A refusal sets `error.code` and a failed job sets
         `failure.code` to a `GenerationErrorCode`, so a client can branch without parsing prose.
@@ -2245,9 +2261,12 @@ paths:
         prompt, or restore controls are accepted. These models publish
         `remove_background: true`, not `restore: true`.
 
-        **Duplicate submissions are refused, not billed.** An identical
-        request within five minutes returns `409` naming the existing job;
-        send a distinct `Idempotency-Key` for a deliberate new run.
+        **Duplicate submissions are never billed twice.** Same contract as
+        `POST /generate/video`: without an `Idempotency-Key`, an identical
+        request within five minutes returns `409` naming the existing job; a
+        repeated key returns its job (`202`, `Idempotent-Replayed: true`)
+        while the job runs and for 24 hours after, and the same key with a
+        different request returns `409` `idempotency_key_reused`.
       requestBody:
         required: true
         content:
@@ -2295,10 +2314,12 @@ paths:
         `GET /models`. Restore-lane models carry `restore: true` in the
         model catalog.
 
-        **Duplicate submissions are refused, not billed.** Same idempotency
-        contract as `POST /generate/video`: an identical request within five
-        minutes returns `409` naming the existing job; send a distinct
-        `Idempotency-Key` header to declare a deliberate new run.
+        **Duplicate submissions are never billed twice.** Same contract as
+        `POST /generate/video`: without an `Idempotency-Key`, an identical
+        request within five minutes returns `409` naming the existing job; a
+        repeated key returns its job (`202`, `Idempotent-Replayed: true`)
+        while the job runs and for 24 hours after, and the same key with a
+        different request returns `409` `idempotency_key_reused`.
       requestBody:
         required: true
         content:
@@ -11605,7 +11626,7 @@ components:
         code:
           type: string
           description: >
-            Machine-readable error code. Agent endpoints (`/agent/chat`, `/agent/messages*`, `/agent/sessions*`, `/agent/steps`) set one of the `AgentErrorCode` values. The generation endpoints (`/generate/image`, `/generate/video`, `/generate/audio`, `/generate/3d`, `/generate/set`) set one of the `GenerationErrorCode` values when the refusal has one; a `409` duplicate-submission refusal carries no code, because the status and the named existing job already say what happened. `POST /jobs/{id}/cancel` sets `job_not_cancellable` on its `409`. The `/bridge/*` endpoints set `app_not_connected`, `language_not_supported`, `capability_not_supported`, `agent_not_allowed`, `organization_key_not_allowed`, `session_disconnected`, `command_not_running` or `command_finished`. The share-link endpoints set `share_password_required`, `share_download_disabled`, `share_links_disabled_by_organization`, `share_password_required_by_organization` or `share_expiry_exceeds_organization_limit`. Absent otherwise.
+            Machine-readable error code. Agent endpoints (`/agent/chat`, `/agent/messages*`, `/agent/sessions*`, `/agent/steps`) set one of the `AgentErrorCode` values. The generation endpoints (`/generate/image`, `/generate/video`, `/generate/audio`, `/generate/3d`, `/generate/set`) set one of the `GenerationErrorCode` values when the refusal has one; a `409` duplicate-submission refusal carries no code, because the status and the named existing job already say what happened, except an `Idempotency-Key` reused for a different request (`idempotency_key_reused`). `POST /jobs/{id}/cancel` sets `job_not_cancellable` on its `409`. The `/bridge/*` endpoints set `app_not_connected`, `language_not_supported`, `capability_not_supported`, `agent_not_allowed`, `organization_key_not_allowed`, `session_disconnected`, `command_not_running` or `command_finished`. The share-link endpoints set `share_password_required`, `share_download_disabled`, `share_links_disabled_by_organization`, `share_password_required_by_organization` or `share_expiry_exceeds_organization_limit`. Absent otherwise.
 
         type:
           type: string
@@ -11631,7 +11652,7 @@ components:
           type: string
           format: uuid
           description: >
-            The job this refusal points at, so a client can follow it without reading `detail`. Set on the `409` duplicate-submission refusal from `/generate/*`, naming the job that already exists for this request — the one fact the submitter was missing. That refusal carries no `code` (the status and this field are the contract), and `detail` keeps its existing wording. Absent on every other problem.
+            The job this refusal points at, so a client can follow it without reading `detail`. Set on the `409` duplicate-submission refusal from `/generate/*`, naming the job that already exists for this request — the one fact the submitter was missing. That refusal carries no `code` (the status and this field are the contract), and `detail` keeps its existing wording. Also set on the `409` `idempotency_key_reused` refusal, naming the job the key already belongs to (a different request). Absent on every other problem.
 
         request_id:
           type: string
@@ -14848,13 +14869,13 @@ components:
     ImageAspectRatio:
       type: string
       description: >-
-        Native output aspect ratio for image models. Every published image model declares its supported values as `image.aspect_ratios` on `GET /models`; a ratio outside the selected model's list is rejected (400). Prefer this over `image_size`, whose closed aliases only express the 16:9/4:3/1:1 families. When an edit names neither `aspect_ratio` nor `image_size`, the output keeps the shape of the image being edited: the first image the request attaches itself in `image_url`, `image_urls` or `reference_asset_ids`. FLUX 3 Image and FLUX 3 Image Klein keep that image's exact framing; every other model renders at the ratio in its `image.aspect_ratios` nearest to the image's displayed size, and the asset records that ratio. For those models the default stays square when the image's size cannot be read (an image at a URL outside your NOLGIA library), as it does on any request with no image of its own. References that a `character_id`, `face_reference_asset_id`, `location_id`, `product_id`, `style_id`, `element_ids` or brand kit attach never set the shape.
+        Native output aspect ratio for image models. Every published image model declares its supported values as `image.aspect_ratios` on `GET /models`; a ratio outside the selected model's list is rejected (400). Prefer this over `image_size`, whose closed aliases only express the 16:9/4:3/1:1 families. When an edit names neither `aspect_ratio` nor `image_size`, the output keeps the shape of the image being edited: the first image the request attaches itself in `image_url`, `image_urls` or `reference_asset_ids`. FLUX 3 Image and FLUX 3 Image Klein keep that image's exact framing; every other model renders at the ratio in its `image.aspect_ratios` nearest to the image's displayed size, and the asset records that ratio. For those models the default stays square when the image's size cannot be read (an image at a URL outside your NOLGIA library), as it does on any request with no image of its own. References that a `character_id`, `face_reference_asset_id`, `location_id`, `product_id`, `style_id`, `element_ids` or brand kit attach never set the shape. The list grows as models add shapes: every ratio a model publishes in `image.aspect_ratios` is a member, and a client should accept a value it does not know yet when it reads the catalog.
       enum: ['16:9', '9:16', '1:1', '4:3', '3:4', '3:2', '2:3', '21:9', '9:21', '2:1', '1:2', '5:4', '4:5', '3:1', '1:3', '4:1', '1:4', '8:1', '1:8', '7:5', '5:7']
     AspectRatio:
       type: string
       description: >-
-        The shape of the rendered clip. Only the values in the selected model's `video.aspect_ratios` are accepted; anything else is a `400`. On `POST /generate/video` an omitted value follows the start frame (`image_url`) when there is one: the nearest of the model's `video.aspect_ratios` that the selected quality renders, so a portrait frame makes a 9:16 clip instead of a 16:9 one with the picture boxed in the middle; with no start frame it is 16:9. Edit and extend keep the source clip's shape. The choice never changes the price.
-      enum: ['16:9', '9:16', '1:1', '4:3', '3:4', '3:2', '2:3', '21:9']
+        The shape of the rendered clip. Only the values in the selected model's `video.aspect_ratios` are accepted; anything else is a `400`. On `POST /generate/video` an omitted value follows the start frame (`image_url`) when there is one: the nearest of the model's `video.aspect_ratios` that the selected quality renders, so a portrait frame makes a 9:16 clip instead of a 16:9 one with the picture boxed in the middle; with no start frame it is 16:9. Edit and extend keep the source clip's shape. The choice never changes the price. The list grows as models add shapes: every ratio a model publishes in `video.aspect_ratios` is a member, and a client should accept a value it does not know yet when it reads the catalog.
+      enum: ['16:9', '9:16', '1:1', '4:3', '3:4', '3:2', '2:3', '21:9', '2:1']
     BitrateMode:
       type: string
       description: >-
@@ -14988,6 +15009,11 @@ components:
           items:
             type: string
             format: uuid
+        aura:
+          type: boolean
+          nullable: true
+          description: >-
+            Applied to every member exactly as `aura` on `POST /generate/image`: true or false sets Aura for the whole set; omitted, each member gets the server default for its own prompt (on for a person prompt on an `image.aura_compatible` model, and beside a face reference or character). An explicit false works with a face reference or characters: the identity lock and the face check still apply.
         face_reference_asset_id:
           type: string
           format: uuid
@@ -15268,13 +15294,13 @@ components:
           type: boolean
           nullable: true
           description: >-
-            Applies Aura, the Nolgia character engine: server-side photoreal composition layered onto the prompt (people render as photographs, real skin, real light, no AI gloss). Honored only on models whose catalog entry publishes `image.aura_compatible: true`; a true value on any other model is a no-op, never an error. When OMITTED, the server applies the product default: ON for prompts that read as a person subject on aura_compatible models, OFF otherwise. An explicit false always wins. The job's persisted params echo the effective value for audit and gallery badging.
+            Applies Aura, the Nolgia character engine: server-side photoreal composition layered onto the prompt (real skin texture with pores, natural catchlights, no beauty filter, smoothing or airbrushing). It adds no makeup and no beauty features, so makeup appears only when the prompt asks for it, and a face reference is followed as it is. Honored only on models whose catalog entry publishes `image.aura_compatible: true`; a true value on any other model is a no-op, never an error. A prompt worded as an illustration (anime, cartoon, 3D render, painting, sketch and similar) never gets the layer, even with `true`. When OMITTED, the server applies the product default: ON for prompts that read as a person subject on aura_compatible models, OFF otherwise ("model", "face" and "wearing" count only when they name a person, so "a scale model of a ship" stays off). Beside a face reference or a character an omitted flag resolves to ON. An explicit false always wins, face reference and characters included: identity is not the Aura layer, so the identity lock and the face check still apply with Aura off. The job's persisted params echo the effective value for audit and gallery badging, and `enhanced_prompt` on the asset shows the composed text.
         face_reference_asset_id:
           type: string
           format: uuid
           nullable: true
           description: >-
-            Image asset (owned by the caller) whose face conditions the render for identity. A face reference IS an Aura identity request: it turns the pipeline on (an explicit `aura: false` alongside it is a 400) and needs a model that accepts reference images (`image.reference_images_max` above the number of references already attached) - rejected with a 400 otherwise, so a reference is never silently dropped. Rides alongside `image_url`/`image_urls` and counts against the model's combined reference budget. The delivered render is subject to the ArcFace identity acceptance gate (>= 0.60 against this reference, one automatic re-roll) once the scoring runtime is enabled; that gate scores and re-rolls a single render, so `num_images` must be 1 (or omitted) alongside a face reference - a batch is a 400 rather than a set of renders where only one was actually scored. The gate runs only when consent to the face check is recorded for this photo (`face_check_consent`); without it the photo still conditions the render and nothing is face-compared.
+            Image asset (owned by the caller) whose face conditions the render for identity. An identity lock rides the prompt with it, and with `aura` omitted it turns Aura on; it works with `aura: false` too (identity is not the Aura layer: the lock and the face check still apply). It needs an `image.aura_compatible` model that accepts reference images (`image.reference_images_max` above the number of references already attached) - rejected with a 400 otherwise, so a reference is never silently dropped. Rides alongside `image_url`/`image_urls` and counts against the model's combined reference budget. The delivered render is subject to the ArcFace identity acceptance gate (>= 0.60 against this reference, one automatic re-roll) once the scoring runtime is enabled; that gate scores and re-rolls a single render, so `num_images` must be 1 (or omitted) alongside a face reference - a batch is a 400 rather than a set of renders where only one was actually scored. The gate runs only when consent to the face check is recorded for this photo (`face_check_consent`); without it the photo still conditions the render and nothing is face-compared.
         face_check_consent:
           type: boolean
           nullable: true
@@ -15386,7 +15412,7 @@ components:
           format: uuid
           nullable: true
           description: >-
-            One of your characters. With no voice, the request speaks with the character's catalog voice (its voice_id, which must be in THIS request model's audio.voices); an explicit voice wins. A character with no voice, a clip voice (text to speech cannot speak a clip, voice cloning is not available), or a voice this model does not publish is a 400. An unknown or foreign id is a 400.
+            One of your characters. With no voice, the request speaks with the character's catalog voice (its voice_id, which must be in THIS request model's audio.voices); an explicit voice wins. A character with no voice, a clip voice (text to speech cannot speak a clip, and a character cannot store a cloned voice yet: pass one of your custom voices from GET /voices as `voice`), or a voice this model does not publish is a 400. An unknown or foreign id is a 400.
         duration_seconds:
           type: integer
           nullable: true
@@ -16563,15 +16589,20 @@ components:
         description:
           type: string
           maxLength: 2000
-          examples: ['A silver-haired astronaut with a scarred left cheek and a teal flight suit.']
+          examples: ['A silver-haired astronaut in her forties, a lean build, a thin scar across her left cheek.']
         canonical_description:
           type: string
           maxLength: 2000
           description: |
-            The character's canonical written description - the asset bible
-            entry (face, hair, build, wardrobe, anchor) reused VERBATIM by
-            every downstream generation. This is the continuity contract:
-            downstream prompts must fold it in unchanged, never paraphrased.
+            The character's canonical written description, the asset bible
+            entry: face, hair, build and marks (write a mark with its side,
+            "a scar on her left cheek"), reused VERBATIM by every downstream
+            generation. This is the continuity contract: downstream prompts
+            must fold it in unchanged, never paraphrased. Keep clothing out
+            of it: every generation that names the character folds this text
+            in, so an outfit written here is worn in every render. Write the
+            outfit into each prompt, or store it as a named outfit in
+            `wardrobe`, which a sheet renders with `outfit`.
             Falls back to `description` when the record predates this field.
             Optional in the schema only so existing clients keep parsing; the
             API always sends it (empty string when never set).
@@ -17430,8 +17461,10 @@ components:
           maxLength: 2000
           description: |
             The canonical written description reused verbatim by downstream
-            generations (see `Character.canonical_description`). Defaults to
-            `description` when omitted, so every new character has one.
+            generations (see `Character.canonical_description`): face, hair,
+            build and marks, with no clothing, since it rides every prompt.
+            Defaults to `description` when omitted, so every new character
+            has one.
         primary_reference_asset_id:
           type: string
           format: uuid
@@ -17496,7 +17529,8 @@ components:
           maxLength: 2000
           description: |
             Replaces the canonical written description (see
-            `Character.canonical_description`) when provided.
+            `Character.canonical_description`: face, hair, build and marks,
+            with no clothing) when provided.
         primary_reference_asset_id:
           type: string
           format: uuid
@@ -18811,7 +18845,10 @@ components:
             The rolled canonical written description. Store it on the
             character record unchanged when creating the character from this
             roll - it is the continuity contract for every downstream
-            generation.
+            generation. It includes the rolled wardrobe ("wearing ...") and
+            the modesty line, so a character saved with it unchanged wears
+            that outfit in every render (see
+            `Character.canonical_description`).
         axes:
           type: object
           additionalProperties:
@@ -25148,8 +25185,8 @@ components:
           description: After this the token is refused and a submit carrying it fails with `confirmation_rejected`. Re-quote.
     GenerationErrorCode:
       type: string
-      enum: [out_of_credits, rate_limit, prompt_nsfw, ip_detected, job_failed, timeout, validation, confirmation_rejected, canceled, job_not_cancellable, approval_required, run_ended, likeness_refused, copyright_refused, output_safety_blocked, input_safety_blocked, invalid_media, frame_constraint, media_constraint, card_required, paid_credits_required]
-      x-enum-varnames: [GenerationErrorCodeOutOfCredits, GenerationErrorCodeRateLimit, GenerationErrorCodePromptNsfw, GenerationErrorCodeIpDetected, GenerationErrorCodeJobFailed, GenerationErrorCodeTimeout, GenerationErrorCodeValidation, GenerationErrorCodeConfirmationRejected, GenerationErrorCodeCanceled, GenerationErrorCodeJobNotCancellable, GenerationErrorCodeApprovalRequired, GenerationErrorCodeRunEnded, GenerationErrorCodeLikenessRefused, GenerationErrorCodeCopyrightRefused, GenerationErrorCodeOutputSafetyBlocked, GenerationErrorCodeInputSafetyBlocked, GenerationErrorCodeInvalidMedia, GenerationErrorCodeFrameConstraint, GenerationErrorCodeMediaConstraint, GenerationErrorCodeCardRequired, GenerationErrorCodePaidCreditsRequired]
+      enum: [out_of_credits, rate_limit, prompt_nsfw, ip_detected, job_failed, timeout, validation, confirmation_rejected, canceled, job_not_cancellable, approval_required, run_ended, likeness_refused, copyright_refused, output_safety_blocked, input_safety_blocked, invalid_media, frame_constraint, media_constraint, card_required, paid_credits_required, idempotency_key_reused]
+      x-enum-varnames: [GenerationErrorCodeOutOfCredits, GenerationErrorCodeRateLimit, GenerationErrorCodePromptNsfw, GenerationErrorCodeIpDetected, GenerationErrorCodeJobFailed, GenerationErrorCodeTimeout, GenerationErrorCodeValidation, GenerationErrorCodeConfirmationRejected, GenerationErrorCodeCanceled, GenerationErrorCodeJobNotCancellable, GenerationErrorCodeApprovalRequired, GenerationErrorCodeRunEnded, GenerationErrorCodeLikenessRefused, GenerationErrorCodeCopyrightRefused, GenerationErrorCodeOutputSafetyBlocked, GenerationErrorCodeInputSafetyBlocked, GenerationErrorCodeInvalidMedia, GenerationErrorCodeFrameConstraint, GenerationErrorCodeMediaConstraint, GenerationErrorCodeCardRequired, GenerationErrorCodePaidCreditsRequired, GenerationErrorCodeIdempotencyKeyReused]
       description: |
         Stable machine-readable class of a generation failure, on the
         `/generate/*` submit responses (as `error.code`) and on a failed job
@@ -25177,6 +25214,7 @@ components:
         - `approval_required`: refused with `402` (title `Approval Needed`) because the generation would take an agent run past the price its customer approved (the `credit_ceiling` a guided preset's review card showed, sent with the brief). Nothing was submitted and nothing was charged. The detail names the generation's cost and the new run total; the agent must ask the customer to approve that total before it continues, never retry, split the job or switch models to fit.
         - `card_required`: refused with `402` (title `Card Required`) for one of two reasons. Free credits: the account is on the free plan (never paid) with no card on file, no paid credits and no sign-up grant or Insider welcome left (those spend without a card), so its remaining free credits are locked; adding a card (no charge) unlocks them and the daily free allowance (`suggested_models` is empty then). Premium video: the model is premium video (Seedance 2.5, Kling 4.0, every Veo model and every video model at or above 5.4 credits per second) and the account has no card on file and has never paid for a plan or credits. Nothing was submitted and nothing was charged. Adding a card in the NOLGIA app unlocks it with no charge (`help_url` is the app's card page); `suggested_models` lists cheaper video models this account can run now, best first. Images and the cheaper models work without a card. Never retry the same request.
         - `paid_credits_required`: refused with `402` (title `Paid Credits Required`) because the model is premium video (Seedance 2.5, Kling 4.0, Veo and every video model at or above 5.4 credits per second) and the account is on the free plan (it has never paid for a plan or credits) with no paid credits to cover it. Free credits (the daily allowance and older sign-up grants) pay for images and the cheaper video models only. Nothing was submitted and nothing was charged. Subscribing or buying credits unlocks it (`help_url` is the app's billing page); `suggested_models` lists cheaper video models the free credits cover, best first. Never retry the same request.
+        - `idempotency_key_reused`: refused with `409` because the `Idempotency-Key` already names a different request on this account (another body, apart from `confirmation_token`). A key keeps naming its job while the job runs and for 24 hours after it finishes. Nothing was submitted and nothing was charged; `job_id` names the job the key belongs to. Send a new key for a new request, or the original request again to get that job.
         - `run_ended`: refused with `409` (title `Run Ended`) because the agent run this generation was started for (the turn its turn-scoped credential names) has already ended: the platform failed, swept or stopped the turn, or it finished and delivered its reply. Nothing was submitted and nothing was charged. The agent must stop working on that run, never retry or switch models; the customer's chat already shows how it ended.
     AgentMessageConflict:
       type: object
