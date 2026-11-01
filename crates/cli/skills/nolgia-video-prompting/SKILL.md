@@ -1,7 +1,7 @@
 ---
 name: nolgia-video-prompting
 description: "Directing craft for NOLGIA video generation: the film standard (references with stated jobs, casting and styling for the role, location plates, one structured prompt per take, written cuts at the genre's rhythm, best of N takes, sound, typeset words, the realism finish), plus the breathing pattern, per-shot sound design and the keep-what-works iteration loop. Use when: writing or fixing video prompts, planning a multi-clip production, a short film, a series episode, a trailer, a commercial or a music video on NOLGIA, or deciding which shots to regenerate. NOT for: platform mechanics such as auth, flags, jobs and credits (use nolgia-platform), vertical UGC ad pipelines (use nolgia-ugc-ads), or still-image prompting."
-version: 1.8.0
+version: 1.9.0
 author: NOLGIA
 license: MIT
 metadata:
@@ -21,7 +21,7 @@ burning credits.
 
 ```
 <SHOT SIZE>. <subject + one action>. <environment, time, weather>.
-<camera: system, lens and T-stop, the move>. <the lighting setup: fixtures, position, Kelvin>.
+<camera: system, lens and T-stop, the move>. <the lighting setup, each light as its effect>.
 AUDIO: <sound design>, no music.
 ```
 
@@ -41,8 +41,10 @@ Rules that survived production:
   the real terms taught in film school, one coherent spec the way a camera and
   lighting report reads (section "The LOOK block"): the camera system and format
   chosen for the look, the lens set, focal length and T-stop, the grip move, the
-  named lighting setup with its fixtures, positions, Kelvin and gels, and the
-  stock, grade and LUT as the target look.
+  named lighting setup with each light written as its effect, and the stock,
+  grade and LUT as the target look. The gear behind the light (fixtures,
+  modifiers, flags, frames, grip, stands) never goes in a prompt (section "The
+  gear stays out of the prompt").
 - **Never a pile of buzzwords**: no "cinematic" as filler, no "8k, masterpiece,
   hyperrealistic, ultra detailed, award winning, perfect, beautiful bokeh,
   flawless, glass smooth". Those stacks gave a centred, symmetric advert frame
@@ -150,15 +152,17 @@ the first still and pasted verbatim into every still and take prompt:
 - **The camera and format chosen for the look**: an ARRI Alexa Mini LF, a Sony
   Venice 2, 16 mm on an Arriflex 416, 35 mm on a Panavision Millennium XL2; the
   lens set, its focal lengths and T-stop (a set of Cooke S4 primes at T2.8).
-- **The lighting setup by name**, with every fixture by type, position and colour
-  temperature in Kelvin, and its gels: Rembrandt, loop, split, butterfly, low key,
-  high key, motivated practicals, book light, top light, negative fill, bounce;
-  a tungsten Fresnel, a China ball, a Kino Flo, an HMI, a SkyPanel, Astera tubes;
-  CTO, CTB, and minus green, which is how a fluorescent's green spill is
-  corrected ("a 3200 K tungsten Fresnel through a book light camera left, a China
-  ball 1.5 m above the table, overcast daylight about 6500 K through the window
-  behind her, negative fill camera right"). Never colour words for light such as
-  "green white" or "yellow green": they paint the frame.
+- **The lighting setup by name** (Rembrandt, loop, split, butterfly, low key,
+  high key, top light, motivated practicals, direct on-camera flash, dark-field
+  for glass), with every light written as its effect: where it comes from (from
+  off-frame, unless it is a practical really in the shot), how big and soft it
+  is, its colour temperature in Kelvin, what it falls on, how it falls off and
+  the shadow it leaves ("a large, soft key at 3200 K from off-frame, camera left, wrapping
+  her near cheek; a 2700 K pendant 1.5 m above the table, in the shot; overcast
+  daylight about 6500 K through the window behind her; the right side of the
+  room dark, nothing filling her shadow side"). Never colour words for light
+  such as "green white" or "yellow green": they paint the frame. A fluorescent
+  corrected with minus green is written as "4000 K, no green cast".
 - **The stock, grade and LUT as the target look**: Kodak Vision3 500T 5219 or 250D
   5207, Fuji Eterna, bleach bypass or ENR, a print emulation; the matching LUT is
   applied in the finish.
@@ -174,6 +178,47 @@ raise a number. A still or take that fails is judged against the LOOK block and
 regenerated from it. No colour fix in post as a plan: the look comes from the
 written stills and takes, and the grade only finishes.
 
+### The gear stays out of the prompt
+
+The models draw the gear a prompt names. In NOLGIA's live-action test
+(2026-11-01) a book light came back as a reading lamp in the shot, a China ball
+as a paper lantern, an apple box as a box the actor sat on and an egg crate as
+an egg carton; a named octabox and a black flag for negative fill each stood in
+the frame in 2 of 2 stills, and "every light is off frame" cleared only 1 of 2.
+The same prompts with the light written as its effect drew no gear in 4 of 4.
+The professional AI productions we studied agree: fixture names almost never
+describe a light, and none of their kept takes names an off-frame fixture.
+
+- In any still or take prompt, never name the gear behind the light: fixtures,
+  modifiers, flags, frames, grip or stands (Fresnel, HMI, Kino Flo, SkyPanel,
+  Astera, China ball, book light, octabox, softbox, strip box, beauty dish,
+  black flag, negative fill, bounce board, reflector, diffusion frame, apple
+  box, egg crate, C-stand, gels), and never as a setup name either.
+- Write the effect: the side and height it comes from, from off-frame, its size
+  and softness, its Kelvin, what it falls on, how it falls off and the shadow it
+  leaves. "A 1.5 m octabox camera left" becomes "a large, soft key at 5500 K
+  from off-frame, camera left, wrapping the near cheek, a soft-edged shadow on
+  the far one"; "a black flag camera left" becomes "the camera-left side of the
+  room is dark and nothing bounces light back"; "a China ball overhead" becomes
+  "a soft, round glow from above, from off-frame, falling off fast down the
+  walls". Direction, rim light, falloff, the time of day, window light and
+  Kelvin numbers carry the look.
+- A studio, sheet, product or plate still, where an empty backdrop is the whole
+  scene, gets one ban line that names categories only: "no lighting equipment
+  anywhere in the frame: no light stands, lamps or fixtures; a clean, empty
+  backdrop". Never a list of specific fixtures.
+- Gear meant to be seen (a behind-the-scenes shot, a photo shoot, a creator's
+  ring light) is named as a set object in the shot.
+- Keep naming what names a look or something really in the shot: the setups
+  (Rembrandt, butterfly, low key, direct on-camera flash, dark-field), the stock
+  and grade, the camera body and lens, the camera moves (when a move implies a
+  rig the frame could show, add "no camera rig, dolly track, rails or crew
+  visible"), and practicals in the shot, written as set objects.
+- The gear names stay in your own shot plan and the LOOK block's crew notes,
+  which are never pasted into a prompt. Check the first still for anything the
+  light words drew (a lamp, a lantern, a stand, a black panel) and remake it
+  before any video credits.
+
 ### One structured prompt per take, in a held order
 
 LOOK (the film's LOOK block for this lighting setup, verbatim), SCENE CONTEXT,
@@ -182,8 +227,9 @@ headcount, no text: early, so a long prompt never loses them), LOCATION MAP,
 FIRST FRAME, FORMAT (the cuts), OPTICS (the lens, focal length and T-stop per
 segment), CAMERA (the grip move: locked off, dolly in or out, tracking, crane,
 Steadicam, handheld, whip pan, rack focus), ACTION TIMING, ACTING, SCRIPT, PHYSICS,
-LIGHTING (the named setup: each fixture, where it sits, its Kelvin and gel, what it
-falls on; only sources the LOOK block names), AUDIO ("diegetic sound
+LIGHTING (the named setup, and each light as its effect: where it comes from, its
+softness and Kelvin, what it falls on and the shadow it leaves, never the gear by
+name; only sources the LOOK block names), AUDIO ("diegetic sound
 only, no music"), LOCKS and a FORBIDDEN line (plastic skin, model looks, makeup or
 jewelry off role, beauty light, the LOOK block's forbidden casts, lens flares,
 readable text, music).
