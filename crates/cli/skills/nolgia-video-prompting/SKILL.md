@@ -1,7 +1,7 @@
 ---
 name: nolgia-video-prompting
 description: "Directing craft for NOLGIA video generation: the film standard (references with stated jobs, casting and styling for the role, location plates, one structured prompt per take, written cuts at the genre's rhythm, best of N takes, sound, typeset words, the realism finish), plus the breathing pattern, per-shot sound design and the keep-what-works iteration loop. Use when: writing or fixing video prompts, planning a multi-clip production, a short film, a series episode, a trailer, a commercial or a music video on NOLGIA, or deciding which shots to regenerate. NOT for: platform mechanics such as auth, flags, jobs and credits (use nolgia-platform), vertical UGC ad pipelines (use nolgia-ugc-ads), or still-image prompting."
-version: 1.10.0
+version: 1.10.1
 author: NOLGIA
 license: MIT
 metadata:
@@ -103,6 +103,9 @@ in-house short came out looking like AI (2026-10-31). The order that works:
   hero frame whose composition must be exact. With references on `seedance-2.5`
   or `minimax-h3` it rides as an element ("@Image1 is the opening frame of
   segment 1"), since both refuse a start frame together with reference media.
+  That is model specific: `kling-v4` takes a start frame beside elements, and
+  `wan-3.0` takes a start frame only. Element images run 0.4 to 2.5 in aspect
+  ratio.
 - **Grok takes its start frame alone.** On `grok-imagine-video-1.5` send `--input`
   with no `--element`: with elements it ignores the start frame. Its prompt
   limit is 4,096 characters and it has no 21:9.
@@ -268,8 +271,12 @@ and the default camera bans).
   light the LOOK block does not.
 - **Length goes up to the model's limit**, `video.max_prompt_chars` on
   `nolgia models get <model> --json` (`seedance-2.5` 19,800, `minimax-h3` 7,000,
-  `grok-imagine-video-1.5` 4,096). Structured prompts of 5,000 to 8,000
-  characters worked best. Over the limit the request is refused up front; trim
+  `grok-imagine-video-1.5` 4,096). The long structured prompt (5,000 to 8,000
+  characters, the distilled films' norm up to 10,000) is proven on
+  `seedance-2.5` only; `kling-v4` and Wan get lean prompts (the distilled Kling
+  B roll ran about 260 characters, and the vendor rewrites every Wan prompt).
+  `seedance-2.5` reads timestamps in steps of about a second; the Seedance 2.0
+  ids ignore them and follow "Shot 1", "Shot 2" beats. Over the limit the request is refused up front; trim
   style prose first, never a lock, the acting or a line. A CLI build older than
   the per-model limits (0.2.35 among them) refuses anything over 4,000
   characters client side ("longer than 4000 characters"): send that take with
@@ -283,6 +290,12 @@ and the default camera bans).
   lines. `seedance-2.5` runs to 30 s; `minimax-h3` and Grok to 15 s.
 - **Single shots, 4 to 8 s**, for action, inserts, VFX and the product hero.
 - **The multi-shot flag stays off** (no `--shot`): the cuts are written in the prompt.
+  `kling-v4` has no such flag and splits a take itself, so a single shot on it
+  says "one continuous long take without any cuts, no subtitles, no background
+  music".
+- **Keep the FORBIDDEN line on every lane**, and on `seedance-2.5` and
+  `kling-v4` also write the wanted look positively. No video route honours
+  `--negative-prompt`, so every exclusion lives in the prompt text.
 - **Handles**: set the duration 1 to 2 s longer than the written timeline and
   write the final hold as the END STATE.
 - **Rhythm**: dialogue drama 1 to 3 segments of 4 to 7.5 s (it holds); comedy and
@@ -370,9 +383,13 @@ quoting a frame.
   and static photographic wides: image to video from a finished keyframe, 4 to 8 s,
   one move and one action, ending "single continuous shot; everything else in the
   frame stays still"; never speech, written cuts, fast contact action, VFX wides or
-  hero close ups. `wan-3.0` is not routed yet: the distilled films used Wan (2.7)
-  for a stylized character speaking a supplied voice track, and our `wan-3.0`
-  takes a start frame only, with no audio reference. Everything else, every
+  hero close ups. Its audio is always on: send `strip_audio: true` in the API body
+  for a silent file. `wan-3.0` is not routed yet for its one corpus job: the
+  distilled films used Wan (2.7) for a stylized character speaking a supplied
+  voice track, and our `wan-3.0` takes a start frame only, with no audio
+  reference. For silent B roll it may be offered as the cheapest option, never the
+  proven one: a lean prompt ending "No dialogue.", `strip_audio: true`, and a
+  conform in the edit (Wan renders 30 fps, Seedance and Kling 24). Everything else, every
   photoreal person speaking included, stays on `seedance-2.5`.
 - **Wides with several people**: make the wide keyframe as an edit of the closer
   keyframe, so the leads' faces come from a still where they are large; faces at 35
