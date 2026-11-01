@@ -154,10 +154,10 @@ the first still and pasted verbatim into every still and take prompt:
   lens set, its focal lengths and T-stop (a set of Cooke S4 primes at T2.8).
 - **The lighting setup by name** (Rembrandt, loop, split, butterfly, low key,
   high key, top light, motivated practicals, direct on-camera flash, dark-field
-  for glass), with every light written as its effect: where it comes from (out
-  of frame, unless it is a practical really in the shot), how big and soft it
-  is, its colour temperature in Kelvin, what it falls on and the shadow it
-  leaves ("a large, soft key at 3200 K from out of frame, camera left, wrapping
+  for glass), with every light written as its effect: where it comes from (from
+  off-frame, unless it is a practical really in the shot), how big and soft it
+  is, its colour temperature in Kelvin, what it falls on, how it falls off and
+  the shadow it leaves ("a large, soft key at 3200 K from off-frame, camera left, wrapping
   her near cheek; a 2700 K pendant 1.5 m above the table, in the shot; overcast
   daylight about 6500 K through the window behind her; the right side of the
   room dark, nothing filling her shadow side"). Never colour words for light
@@ -186,23 +186,34 @@ as a paper lantern, an apple box as a box the actor sat on and an egg crate as
 an egg carton; a named octabox and a black flag for negative fill each stood in
 the frame in 2 of 2 stills, and "every light is off frame" cleared only 1 of 2.
 The same prompts with the light written as its effect drew no gear in 4 of 4.
+The professional AI productions we studied agree: fixture names almost never
+describe a light, and none of their kept takes names an off-frame fixture.
 
-- In any still or take prompt, never name off-frame gear: fixtures, modifiers,
-  flags, frames, grip or stands (Fresnel, HMI, Kino Flo, SkyPanel, Astera, China
-  ball, book light, octabox, softbox, strip box, beauty dish, black flag,
-  negative fill, bounce board, diffusion frame, apple box, egg crate, C-stand,
-  gels), not even to keep it out.
-- Write the effect: the side and height it comes from, the source out of frame,
-  its size and softness, its Kelvin, what it falls on and the shadow it leaves.
-  "A 1.5 m octabox camera left" becomes "a large, soft key at 5500 K from out of
-  frame, camera left, wrapping the near cheek, a soft-edged shadow on the far
-  one"; "a black flag camera left" becomes "the camera-left side of the room is
-  dark and nothing bounces light back"; "a China ball overhead" becomes "a soft,
-  round glow from above, out of frame, falling off fast down the walls".
+- In any still or take prompt, never name the gear behind the light: fixtures,
+  modifiers, flags, frames, grip or stands (Fresnel, HMI, Kino Flo, SkyPanel,
+  Astera, China ball, book light, octabox, softbox, strip box, beauty dish,
+  black flag, negative fill, bounce board, reflector, diffusion frame, apple
+  box, egg crate, C-stand, gels), and never as a setup name either.
+- Write the effect: the side and height it comes from, from off-frame, its size
+  and softness, its Kelvin, what it falls on, how it falls off and the shadow it
+  leaves. "A 1.5 m octabox camera left" becomes "a large, soft key at 5500 K
+  from off-frame, camera left, wrapping the near cheek, a soft-edged shadow on
+  the far one"; "a black flag camera left" becomes "the camera-left side of the
+  room is dark and nothing bounces light back"; "a China ball overhead" becomes
+  "a soft, round glow from above, from off-frame, falling off fast down the
+  walls". Direction, rim light, falloff, the time of day, window light and
+  Kelvin numbers carry the look.
+- A studio, sheet, product or plate still, where an empty backdrop is the whole
+  scene, gets one ban line that names categories only: "no lighting equipment
+  anywhere in the frame: no light stands, lamps or fixtures; a clean, empty
+  backdrop". Never a list of specific fixtures.
+- Gear meant to be seen (a behind-the-scenes shot, a photo shoot, a creator's
+  ring light) is named as a set object in the shot.
 - Keep naming what names a look or something really in the shot: the setups
   (Rembrandt, butterfly, low key, direct on-camera flash, dark-field), the stock
-  and grade, the camera body and lens, the camera moves, and practicals in the
-  shot, written as set objects.
+  and grade, the camera body and lens, the camera moves (when a move implies a
+  rig the frame could show, add "no camera rig, dolly track, rails or crew
+  visible"), and practicals in the shot, written as set objects.
 - The gear names stay in your own shot plan and the LOOK block's crew notes,
   which are never pasted into a prompt. Check the first still for anything the
   light words drew (a lamp, a lantern, a stand, a black panel) and remake it
