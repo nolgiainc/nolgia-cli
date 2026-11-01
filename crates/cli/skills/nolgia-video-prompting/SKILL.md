@@ -1,7 +1,7 @@
 ---
 name: nolgia-video-prompting
 description: "Directing craft for NOLGIA video generation: the film standard (references with stated jobs, casting and styling for the role, location plates, one structured prompt per take, written cuts at the genre's rhythm, best of N takes, sound, typeset words, the realism finish), plus the breathing pattern, per-shot sound design and the keep-what-works iteration loop. Use when: writing or fixing video prompts, planning a multi-clip production, a short film, a series episode, a trailer, a commercial or a music video on NOLGIA, or deciding which shots to regenerate. NOT for: platform mechanics such as auth, flags, jobs and credits (use nolgia-platform), vertical UGC ad pipelines (use nolgia-ugc-ads), or still-image prompting."
-version: 1.9.0
+version: 1.10.0
 author: NOLGIA
 license: MIT
 metadata:
@@ -48,17 +48,23 @@ Rules that survived production:
 - **Never a pile of buzzwords**: no "cinematic" as filler, no "8k, masterpiece,
   hyperrealistic, ultra detailed, award winning, perfect, beautiful bokeh,
   flawless, glass smooth". Those stacks gave a centred, symmetric advert frame
-  with teal and orange.
-- **Never describe lens artifacts as things in the frame** ("streak flares",
-  "barrel distortion" and "vignette corners" render as overlays). Halation, grain
-  and softness go on in post.
+  with teal and orange. One plain realism line inside a full spec is fine
+  ("photoreal: a real photographed street, not a render, not CGI").
+- **Lens artifacts never go in a prompt; texture does, lightly** ("streak
+  flares", "barrel distortion" and "vignette corners" render as overlays). Write
+  "fine natural film grain" and "subtle halation only on the brightest
+  highlights" into the STYLE header and every take, and forbid the heavy versions
+  ("no heavy grain, no glow or bloom"). Fine grain is the look term found most
+  often behind takes that reached a final cut in the distilled films.
 - **Never default to teal and orange**, neon, or any colour cast the LOOK block
   does not name (section "The LOOK block").
 - **No text in generated frames.** Models garble it; typeset words in the edit.
   Printed props and gear (tickets, labels, dive masks, control panels) invite
   pseudo lettering: write them plain, keep them blank or out of focus.
-- **Never name an object you do not want**, not even to deny it ("jacket free
-  sleeves" put a jacket on her).
+- **Never name a scene object or piece of gear you do not want**, not even to
+  deny it ("jacket free sleeves" put a jacket on her). Failure modes are
+  different: name them as plain negatives in the FORBIDDEN line (no CGI look, no
+  morphing, no extra limbs, no subtitles, no music).
 - **Three characters per shot at most**; close-up references beat distant ones.
 
 ## Films: the standard, not shot-by-shot prompts
@@ -107,13 +113,18 @@ in-house short came out looking like AI (2026-10-31). The order that works:
 ### Casting and styling for the role
 
 - **Cast the role, not a look**: role, age, build, class, job; the face in plain
-  physical terms with its flaws (lines, uneven skin with visible pores, tired
-  eyes). "Not a model" in every still and take. Characterful faces read real.
+  physical terms with its flaws, led the way the distilled films write it: the
+  age as a number, height and build, weathered or freckled skin, visible pores,
+  one asymmetric mark. "Not a model" in every still and take, as a lock.
+  Characterful faces read real.
 - **Aura off** (`--aura false`) for every live action casting still, sheet, plate
   and keyframe: Aura appends model beauty and makeup text, and that face rides
   into the video. Never write beauty words (flawless, poreless, glass smooth,
-  lit from within, dewy, symmetrical). Stills on `seedream-v5-pro`, sheet and
-  state edits on `nano-banana-pro`; never `flux-ultra` for people.
+  lit from within, dewy, symmetrical). Stills by job: `gpt-image-2.5-flare` for
+  words that must read and product sheets from the real photos; `seedream-v5-pro`
+  and `gpt-image-2.5-flare` side by side for people, picked by eye; plates on
+  `seedream-v5-pro` (or `nano-banana-2.1`); sheets and state edits on
+  `nano-banana-pro` or Flare; never a flux model for people or commercial frames.
 - **One composite sheet per role**: one image on mid grey (#808080), no labels: full
   body front and back with the heads masked, plus one large face panel, made by
   editing the approved cast still so the face holds. One face, one person per
@@ -149,19 +160,27 @@ the first still and pasted verbatim into every still and take prompt:
 - **The colour world**: 3 or 4 named colours with hex codes and rough ratios
   ("tungsten cream #E8D9B5 about 60%, oxblood #5A1E1B about 25%, charcoal #2B2B2B
   about 15%").
-- **The camera and format chosen for the look**: an ARRI Alexa Mini LF, a Sony
-  Venice 2, 16 mm on an Arriflex 416, 35 mm on a Panavision Millennium XL2; the
-  lens set, its focal lengths and T-stop (a set of Cooke S4 primes at T2.8).
-- **The lighting setup by name** (Rembrandt, loop, split, butterfly, low key,
-  high key, top light, motivated practicals, direct on-camera flash, dark-field
-  for glass), with every light written as its effect: where it comes from (from
+- **The camera and format chosen for the look**, one per film, led by the ones
+  the distilled films write most: the ARRI Alexa family (an Alexa Mini LF), or
+  35 mm or 16 mm film on a Kodak Vision3 stock (a Sony Venice 2 is fine but hardly
+  named there); the lens set, its focal lengths and T-stop (a set of Cooke S4
+  primes at T2.8). Never an either-or pile of bodies. In a video take the field
+  of view in degrees works as a lens lock and "waist up" as a shot size; on a
+  still frame by shot size and set the shape by the aspect ratio parameter.
+- **The lighting setup by name**, led by the ones the distilled films write (low
+  key or high key, motivated practicals, top light, contre-jour with the camera on
+  the shadow side, one source per frame, "favour short side angles, modelled
+  faces, never flatly front lit"); Rembrandt, loop, split, butterfly, direct
+  on-camera flash and dark-field for glass stay allowed. Every light is written as its effect: where it comes from (from
   off-frame, unless it is a practical really in the shot), how big and soft it
   is, its colour temperature in Kelvin, what it falls on, how it falls off and
   the shadow it leaves ("a large, soft key at 3200 K from off-frame, camera left, wrapping
   her near cheek; a 2700 K pendant 1.5 m above the table, in the shot; overcast
   daylight about 6500 K through the window behind her; the right side of the
-  room dark, nothing filling her shadow side"). Never colour words for light
-  such as "green white" or "yellow green": they paint the frame. A fluorescent
+  room dark, nothing filling her shadow side"). A plain "warm" or "cool" may sit
+  beside the Kelvin number ("a warm 3200 K tungsten practical"); never a hue mix
+  word for light such as "green white", "yellow green" or "teal": they paint the
+  frame. A fluorescent
   corrected with minus green is written as "4000 K, no green cast".
 - **The stock, grade and LUT as the target look**: Kodak Vision3 500T 5219 or 250D
   5207, Fuji Eterna, bleach bypass or ENR, a print emulation; the matching LUT is
@@ -225,14 +244,19 @@ LOOK (the film's LOOK block for this lighting setup, verbatim), SCENE CONTEXT,
 REFERENCES (each with its job), KEY LOCKS (identity, wardrobe, product phrase,
 headcount, no text: early, so a long prompt never loses them), LOCATION MAP,
 FIRST FRAME, FORMAT (the cuts), OPTICS (the lens, focal length and T-stop per
-segment), CAMERA (the grip move: locked off, dolly in or out, tracking, crane,
-Steadicam, handheld, whip pan, rack focus), ACTION TIMING, ACTING, SCRIPT, PHYSICS,
+segment), CAMERA (one move per segment with its reason, led by the ones the
+distilled films keep: handheld written as an operator with breathing and one late
+correcting reframe, locked off, a slow push in, tracking, crane, rack focus; the
+camera holds through lines; a zoom, whip pan, speed ramp, orbit or gimbal float
+only when the shot asks), ACTION TIMING, ACTING, SCRIPT, PHYSICS,
 LIGHTING (the named setup, and each light as its effect: where it comes from, its
 softness and Kelvin, what it falls on and the shadow it leaves, never the gear by
 name; only sources the LOOK block names), AUDIO ("diegetic sound
 only, no music"), LOCKS and a FORBIDDEN line (plastic skin, model looks, makeup or
 jewelry off role, beauty light, the LOOK block's forbidden casts, lens flares,
-readable text, music).
+readable text, music; a CGI, 3D render or game engine look; morphing, warping or
+flicker; extra fingers, limbs or duplicate people; heavy grain, glow or bloom;
+and the default camera bans).
 
 - **ACTING**: the full block for a performance take (a scene direction, then per
   character motive, goal, obstacle, tactic, beats in seconds, END STATE; "do not
@@ -337,8 +361,19 @@ quoting a frame.
 
 - **The live action lane is `seedance-2.5` at 720p with references**, for dialogue
   too. `minimax-h3` at 768p or 2k delivers 0.04 to 0.07 bits per pixel, which
-  smears skin into wax: use it only for a sung lip sync shot, never for dialogue or
-  any other shot. Avoid `veo-3.1-fast` for people who must read as real.
+  smears skin into wax: on a photoreal person use it only for a sung lip sync shot,
+  never for dialogue; a painted or stylized character may use it for a hard
+  performance shot. Avoid `veo-3.1-fast` for people who must read as real.
+- **The cheaper lanes, offered as options, never forced** (5 s at 720p: `wan-3.0`
+  28 credits, `kling-v4` 44, `seedance-2.5` 66; check `nolgia models get`).
+  `kling-v4` is the budget lane for silent B roll, establishing shots, atmosphere
+  and static photographic wides: image to video from a finished keyframe, 4 to 8 s,
+  one move and one action, ending "single continuous shot; everything else in the
+  frame stays still"; never speech, written cuts, fast contact action, VFX wides or
+  hero close ups. `wan-3.0` is not routed yet: the distilled films used Wan (2.7)
+  for a stylized character speaking a supplied voice track, and our `wan-3.0`
+  takes a start frame only, with no audio reference. Everything else, every
+  photoreal person speaking included, stays on `seedance-2.5`.
 - **Wides with several people**: make the wide keyframe as an edit of the closer
   keyframe, so the leads' faces come from a still where they are large; faces at 35
   to 45 px wide hold on `seedance-2.5` 720p.
@@ -360,7 +395,8 @@ quoting a frame.
   half strength or less (`kodak-vision3-250d` day, `kodak-vision3-500t` tungsten
   or sodium night; `nolgia color-presets list` for the rest); film
   emulation (halation, slight softness, grain) LAST at 0.6 strength, at delivery
-  resolution, never before the upscale. The `kodak-2383-print` finish is not the
+  resolution, never before the upscale, lighter when the take already carries
+  fine grain. The `kodak-2383-print` finish is not the
   default: at half strength it turns shadows cyan and crushes blacks. The grade
   only finishes: it never rescues a colour the stills and takes got wrong.
 - **Automatic checks are warnings, never targets**, on every raw take and the
@@ -369,12 +405,13 @@ quoting a frame.
   or a teal share over 0.40, warns of an unplanned cast). A warning is judged
   against the LOOK block: a narrow palette the block asks for passes. A skin
   texture number is no gate; judge skin by eye at full size.
-- **Never**: `minimax-h3` at any resolution for a shot that does not need song lip
-  sync; dialogue routed to H3 just because it speaks; a start frame together with
+- **Never**: `minimax-h3` at any resolution for a photoreal shot that does not
+  need song lip sync; `kling-v4` for speech or a hero close up; a zoom, whip pan,
+  speed ramp, orbit or gimbal float the shot did not ask for; dialogue routed to H3 just because it speaks; a start frame together with
   an audio reference (refused: the keyframe rides as an element); Seedance's
   re-rendered song laid in the edit; a new angle with no reference at that angle;
-  a coloured source or a light change added to raise a number; colour words for
-  light ("green white"); a cast left for the grade to fix.
+  a coloured source or a light change added to raise a number; a hue mix word for
+  light ("green white", "teal"); a cast left for the grade to fix.
 
 ## The breathing pattern (multi-shot sequencing)
 
