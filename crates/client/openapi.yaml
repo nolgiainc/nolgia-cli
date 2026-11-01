@@ -2001,8 +2001,14 @@ paths:
     post:
       tags: [Generate]
       operationId: enhanceVideoPrompt
-      summary: Rewrite a video prompt for the model it will run on (signed in; 1 credit).
+      summary: Rewrite a video prompt for the model it will run on (signed in; 1 credit, free while the prompt director is on).
       description: |
+        While the prompt director is on (`GET /generate/director` reads
+        `enabled: true`), this runs on the shared director's video path
+        (the same rewrite `POST /generate/direct-prompt` returns), is free
+        (`credits_charged: 0`, no hold, never a `402`), and reads `guidance:
+        director`; `model` names the director's brain. Otherwise, as below.
+
         One-click, model-aware prompt enhancement for the video composer.
         Sends the customer's plain prompt plus the run's settings (`model`,
         `duration_seconds`, `has_references`, `generate_audio`, `aspect_ratio`)
@@ -2070,6 +2076,93 @@ paths:
         '429':
           $ref: '#/components/responses/ProblemResponse'
         '502':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /generate/director:
+    get:
+      tags: [Generate]
+      operationId: getPromptDirector
+      summary: Whether the prompt director is on, and the doctrine it directs with (signed in).
+      description: |
+        The prompt director rewrites a prompt the way a photographer,
+        director of photography or designer would brief it for the selected
+        model, keeps the customer's intent, and explains what changed in 2 to
+        4 plain notes and a tip (`POST /generate/direct-prompt`). This says
+        whether it is on for this deployment (`enabled`), the version of the
+        knowledge it directs with (`doctrine_version`) and the brain
+        (`model`). When it is off, `POST /generate/direct-prompt` answers
+        `directed: false` with `fallback: off`, and generation runs as before.
+      responses:
+        '200':
+          description: The director's state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PromptDirectorStatus'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /generate/direct-prompt:
+    post:
+      tags: [Generate]
+      operationId: directPrompt
+      summary: Direct a prompt for the model it will run on, with notes that teach what changed (signed in; free).
+      description: |
+        The prompt director, shared by images and video. Send the prompt as
+        typed and the run's settings; the director reads the intent (content
+        type, finish, the words that must survive), writes the spec for that
+        type and that model (the camera, the light by what it does, the look),
+        removes empty words such as "4k" or "realistic" while keeping what
+        they meant, and phrases exclusions the way the model reads them. For
+        a photographed person it writes the person-photo mode (real skin,
+        light falling off into shadow, an unretouched finish): this is what
+        Aura does, so `aura: false` turns it off. A polished ad stays
+        polished, an illustration stays an illustration, brands and logos
+        are kept, and nothing is ever refused.
+
+        The answer carries the directed `prompt`, 2 to 4 `notes` in plain
+        words, one reusable `tip` with a guide id, and a `suggested_model`
+        when another model fits better (only offered, never switched to).
+        Nothing is generated: send the prompt on `POST /generate/image` or
+        `POST /generate/video` with `aura: false` (the person-photo mode is
+        already written in), or set `director: auto` there instead.
+
+        Free on every plan; nothing is charged (`credits_charged` is 0).
+        When the director is off, the brain fails or times out, or its reply
+        fails the server's checks, the answer is `directed: false` with the
+        reason in `fallback` and `prompt` set to what a generation would run
+        instead: the customer's words, plus Aura's realism text when Aura
+        applies. A failure never blocks a generation. Rate limited to 20
+        calls a minute per account (`429`), shared with prompt enhancement
+        and preset suggestions.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DirectPromptRequest'
+            examples:
+              image:
+                summary: A customer-style image prompt
+                value:
+                  modality: image
+                  model: gpt-image-2.5-flare
+                  prompt: 'realistic photo of a woman reading in a cafe, 4k'
+                  aspect_ratio: '4:5'
+      responses:
+        '200':
+          description: The direction, or the fallback and why.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DirectPromptResponse'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '429':
           $ref: '#/components/responses/ProblemResponse'
         default:
           $ref: '#/components/responses/ProblemResponse'
@@ -14773,6 +14866,159 @@ components:
           type: string
           description: The brain that wrote the rewrite.
           examples: ['deepseek-v4-flash']
+    PromptDirectorStatus:
+      type: object
+      additionalProperties: false
+      required: [enabled, doctrine_version, model]
+      properties:
+        enabled:
+          type: boolean
+          description: True when the prompt director runs on this deployment.
+        doctrine_version:
+          type: string
+          description: The version of the knowledge the director writes with; it changes whenever what the brain is told changes.
+          examples: ['d-3f9a1c2b7e44']
+        model:
+          type: string
+          description: The brain that writes the direction.
+          examples: ['claude-sonnet-5-5']
+    DirectPromptRequest:
+      type: object
+      additionalProperties: false
+      required: [modality, model, prompt]
+      description: What the composer is about to run. Nothing here is submitted; it only shapes the direction.
+      properties:
+        modality:
+          type: string
+          enum: [image, video]
+        model:
+          type: string
+          maxLength: 64
+          description: The image or video model id the run will use (`GET /models`).
+          examples: ['gpt-image-2.5-flare']
+        prompt:
+          type: string
+          minLength: 1
+          maxLength: 32000
+          description: The prompt as the customer typed it, `@` references included. Held to the model's published prompt ceiling.
+        aspect_ratio:
+          type: string
+          maxLength: 16
+          description: The run's aspect ratio (`16:9`, `9:16`, `4:5` ...); omitted for the model's default.
+        duration_seconds:
+          type: integer
+          minimum: 1
+          maximum: 60
+          description: Video only. The clip length the run is set to.
+        has_references:
+          type: boolean
+          description: True when a reference image, start or end frame, reference video, face reference or character rides the run, so the direction never re-describes what the references carry.
+        generate_audio:
+          type: boolean
+          description: Video only. Whether the run renders sound.
+        motion_id:
+          type: string
+          nullable: true
+          maxLength: 64
+          description: Video only. The camera move picked from `GET /motions`; the direction builds the shot around it. Unknown ids are a 400.
+        motion_strength:
+          $ref: '#/components/schemas/CameraMoveStrength'
+        aura:
+          type: boolean
+          description: >-
+            The person-photo mode (Aura): real skin, light from the scene's own sources falling off into shadow, an unretouched finish, for a photographed person. Omitted: on for every photograph of a real-looking person, as Aura's default. False leaves it out.
+    DirectPromptTip:
+      type: object
+      additionalProperties: false
+      required: [text, guide]
+      properties:
+        text:
+          type: string
+          description: One sentence the customer can reuse next time.
+        guide:
+          type: string
+          description: The guide it comes from (write-the-light, empty-words, real-skin, readable-text, product-photos, pick-the-model, styles-by-technique, phone-look, edits-with-references).
+          examples: ['write-the-light']
+    DirectPromptSuggestedModel:
+      type: object
+      additionalProperties: false
+      required: [model, reason]
+      properties:
+        model:
+          type: string
+          description: A model of the same modality that fits this picture better. Only offered; the direction is written for the model the run picked.
+        reason:
+          type: string
+          description: One sentence for the customer.
+    DirectPromptResponse:
+      type: object
+      additionalProperties: false
+      required: [directed, prompt, original_prompt, notes, kept, removed, already_good, doctrine_version, model, credits_charged, latency_ms]
+      properties:
+        directed:
+          type: boolean
+          description: True when the director rewrote the prompt and the rewrite passed every check. False is a fallback; `fallback` says why.
+        prompt:
+          type: string
+          maxLength: 32000
+          description: >-
+            Directed, the prompt to run, written for the model and never above its prompt ceiling. On a fallback, what a generation runs instead: the customer's words, plus Aura's realism text when Aura applies to this prompt and model.
+        original_prompt:
+          type: string
+          description: The prompt as it was sent.
+        notes:
+          type: array
+          maxItems: 4
+          items:
+            type: string
+            maxLength: 200
+          description: 2 to 4 plain notes on what changed and why, in NOLGIA's voice. Empty on a fallback.
+        tip:
+          allOf:
+            - $ref: '#/components/schemas/DirectPromptTip'
+          nullable: true
+        suggested_model:
+          allOf:
+            - $ref: '#/components/schemas/DirectPromptSuggestedModel'
+          nullable: true
+        content_type:
+          type: string
+          description: What the director read the picture as (portrait, product, beauty_ad, illustration, logo_text ...). Empty on a fallback.
+          examples: ['lifestyle']
+        finish:
+          type: string
+          description: The finish it kept (documentary, polished commercial, editorial, stylized, design). Empty on a fallback.
+        kept:
+          type: array
+          items:
+            type: string
+          description: The customer's words kept as written.
+        removed:
+          type: array
+          items:
+            type: string
+          description: The empty words removed (their intent is written as camera, light or medium instead).
+        already_good:
+          type: boolean
+          description: True when the prompt was already a good spec and came back nearly word for word.
+        fallback:
+          type: string
+          nullable: true
+          description: Why there is no direction (null when `directed`), one of `off`, `timeout`, `brain_error`, `invalid_reply`, `people_check`, `rate_limited`, `unsupported`. `off` the director is off on this deployment; `timeout` and `brain_error` the brain did not answer in time or at all; `invalid_reply` its reply failed the server's checks twice; `people_check` it added a real person the prompt did not name; `unsupported` nothing to direct.
+        doctrine_version:
+          type: string
+          description: The doctrine the direction was written with.
+        model:
+          type: string
+          description: The brain that answered.
+          examples: ['claude-sonnet-5-5']
+        credits_charged:
+          type: integer
+          description: Always 0. The director is free on every plan.
+          examples: [0]
+        latency_ms:
+          type: integer
+          description: How long the direction took on the server, in milliseconds (near 0 for a repeat of a run directed recently).
     RemoveBackgroundVideoModel:
       type: string
       enum: [remove-background-video]
