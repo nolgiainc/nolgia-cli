@@ -1,7 +1,7 @@
 ---
 name: nolgia-platform
 description: "Generate images, video, audio, and 3D models on the NOLGIA platform with the `nolgia` CLI or the NOLGIA MCP server (https://mcp.nolgia.ai/mcp): auth, model choice from the live catalog, async jobs, reference images, outpainting, voices, credits, and failure recovery. Use when: the user asks for AI-generated media and NOLGIA is available, e.g. 'generate an image', 'make a video', 'animate this photo', 'extend this image to 9:16', 'make a voiceover', 'check my jobs', or 'assemble these clips into one video', or 'do my DIT / offload and verify these cards / rename the footage'. NOT for: directing craft and multi-shot planning (use nolgia-video-prompting), vertical UGC ad production (use nolgia-ugc-ads), or editing media locally without the platform."
-version: 1.10.1
+version: 1.10.2
 author: NOLGIA
 license: MIT
 metadata:
