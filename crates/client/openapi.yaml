@@ -14866,6 +14866,12 @@ components:
           type: string
           description: The brain that wrote the rewrite.
           examples: ['deepseek-v4-flash']
+    PromptDirectorMode:
+      type: string
+      enum: [off, auto]
+      default: 'off'
+      description: >-
+        The prompt director (`POST /generate/direct-prompt`) on this request. `off`, the default, sends your prompt as written: API callers compose their own prompts, and changing them silently would break them. `auto` directs it first, the way a photographer or director of photography would brief this model, and runs the direction; for a photographed person the direction writes the person-photo mode, so Aura's own text is not added again (a face reference's identity lock still is). The asset keeps your words as `prompt` and the direction as `enhanced_prompt`. To see the notes, call `POST /generate/direct-prompt` first. Free; a director that is off, slow or failing runs your prompt as written (with Aura as usual), so it never blocks a generation. Requests that fold in characters, elements, a location, a product, a style, a brand kit or shots are composed already and run as written.
     PromptDirectorStatus:
       type: object
       additionalProperties: false
@@ -15598,6 +15604,8 @@ components:
           description: >-
             Slug of the preset this generation was launched from, if any. Set by the web app on preset-launched generations to enable server-side preset→usage attribution (the admin usage panel's top-presets leaderboard); omit on direct API/CLI/MCP/pipeline calls. Stored verbatim and NOT validated against the preset catalog (a preset may be deleted later).
           examples: ['cinematic-portrait']
+        director:
+          $ref: '#/components/schemas/PromptDirectorMode'
         aura:
           type: boolean
           nullable: true
@@ -15826,6 +15834,8 @@ components:
       additionalProperties: false
       required: [model, prompt]
       properties:
+        director:
+          $ref: '#/components/schemas/PromptDirectorMode'
         confirmation_token:
           type: string
           description: >-
