@@ -13655,11 +13655,13 @@ components:
           type: array
           description: |
             The image content types the model's reference channel accepts, when
-            the provider accepts a narrower set than the library stores (HeyGen
-            Avatar IV takes JPEG only). The API refuses a stored asset whose
+            the provider accepts a narrower set than the library stores and the
+            API cannot convert to it. The API refuses a stored asset whose
             recorded content type is outside this list; a raw `image_urls`
             entry carries no recorded type and is forwarded for the provider to
-            validate. Absent means every image type the library stores.
+            validate. Absent means every image type the library stores is
+            accepted: on a JPEG-only route (HeyGen Avatar IV) a stored PNG or
+            WebP is sent as a JPEG copy.
           items:
             type: string
           examples: [['image/jpeg']]
@@ -14040,6 +14042,15 @@ components:
             * `optional`: the model honors `generate_audio`. Omitting it
               resolves to `true`.
           examples: ['optional']
+        keeps_source_audio:
+          type: boolean
+          description: |
+            Present (true) on models that take a source clip, render no
+            soundtrack of their own (`audio: none`), and deliver the clip
+            with the SOURCE's audio carried over: every restore-lane model.
+            A source with no audio comes back silent. Absent everywhere
+            else.
+          examples: [true]
         speech:
           type: string
           enum: [none, native]
