@@ -1,7 +1,7 @@
 ---
 name: nolgia-video-prompting
 description: "Directing craft for NOLGIA video generation: the film standard (references with stated jobs, casting and styling for the role, location plates, one structured prompt per take, written cuts at the genre's rhythm, best of N takes, sound, typeset words, the realism finish), plus the breathing pattern, per-shot sound design and the keep-what-works iteration loop. Use when: writing or fixing video prompts, planning a multi-clip production, a short film, a series episode, a trailer, a commercial or a music video on NOLGIA, or deciding which shots to regenerate. NOT for: platform mechanics such as auth, flags, jobs and credits (use nolgia-platform), vertical UGC ad pipelines (use nolgia-ugc-ads), or still-image prompting."
-version: 1.10.1
+version: 1.10.2
 author: NOLGIA
 license: MIT
 metadata:
@@ -294,8 +294,10 @@ and the default camera bans).
   says "one continuous long take without any cuts, no subtitles, no background
   music".
 - **Keep the FORBIDDEN line on every lane**, and on `seedance-2.5` and
-  `kling-v4` also write the wanted look positively. No video route honours
-  `--negative-prompt`, so every exclusion lives in the prompt text.
+  `kling-v4` also write the wanted look positively. Only Veo 3.1 and Omni take
+  `--negative-prompt` (`video.negative_prompt_supported`); every other model
+  accepts it, sends nothing and says so in the job's `warnings`, so every
+  exclusion lives in the prompt text.
 - **Handles**: set the duration 1 to 2 s longer than the written timeline and
   write the final hold as the END STATE.
 - **Rhythm**: dialogue drama 1 to 3 segments of 4 to 7.5 s (it holds); comedy and

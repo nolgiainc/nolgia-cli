@@ -189,8 +189,17 @@ pub struct VideoArgs {
     /// length you want.
     #[arg(long)]
     pub duration_seconds: Option<std::num::NonZeroU64>,
+    /// Reproducibility seed. Most video providers take none: check `video.seed`
+    /// in `nolgia models get <model> --json`, where false means the API
+    /// refuses a seed and an absent value means unverified.
     #[arg(long)]
     pub seed: Option<u64>,
+    /// What to keep out of the clip. Only models with
+    /// `video.negative_prompt_supported: true` in `nolgia models get <model>
+    /// --json` receive it (Veo 3.1 and Omni today). On every other model it is
+    /// accepted and not sent, the clip still renders, and the job's
+    /// `warnings` say so: write exclusions in the prompt as what IS in the
+    /// frame.
     #[arg(long)]
     pub negative_prompt: Option<String>,
     // Keep this description capability-driven and free of model names: the
