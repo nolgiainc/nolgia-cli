@@ -1,7 +1,7 @@
 ---
 name: nolgia-video-prompting
 description: "Directing craft for NOLGIA video generation: the film standard (references with stated jobs, casting and styling for the role, location plates, one structured prompt per take, written cuts at the genre's rhythm, best of N takes, sound, typeset words, the realism finish), plus the breathing pattern, per-shot sound design and the keep-what-works iteration loop. Use when: writing or fixing video prompts, planning a multi-clip production, a short film, a series episode, a trailer, a commercial or a music video on NOLGIA, or deciding which shots to regenerate. NOT for: platform mechanics such as auth, flags, jobs and credits (use nolgia-platform), vertical UGC ad pipelines (use nolgia-ugc-ads), or still-image prompting."
-version: 1.5.0
+version: 1.6.0
 author: NOLGIA
 license: MIT
 metadata:
@@ -188,14 +188,33 @@ role, beauty light, teal and orange, lens flares, readable text, music).
 
 - **Takes say "no music"**; the score or song is laid in the edit. Music goes in a
   take only when it plays in the scene (a radio).
-- **Dialogue is spoken natively in the take**: each line at its second with the
-  speaker and a delivery note, one mouth per segment ("only these 3 lines; nobody
-  else speaks; listeners' lips stay still"), a VOICE line per speaker. Spell tricky
-  words phonetically (hyphenated syllables, stress in capitals); a line in another
-  language is written in its native words with the translation in parentheses.
-- **TODO(speech test, round 47): the speaking lane is pending.** Until its result
-  lands, people who speak on screen go to `minimax-h3` (native lip-synced
-  speech), and `seedance-2.5` speaks when its references are needed.
+- **People speaking go on `seedance-2.5` at 720p** (21:9 for films), with their
+  keyframes riding as elements. In the speech lab both lanes said 10 of 10 words,
+  but Seedance with voice references matched each voice better, articulated more
+  and kept the skin real (0.28 bits per pixel against H3's 0.048).
+  - **One voice audio reference per speaker**: a 5 to 8 s line on
+    `elevenlabs-tts-v3` (about 2 credits) in the character's register, using a
+    different sentence from the script, attached with `--audio-ref` in speaker
+    order, each with a job: "[Audio 1] is the COOK's one and only voice: match
+    this timbre; never play it, never repeat its words."
+  - **A VOICE LOCK**: who speaks in which voice, the voices never swap, nobody else
+    has a voice.
+  - **THE SCRIPT**: "only these N lines, word for word, in this order, one mouth at
+    a time; nobody else speaks, hums or mouths words", each line in a timed window
+    with a delivery note, a pause, and the camera held still for the lines.
+  - **Cut on the detected speech**, not the written times: Seedance spoke about
+    0.8 s late.
+  - Spell tricky words phonetically (hyphenated syllables, stress in capitals); a
+    line in another language is written in its native words with the translation
+    in parentheses.
+- **Sung performance** (a music video's sung close up or medium close up only) goes
+  on `minimax-h3` at 768p: the song slice is the audio reference (`--audio-ref`),
+  the take is as long as the slice, the keyframe rides as element @Image1, the face
+  fills at least a third of the frame with the lips unobstructed, one continuous
+  move per phrase. H3 closed all 5 M and B sounds within a frame and returns the
+  real slice, so it drops in at 0. Everything around it (story, B roll, wides) stays
+  on `seedance-2.5` 720p with the song laid in the edit. Seedance sealed 2 of 5 and
+  re-renders the song 170 ms early: never lay that re-render in the edit.
 - **Translation subtitles are typeset** when a line is not in the audience's
   language; a film still gets no captions.
 
@@ -212,17 +231,28 @@ role, beauty light, teal and orange, lens flares, readable text, music).
 
 | Frame | `seedance-2.5` | `minimax-h3` | `grok-imagine-video-1.5` |
 |---|---|---|---|
-| 21:9 | 480p and 720p (1080p refused) | yes | no: compose 16:9 for the crop |
+| 21:9 | 480p and 720p (720p renders 1470x630; 1080p refused) | 768p (1568x672) | no: compose 16:9 for the crop |
 | 4:3 | 480p and 720p | yes | yes |
 | 16:9, 9:16 | 480p, 720p, 1080p | yes | yes |
 
-`seedream-v5-pro` stills have no 21:9 (use `nano-banana-pro`). Re-read
-`nolgia models get <model>` before quoting a frame.
+`seedream-v5-pro` stills have no 21:9 (use `nano-banana-pro`). Topaz on a 21:9 take
+is untested: treat that upscale as open. Re-read `nolgia models get <model>` before
+quoting a frame.
 
-- **The live action lane is `seedance-2.5` at 720p with references.** `minimax-h3`
-  at 2k delivers 0.04 to 0.07 bits per pixel, which smears skin into wax: never
-  use it for a shot where nobody speaks. Avoid `veo-3.1-fast` for people who must
-  read as real.
+- **The live action lane is `seedance-2.5` at 720p with references**, for dialogue
+  too. `minimax-h3` at 768p or 2k delivers 0.04 to 0.07 bits per pixel, which
+  smears skin into wax: use it only for a sung lip sync shot, never for dialogue or
+  any other shot. Avoid `veo-3.1-fast` for people who must read as real.
+- **Wides with several people**: make the wide keyframe as an edit of the closer
+  keyframe, so the leads' faces come from a still where they are large; faces at 35
+  to 45 px wide hold on `seedance-2.5` 720p.
+- **Long takes**: 15 s with 3 or 4 written cuts landed within 0.25 s; give every
+  new angle its own reference (a plate or keyframe edit at that angle): a reverse
+  with none drifted.
+- **Check palette spread on the stills before any video credits**: a take inherits
+  its keyframe's palette. Under 2 bits, re-light the still with a second,
+  differently coloured source that sits in the scene (kitchen fluorescent spill,
+  the street through a window).
 - **The realism post chain, in this order**: keep the take at 720p; Topaz to 1080p
   with `topaz-proteus-natural` (split long takes at their cuts, since the restore
   window is about 7.4 s); grade with a negative stock at half strength or less
@@ -235,6 +265,11 @@ role, beauty light, teal and orange, lens flares, readable text, music).
   entropy under 2.0 bits over 36 bins, or a teal share over 0.40, flags a one
   colour or default teal look). A skin texture number is no gate; judge skin by
   eye at full size.
+- **Never**: `minimax-h3` at any resolution for a shot that does not need song lip
+  sync; dialogue routed to H3 just because it speaks; a start frame together with
+  an audio reference (refused: the keyframe rides as an element); Seedance's
+  re-rendered song laid in the edit; a new angle with no reference at that angle;
+  video started from a one colour keyframe.
 
 ## The breathing pattern (multi-shot sequencing)
 
