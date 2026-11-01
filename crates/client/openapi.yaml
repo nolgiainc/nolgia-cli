@@ -13931,6 +13931,19 @@ components:
             DEFAULT audio state. Includes `audio_surcharge` when audio is on by
             default; subtract it for the silent price of this tier.
           examples: [778]
+        durations:
+          type: array
+          items:
+            type: integer
+          description: |
+            When present, the tier renders at these clip lengths ONLY (a
+            subset of the model's `video.durations`). A request pairing the
+            tier with another length is not refused: it is made and charged
+            at the model's default tier, which renders it, and the job's
+            `warnings` say so. Absent when the tier renders every length the
+            model lists. Example: `minimax-hailuo-2.3` 1080p renders at 6 s
+            only, so a 1080p 10 s request is made at 768p.
+          examples: [[6]]
         audio_surcharge:
           type: integer
           nullable: true
@@ -16235,7 +16248,7 @@ components:
           nullable: true
           maxLength: 16
           description: >-
-            Target output resolution tier (`720p`, `1080p`, `1440p`, `2160p`, and `4320p` on the `topaz-*` engines that support 8K). Omit for the model's default, which is `1080p` on every restore-lane model. The tiers are per-model: allowed values and per-tier credit rates are on the model's `quality.options` on `GET /models`, and a tier the selected model does not publish is rejected (400). The charge scales with the source clip length like a generation's does.
+            Target output resolution tier (`720p`, `1080p`, `1440p`, `2160p`, and `4320p` on the `topaz-*` upscalers that render 8K). Omit for the model's default, which is `1080p` on every restore-lane model. The tiers are per-model: allowed values and per-tier credit rates are on the model's `quality.options` on `GET /models`. The clip is charged at the tier it is DELIVERED at: an engine that cleans footage at the source's own resolution (denoise, deblur, HDR) is made at the source's frame and charged at the tier the source falls in, and an engine that stops below the tier asked for is made and charged at its highest tier. Both are accepted with any of the lane's tiers and say so in the job's `warnings`; on every other model a tier it does not publish is rejected (400). The charge scales with the source clip length like a generation's does.
           examples: ['2160p']
         noise_scale:
           type: number
