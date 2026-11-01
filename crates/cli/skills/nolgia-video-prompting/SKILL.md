@@ -1,7 +1,7 @@
 ---
 name: nolgia-video-prompting
 description: "Directing craft for NOLGIA video generation: the film standard (references with stated jobs, casting and styling for the role, location plates, one structured prompt per take, written cuts at the genre's rhythm, best of N takes, sound, typeset words, the realism finish), plus the breathing pattern, per-shot sound design and the keep-what-works iteration loop. Use when: writing or fixing video prompts, planning a multi-clip production, a short film, a series episode, a trailer, a commercial or a music video on NOLGIA, or deciding which shots to regenerate. NOT for: platform mechanics such as auth, flags, jobs and credits (use nolgia-platform), vertical UGC ad pipelines (use nolgia-ugc-ads), or still-image prompting."
-version: 1.6.0
+version: 1.7.0
 author: NOLGIA
 license: MIT
 metadata:
@@ -42,7 +42,8 @@ Rules that survived production:
   advert frame with teal and orange. Never describe lens artifacts as things
   in the frame ("streak flares", "barrel distortion" and "vignette corners"
   render as overlays). Grain and halation go on in post.
-- **Never default to teal and orange**, neon or a one colour grade.
+- **Never default to teal and orange**, neon, or any colour cast the LOOK block
+  does not name (section "The LOOK block").
 - **No text in generated frames.** Models garble it; typeset words in the edit.
   Printed props and gear (tickets, labels, dive masks, control panels) invite
   pseudo lettering: write them plain, keep them blank or out of focus.
@@ -59,16 +60,17 @@ in-house short came out looking like AI (2026-10-31). The order that works:
 1. **Story first**: logline, scene list, the script with every spoken line, the
    take plan. Ask once for the frame (21:9, 4:3, 16:9 or 9:16) and check it
    against the route (section "Frame and finish").
-2. **Cast, style, products and locations as stills** (below). Check every still
-   at full size before it becomes a reference.
+2. **Write the LOOK block**, then **cast, style, products and locations as
+   stills** (below). Check every still at full size against the LOOK block before
+   it becomes a reference.
 3. **Write each take** as one structured prompt, as one of two take types, at the
    genre's rhythm.
 4. **Shoot**: best of N on performance takes, draft cheap and promote, patch with
    video edit before a reroll.
 5. **Edit** on the cuts the takes actually contain; lay the score or song; typeset
    every word.
-6. **Finish and check**: the realism post chain, bits per pixel, palette spread,
-   every cut judged alone.
+6. **Finish and check**: the realism post chain, every cut judged alone against
+   the script and the LOOK block; bits per pixel and palette spread are warnings.
 
 ### References, not keyframes
 
@@ -129,23 +131,50 @@ in-house short came out looking like AI (2026-10-31). The order that works:
 - **Browse cheap**: 6 to 8 cheap variants per location, keep the one whose light
   already tells the story. Dress it lived in, object by object; signs blank.
 
+### The LOOK block (before any still)
+
+Every film, commercial, music video and trailer has a LOOK block, written before
+the first still and pasted verbatim into every still and take prompt:
+
+- **The colour world**: 3 or 4 named colours with hex codes and rough ratios
+  ("tungsten cream #E8D9B5 about 60%, oxblood #5A1E1B about 25%, charcoal #2B2B2B
+  about 15%").
+- **Every light source** by type, position and colour temperature in Kelvin ("a
+  3200 K tungsten pendant 1.5 m above the table; overcast daylight about 6500 K
+  through the window, camera left"). Never colour words for light such as "green
+  white" or "yellow green": they paint the frame.
+- **Saturation and contrast** in plain words ("low saturation, skin stays skin
+  coloured; deep but not crushed blacks").
+- **FORBIDDEN casts**: teal, cyan or green spill, coloured light on walls, teal and
+  orange, neon. One is allowed only when the story calls for it and the LOOK block
+  names it.
+
+A new lighting setup gets its own LOOK block. Palette spread and bits per pixel
+are warnings, never targets: never add a coloured source or change the light to
+raise a number. A still or take that fails is judged against the LOOK block and
+regenerated from it. No colour fix in post as a plan: the look comes from the
+written stills and takes, and the grade only finishes.
+
 ### One structured prompt per take, in a held order
 
-STYLE (the film's fixed header for this lighting setup), SCENE CONTEXT,
+LOOK (the film's LOOK block for this lighting setup, verbatim), SCENE CONTEXT,
 REFERENCES (each with its job), KEY LOCKS (identity, wardrobe, product phrase,
 headcount, no text: early, so a long prompt never loses them), LOCATION MAP,
 FIRST FRAME, FORMAT (the cuts), OPTICS (field of view per segment), CAMERA,
 ACTION TIMING, ACTING, SCRIPT, PHYSICS, LIGHTING (only the sources in the scene,
-where each sits, what it falls on), AUDIO ("diegetic sound only, no music"),
-LOCKS and a FORBIDDEN line (plastic skin, model looks, makeup or jewelry off
-role, beauty light, teal and orange, lens flares, readable text, music).
+where each sits, its type and Kelvin, what it falls on), AUDIO ("diegetic sound
+only, no music"), LOCKS and a FORBIDDEN line (plastic skin, model looks, makeup or
+jewelry off role, beauty light, the LOOK block's forbidden casts, lens flares,
+readable text, music).
 
 - **ACTING**: the full block for a performance take (a scene direction, then per
   character motive, goal, obstacle, tactic, beats in seconds, END STATE; "do not
   play the emotion"); a light form for comedy, action and product takes (physical
   beats per segment plus an END STATE).
-- **One STYLE header per film and per lighting setup**, pasted identically, then a
-  contradiction check: a night interior never inherits a daylight header.
+- **One LOOK block per film and per lighting setup**, pasted identically into
+  every still and take, then a contradiction check: a night interior never
+  inherits a daylight block, and no sentence in the take names a colour or a
+  light the LOOK block does not.
 - **Length goes up to the model's limit**, `video.max_prompt_chars` on
   `nolgia models get <model> --json` (`seedance-2.5` 19,800, `minimax-h3` 7,000,
   `grok-imagine-video-1.5` 4,096). Structured prompts of 5,000 to 8,000
@@ -249,27 +278,30 @@ quoting a frame.
 - **Long takes**: 15 s with 3 or 4 written cuts landed within 0.25 s; give every
   new angle its own reference (a plate or keyframe edit at that angle): a reverse
   with none drifted.
-- **Check palette spread on the stills before any video credits**: a take inherits
-  its keyframe's palette. Under 2 bits, re-light the still with a second,
-  differently coloured source that sits in the scene (kitchen fluorescent spill,
-  the street through a window).
+- **Judge every still against the LOOK block before any video credits**: a take
+  inherits its stills' colour. A still that drifts (a cast, a source the block does
+  not name) is regenerated from the LOOK block's words, never patched by adding a
+  light.
 - **The realism post chain, in this order**: keep the take at 720p; Topaz to 1080p
   with `topaz-proteus-natural` (split long takes at their cuts, since the restore
   window is about 7.4 s); grade with a negative stock at half strength or less
   (`kodak-vision3-250d` day, `kodak-vision3-500t` tungsten or sodium night); film
   emulation (halation, slight softness, grain) LAST at 0.6 strength, at delivery
   resolution, never before the upscale. The `kodak-2383-print` finish is not the
-  default: at half strength it turns shadows cyan and crushes blacks.
-- **Automatic checks** on every raw take and the master: bits per pixel (bitrate
-  divided by width x height x fps; under 0.12 is starved), and palette spread (hue
-  entropy under 2.0 bits over 36 bins, or a teal share over 0.40, flags a one
-  colour or default teal look). A skin texture number is no gate; judge skin by
-  eye at full size.
+  default: at half strength it turns shadows cyan and crushes blacks. The grade
+  only finishes: it never rescues a colour the stills and takes got wrong.
+- **Automatic checks are warnings, never targets**, on every raw take and the
+  master: bits per pixel (bitrate divided by width x height x fps; under 0.12 warns
+  of a starved stream) and palette spread (hue entropy under 2.0 bits over 36 bins,
+  or a teal share over 0.40, warns of an unplanned cast). A warning is judged
+  against the LOOK block: a narrow palette the block asks for passes. A skin
+  texture number is no gate; judge skin by eye at full size.
 - **Never**: `minimax-h3` at any resolution for a shot that does not need song lip
   sync; dialogue routed to H3 just because it speaks; a start frame together with
   an audio reference (refused: the keyframe rides as an element); Seedance's
   re-rendered song laid in the edit; a new angle with no reference at that angle;
-  video started from a one colour keyframe.
+  a coloured source or a light change added to raise a number; colour words for
+  light ("green white"); a cast left for the grade to fix.
 
 ## The breathing pattern (multi-shot sequencing)
 
