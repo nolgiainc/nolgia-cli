@@ -14047,9 +14047,11 @@ components:
           description: |
             Present (true) on models that take a source clip, render no
             soundtrack of their own (`audio: none`), and deliver the clip
-            with the SOURCE's audio carried over: every restore-lane model.
-            A source with no audio comes back silent. Absent everywhere
-            else.
+            with the SOURCE's audio carried over: every restore-lane model,
+            and the `runway-aleph-2` video edit (the source's track comes
+            back with the edit). A source with no audio comes back silent.
+            Send `strip_audio: true` for a clip with no audio stream. Absent
+            everywhere else.
           examples: [true]
         speech:
           type: string
