@@ -14679,6 +14679,7 @@ components:
         - elevenlabs-tts-turbo-v2.5
         - elevenlabs-music
         - elevenlabs-sound-effects-v2
+        - elevenlabs-sound-effects-v3
         - minimax-music-v2.6
         - lyria-3.5
         - stable-audio-2.5
@@ -15677,7 +15678,7 @@ components:
     AudioFormat:
       type: string
       description: >-
-        Container for the returned audio file. `mp3` is the default and the smallest; `wav` and `flac` are lossless and much larger. The format does not change what the model renders, and it never changes the price.
+        Container for the returned audio file. `mp3` is the default and the smallest; `wav` and `flac` are lossless and much larger. The format does not change what the model renders, and it never changes the price. Not every model can deliver every container: the ElevenLabs sound effects and music models, among others, render MP3 whatever is asked. When the delivered file is not in the format you named, the job's `warnings` say which container it was delivered in.
       enum: [mp3, wav, ogg, flac]
     GenerateAudioRequest:
       type: object
