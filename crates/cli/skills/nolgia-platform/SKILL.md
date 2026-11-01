@@ -1,7 +1,7 @@
 ---
 name: nolgia-platform
 description: "Generate images, video, audio, and 3D models on the NOLGIA platform with the `nolgia` CLI or the NOLGIA MCP server (https://mcp.nolgia.ai/mcp): auth, model choice from the live catalog, async jobs, reference images, outpainting, voices, credits, and failure recovery. Use when: the user asks for AI-generated media and NOLGIA is available, e.g. 'generate an image', 'make a video', 'animate this photo', 'extend this image to 9:16', 'make a voiceover', 'check my jobs', or 'assemble these clips into one video', or 'do my DIT / offload and verify these cards / rename the footage'. NOT for: directing craft and multi-shot planning (use nolgia-video-prompting), vertical UGC ad production (use nolgia-ugc-ads), or editing media locally without the platform."
-version: 1.1.0
+version: 1.1.1
 author: NOLGIA
 license: MIT
 metadata:
@@ -111,8 +111,8 @@ SECONDS]` extracts a still (default: last frame) to chain clips.
 
 | Model | Duration | Best for |
 |---|---|---|
-| `seedance-2.5` (default) | per catalog | general cinematic text-to-video |
-| `minimax-h3` | 5-15s | photoreal humans, identity across shots, native speech |
+| `seedance-2.5` (default) | 4-30s | general cinematic video, and live action people in films, commercials and music videos at 720p with reference elements (`--element`) |
+| `minimax-h3` | 4-15s | people who speak on screen (native lip-synced speech); its 2k stream is bitrate starved, so not for shots where nobody speaks |
 | `fal-ai/bytedance/seedance/v2/pro/text-to-video` | 4-15s | **multi-shot** (`--shot`), native audio |
 | `veo-3.1` / `veo-3.1-fast` | 4/6/8s only | hero quality / fast previz |
 | `heygen-avatar-iv` | length of the voice track | lip sync: a portrait (`--input`) speaks an audio track (`--audio-ref`) |
@@ -130,8 +130,10 @@ nolgia gen video --model fal-ai/bytedance/seedance/v2/pro/text-to-video \
 ```
 
 Up to 8 shots; clip duration = sum; `--prompt` becomes overall
-style/context; `|` separates an optional per-shot audio direction. See the
-`nolgia-video-prompting` skill for the directing craft.
+style/context; `|` separates an optional per-shot audio direction. A film take
+does not use this flag: it writes its cuts inside one prompt on `seedance-2.5`
+(see the `nolgia-video-prompting` skill for the directing craft and the film
+standard).
 
 ## Jobs, assets, credits
 
@@ -175,7 +177,9 @@ nolgia assets list --tag hero --project-id <uuid>  # filter by tag / project
 
 Characters keep a recurring subject consistent: `gen image --character-id
 <uuid>` and `gen video --character-id <uuid>` bind a character's reference
-and description to the render. Projects group assets (an asset can be in
+and description to the render. The description carries its canonical outfit
+and accessories and overrides written wardrobe, so a story role in a film is
+dressed into a role cast sheet and sent with `--element` instead. Projects group assets (an asset can be in
 many); tags label and filter them. Prefer `--project-id` on
 `gen`/`assets upload` over after-the-fact `projects add-assets` when the
 destination project is known up front.
