@@ -25326,6 +25326,13 @@ components:
           description: >
             The most this turn may charge, in credits, as the customer was shown it: a guided preset's review card sends its "Up to N" here (see `PresetIntakeEstimate.ceiling`). The turn's own charge (its flat rate plus any metered model cost) and every generation the turn makes together never exceed it: a generation that would pass it is refused before anything is charged (`402`, `error.code: approval_required`) so the agent asks the customer first, and a metered model cost above what is left is waived. A turn sent without it bills its generations as usual and caps its own charge at the platform default of 200 credits. Ignored on a steering send that is queued behind an in-flight turn.
 
+        plan_credits:
+          type: integer
+          minimum: 0
+          maximum: 1000000
+          description: >
+            The generations' share of `credit_ceiling`, as the review card priced them for the customer's answers: the sum of `PresetIntakeEstimate.generations[].credits`. Only with `credit_ceiling`, and never above it (`400` otherwise). Stored with the run so the platform can tell what the plan made from what the run spent beyond it (the agent's own work and any re-tries), which is what the review card's typical figure is measured from. Nothing is charged or refused on it. Ignored on a steering send that is queued behind an in-flight turn.
+
         steering:
           type: boolean
           default: false
