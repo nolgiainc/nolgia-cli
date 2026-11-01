@@ -27303,7 +27303,10 @@ components:
           items:
             $ref: '#/components/schemas/PresetIntakeRunGeneration'
         agent_tokens:
-          $ref: '#/components/schemas/PresetIntakeRunTokens'
+          allOf:
+            - $ref: '#/components/schemas/PresetIntakeRunTokens'
+          description: >-
+            The agent's token allowance this plan was written with. Kept and validated, but no longer priced: since 2026-11-01 the card prices the agent's work from runs of this preset on the caller's brain when there are enough of them, else from the per-brain run model measured from real runs.
     PresetIntakeRunGeneration:
       type: object
       additionalProperties: false
@@ -27860,7 +27863,7 @@ components:
           enum: [one_generation, agent_turn, set_run, agent_run]
           x-enum-varnames: [PresetIntakeEstimateBasisOneGeneration, PresetIntakeEstimateBasisAgentTurn, PresetIntakeEstimateBasisSetRun, PresetIntakeEstimateBasisAgentRun]
           description: >-
-            `agent_run` prices a whole guided agent run from the preset's `submit.run` plan: `credits` equals `ceiling`, the most the run may charge, and `generations` plus `agent_turn` break it down.
+            `agent_run` prices a whole guided agent run from the preset's `submit.run` plan: `typical` is what such a run usually charges (the review card's "About N"), `credits` equals `ceiling`, the run's enforced limit, and `generations` plus `agent_turn` break both down.
         duration_seconds:
           type: integer
           description: The clip length the estimate assumes (video targets).
@@ -27870,7 +27873,24 @@ components:
         ceiling:
           type: integer
           description: >-
-            `agent_run` only: the most the run may charge, shown as "Up to N". Send it as `credit_ceiling` with the brief; the platform holds the run to it.
+            `agent_run` only: the run's limit, the most it may charge. Send it as `credit_ceiling` with the brief; the platform holds the run to it, and a generation that would pass it is refused so the agent asks the customer first. Since 2026-11-01 the review card does not show it: it shows `typical`. It is the plan's generations plus the agent's `agent_turn.credits`, sized at the p90 of real runs plus a margin, so a normal run never reaches it.
+        typical:
+          type: integer
+          description: >-
+            `agent_run` only: what a run of this preset with these answers typically charges on the caller's brain: the plan's generations (`plan_credits`) plus the agent's typical share (`agent_turn.typical`). The review card shows it as "About N". Never above `ceiling`.
+        typical_basis:
+          type: string
+          enum: [measured, model]
+          x-enum-varnames: [PresetIntakeEstimateTypicalBasisMeasured, PresetIntakeEstimateTypicalBasisModel]
+          description: >-
+            `agent_run` only. `measured`: the agent's typical share is the median of what real runs of this preset on this brain spent beyond their plan (the agent's work and any re-tries), over the last 30 days, with internal accounts left out. `model`: too few such runs yet, so it comes from the per-brain run model, which is itself measured from real runs across presets.
+        typical_runs:
+          type: integer
+          description: '`typical_basis: measured` only: how many runs the figure is measured from.'
+        plan_credits:
+          type: integer
+          description: >-
+            `agent_run` only: the plan's generations together, the sum of `generations[].credits`. Send it as `plan_credits` with the brief beside `credit_ceiling`.
         generations:
           type: array
           description: '`agent_run` only: each generation the recipe makes, priced.'
@@ -27916,15 +27936,19 @@ components:
       additionalProperties: false
       required: [model, rate, credits]
       description: >-
-        The agent's own turn on the run: `rate` is the brain's published per-turn minimum, `credits` what the card allows for it (the metered price of the plan's token allowance, never below `rate`).
+        The agent's own turn on the run: `rate` is the brain's published per-turn minimum, `typical` what it usually comes to (the card's share of "About N"), and `credits` its share of the run's limit. Rate <= typical <= credits.
       properties:
         model:
           type: string
           description: The brain the caller's agent runs on.
         rate:
           type: integer
+        typical:
+          type: integer
+          description: The agent's typical share of the run, measured (see `PresetIntakeEstimate.typical_basis`).
         credits:
           type: integer
+          description: The agent's share of the run's limit (`PresetIntakeEstimate.ceiling`).
     PresetIntakeContext:
       type: object
       additionalProperties: false
