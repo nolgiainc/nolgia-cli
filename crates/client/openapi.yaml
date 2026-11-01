@@ -13976,6 +13976,10 @@ components:
             `false` means the provider's API has no seed field at all, so a seed could only ever be discarded — sending one is refused with a 400 rather than accepted and ignored, because a discarded seed returns a DIFFERENT video than the reproducible one you asked for and still bills you for it.
 
             Omitted means nobody has verified this model's provider yet, and the field is accepted with no promise that it does anything. Absence is deliberately not the same as `false`: refusing on an unchecked assumption would delete a capability that may work.
+        negative_prompt_supported:
+          type: boolean
+          description: >-
+            Whether a request's `negative_prompt` reaches this model's provider. `false`: it is accepted and not sent, the clip still renders, and the job's `warnings` says so. Published for every video model.
         max_prompt_chars:
           type: integer
           description: |
@@ -14046,6 +14050,30 @@ components:
             credit hold is taken.
           minimum: 1
           example: 500
+        negative_prompt_supported:
+          type: boolean
+          description: |
+            Whether a request's `negative_prompt` reaches this model's
+            provider. Most image models have no negative prompt (the Nano
+            Banana, FLUX, GPT Image, Grok, Recraft, Seedream, MAI and
+            Riverflow models among them). `false`: it is accepted and not
+            sent, the image still renders, and the job's `warnings` says so.
+            Describe what should be in the picture instead ("an empty street",
+            not "no cars"); GPT Image's own guidance is to state an exclusion
+            in the prompt itself ("no watermark"). Published for every image
+            model.
+          example: false
+        seed_supported:
+          type: boolean
+          description: |
+            Whether a request's `seed` reaches this model's provider on every
+            request it takes, with or without a reference image. `false`: on
+            some or all requests it is accepted and not sent (the FLUX Kontext
+            and FLUX 3 Klein models take a seed only without a reference
+            image), the image still renders and differs each time, and the
+            job's `warnings` says so whenever a seed was dropped. Published
+            for every image model.
+          example: false
         reference_images_max:
           type: integer
           description: |
@@ -15182,6 +15210,11 @@ components:
             characters; models with a lower provider limit publish it as
             `image.negative_prompt_max_length` in `GET /models` and reject
             longer values before reserving credits. Refused on `remove-background`.
+
+            Only models with `image.negative_prompt_supported: true` on
+            `GET /models` receive it. On every other model it is accepted and
+            not sent, the image still renders, and the job's `warnings` says
+            so.
         image_size:
           $ref: '#/components/schemas/ImageSize'
         aspect_ratio:
@@ -15195,7 +15228,7 @@ components:
           default: 1
         seed:
           description: >-
-            Reproducibility seed. The same seed with the same prompt and settings gives the same image on a model whose provider honors one; omit it for a different result every time. Not every provider honors it.
+            Reproducibility seed. The same seed with the same prompt and settings gives the same image on a model whose provider honors one; omit it for a different result every time. Only models with `image.seed_supported: true` on `GET /models` receive it on every request; elsewhere it is accepted and not sent, the image still renders, and the job's `warnings` says so.
           type: integer
           nullable: true
           minimum: 0
@@ -15537,7 +15570,7 @@ components:
             Text prompt. 32000 characters is the transport bound for every model; the model's own ceiling is `video.max_prompt_chars` on `GET /models`, checked on the composed prompt before any credit hold. On reference-to-video models, address the supplied references as `@Video1`..`@Video3` and `@Image1`..`@Image9`, and optionally use `[0-3s]`-style timeline markers to time actions; these tokens are passed through verbatim (including inside multi-shot `shots[]` prompts).
         negative_prompt:
           description: >-
-            What to keep OUT of the clip. Phrase it as the thing itself ("text overlay", "camera shake"), not as an instruction not to do it. Providers differ in how much weight they give it and several ignore it entirely; it never changes the price.
+            What to keep OUT of the clip. Phrase it as the thing itself ("text overlay", "camera shake"), not as an instruction not to do it. Only the models with `video.negative_prompt_supported: true` on `GET /models` (Veo 3.1 and Omni today) receive it. On every other model it is accepted and not sent, the clip still renders, and the job's `warnings` says so: write exclusions in the prompt as what IS in the frame instead. It never changes the price.
           type: string
           nullable: true
           maxLength: 4000
@@ -16072,6 +16105,12 @@ components:
           type: string
           nullable: true
           format: date-time
+        warnings:
+          type: array
+          items:
+            type: string
+          description: >-
+            Plain statements about how this job ran differently from the request, safe to show the customer as-is: a `negative_prompt` or `seed` this model's provider never receives (for example "negative_prompt not supported by nano-banana-pro; not sent"), which was accepted and not sent while the render still ran. Absent when there is nothing to say. `image.negative_prompt_supported`, `image.seed_supported` and `video.negative_prompt_supported` on `GET /models` say ahead of time which models take each field.
     JobCancellation:
       type: object
       additionalProperties: false
