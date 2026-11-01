@@ -1,7 +1,7 @@
 ---
 name: nolgia-ugc-ads
 description: "Produce vertical (9:16) UGC-style ad videos on NOLGIA: persona spec, consistent character portraits, app-screenshot B-roll, a lip-synced talking head from a voiceover, and face-safe text overlay rules. Use when: the user wants TikTok, Reels or Shorts ads, testimonial or influencer-style content, a talking-head product pitch, or one character scaled across many ad variants. NOT for: cinematic short films or trailers (use nolgia-video-prompting), single images or plain clips without an ad structure (use nolgia-platform), or horizontal TV spots."
-version: 1.1.0
+version: 1.10.1
 author: NOLGIA
 license: MIT
 metadata:
