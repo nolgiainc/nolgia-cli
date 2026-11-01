@@ -1,7 +1,7 @@
 ---
 name: nolgia-platform
 description: "Generate images, video, audio, and 3D models on the NOLGIA platform with the `nolgia` CLI or the NOLGIA MCP server (https://mcp.nolgia.ai/mcp): auth, model choice from the live catalog, async jobs, reference images, outpainting, voices, credits, and failure recovery. Use when: the user asks for AI-generated media and NOLGIA is available, e.g. 'generate an image', 'make a video', 'animate this photo', 'extend this image to 9:16', 'make a voiceover', 'check my jobs', or 'assemble these clips into one video', or 'do my DIT / offload and verify these cards / rename the footage'. NOT for: directing craft and multi-shot planning (use nolgia-video-prompting), vertical UGC ad production (use nolgia-ugc-ads), or editing media locally without the platform."
-version: 1.1.1
+version: 1.1.2
 author: NOLGIA
 license: MIT
 metadata:
@@ -111,8 +111,8 @@ SECONDS]` extracts a still (default: last frame) to chain clips.
 
 | Model | Duration | Best for |
 |---|---|---|
-| `seedance-2.5` (default) | 4-30s | general cinematic video, and live action people in films, commercials and music videos at 720p with reference elements (`--element`) |
-| `minimax-h3` | 4-15s | people who speak on screen (native lip-synced speech); its 2k stream is bitrate starved, so not for shots where nobody speaks |
+| `seedance-2.5` (default) | 4-30s | general cinematic video, and live action people in films, commercials and music videos at 720p with reference elements (`--element`), dialogue included (one voice `--audio-ref` per speaker) |
+| `minimax-h3` | 4-15s | a music video's sung close up at 768p, lip synced to the song slice (`--audio-ref`); its stream is bitrate starved at 768p and 2k, so never for dialogue or any other shot |
 | `fal-ai/bytedance/seedance/v2/pro/text-to-video` | 4-15s | **multi-shot** (`--shot`), native audio |
 | `veo-3.1` / `veo-3.1-fast` | 4/6/8s only | hero quality / fast previz |
 | `heygen-avatar-iv` | length of the voice track | lip sync: a portrait (`--input`) speaks an audio track (`--audio-ref`) |
