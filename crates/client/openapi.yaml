@@ -15946,6 +15946,14 @@ components:
             Commas name several things ("boom microphone, boom pole"). Needs
             exactly one source clip, given as `video_asset_ids`. Billed as the
             edit itself; the pass adds no charge.
+
+            On a removal, each thing found is checked on the delivered clip.
+            A thing the edit model left in place is delivered as filmed (not
+            as the model's softer copy), and the edit is redone once on
+            another edit model, naming only what stayed, at no charge; the
+            job's `model` is that model while the redo runs. The better of the
+            two clips is delivered, and the job's `warnings` name anything
+            still in it.
         edit_target_point:
           $ref: '#/components/schemas/EditTargetPoint'
         element_asset_ids:
