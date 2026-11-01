@@ -13959,7 +13959,10 @@ components:
           type: integer
           description: |
             The longest `prompt`, in characters, this model's provider
-            accepts. Absent when the provider publishes no limit of its own.
+            accepts: its documented ceiling, or one NOLGIA measured with a
+            real job (19800 on Seedance 2.x, 7000 on MiniMax H3, 2500 on
+            Kling 3.0, 1000 on Runway). Absent when neither exists; the only
+            limit is then the request's 32000-character transport bound.
 
             Measured on the prompt the provider receives, after the
             `character_id` continuity description and the `shots[]`
@@ -13995,6 +13998,24 @@ components:
           description: Selectable `aspect_ratio` values for this model.
           items:
             $ref: '#/components/schemas/ImageAspectRatio'
+        max_prompt_chars:
+          type: integer
+          minimum: 1
+          examples: [8000]
+          description: |
+            The longest `prompt`, in characters (Unicode code points), this
+            model takes on POST /generate/image: the provider's own ceiling
+            where it documents one or NOLGIA has measured one (8000 on the GPT
+            Image family, 1500 on minimax-image-01), otherwise 4000, the
+            length every image request has been verified at.
+
+            A request above it is rejected with a 400 that names the limit
+            and your length, before any credit hold is taken. NOLGIA's own
+            additions (Aura, character, element, product, location, brand
+            kit, style, layout) are folded in after this check and must keep
+            the composed prompt under the model's ceiling too; when they
+            would not, the 400 says which part to shorten. Your prompt is
+            never shortened.
         negative_prompt_max_length:
           type: integer
           description: |
@@ -14126,9 +14147,11 @@ components:
           examples: [2000]
           description: |
             The longest `prompt`, in characters (Unicode code points), this
-            model's provider accepts on POST /generate/audio. Absent when the
-            provider publishes no limit of its own below the 4000 every audio
-            request is held to.
+            model takes on POST /generate/audio: the provider's documented
+            ceiling where there is one (10000 on ElevenLabs Multilingual v2
+            and MiniMax Speech 2.8, 5000 on Eleven v3, 2000 on
+            minimax-music-v2.6), otherwise 4000, the length every audio
+            request has been verified at. Published for every audio model.
 
             A request above it is rejected with a 400 that names the limit
             and your length, before any credit hold is taken. Your prompt is
@@ -14614,8 +14637,8 @@ components:
         prompt:
           type: string
           minLength: 1
-          maxLength: 4000
-          description: The prompt as the customer typed it, `@` references included.
+          maxLength: 32000
+          description: The prompt as the customer typed it, `@` references included. Held to the model's `video.max_prompt_chars` on `GET /models` where it has one.
           examples: ['A barista pours latte art in a sunny cafe, slow and calm']
         duration_seconds:
           type: integer
@@ -14648,8 +14671,8 @@ components:
       properties:
         prompt:
           type: string
-          maxLength: 4000
-          description: The rewritten prompt, runnable as it is on `POST /generate/video` for the requested model.
+          maxLength: 32000
+          description: The rewritten prompt, runnable as it is on `POST /generate/video` for the requested model (never above its `video.max_prompt_chars`, or 4000 for a model without one).
         notes:
           type: array
           maxItems: 6
@@ -14911,7 +14934,9 @@ components:
         prompt:
           type: string
           minLength: 1
-          maxLength: 4000
+          maxLength: 32000
+          description: >-
+            The member's prompt. Each member is held to the set model's own prompt limit, `image.max_prompt_chars` on `GET /models`; the maxLength here is only the transport bound.
     GenerateSetRequest:
       type: object
       additionalProperties: false
@@ -15104,10 +15129,12 @@ components:
           $ref: '#/components/schemas/ImageModel'
         prompt:
           type: string
-          maxLength: 4000
+          maxLength: 32000
           x-go-type-skip-optional-pointer: true
           description: |
-            What to generate. Required on every generation model, and refused
+            What to generate. The model's own ceiling is
+            `image.max_prompt_chars` on `GET /models` (32000 is only the
+            transport bound). Required on every generation model, and refused
             on `remove-background` and the `image_enhance` models, which process the reference image
             from its own pixels and have no prompt slot at all: sending one
             there is a 400 rather than a result that quietly ignored it.
@@ -15324,16 +15351,17 @@ components:
         prompt:
           type: string
           minLength: 1
-          maxLength: 4000
+          maxLength: 32000
           description: |
             For TTS this is the text to speak; for music/SFX it is the
             description. On a text-to-speech model it is also what the request
             is BILLED BY: see the endpoint description.
 
-            4000 characters is the most any audio model takes; some take
-            fewer, and publish their own ceiling as `audio.max_prompt_chars`
-            on GET /models (minimax-music-v2.6 takes 2000). A prompt above the
-            model's ceiling is a 400 naming it, before any credit hold.
+            Each model publishes its own ceiling as `audio.max_prompt_chars`
+            on GET /models (10000 on elevenlabs-tts-multilingual-v2, 2000 on
+            minimax-music-v2.6, 4000 where the provider documents none). A
+            prompt above the model's ceiling is a 400 naming it, before any
+            credit hold. 32000 is only the transport bound.
         voice:
           type: string
           nullable: true
@@ -15466,9 +15494,9 @@ components:
         prompt:
           type: string
           minLength: 1
-          maxLength: 4000
+          maxLength: 32000
           description: >-
-            Text prompt. On reference-to-video models, address the supplied references as `@Video1`..`@Video3` and `@Image1`..`@Image9`, and optionally use `[0-3s]`-style timeline markers to time actions; these tokens are passed through verbatim (including inside multi-shot `shots[]` prompts).
+            Text prompt. 32000 characters is the transport bound for every model; the model's own ceiling is `video.max_prompt_chars` on `GET /models`, checked on the composed prompt before any credit hold. On reference-to-video models, address the supplied references as `@Video1`..`@Video3` and `@Image1`..`@Image9`, and optionally use `[0-3s]`-style timeline markers to time actions; these tokens are passed through verbatim (including inside multi-shot `shots[]` prompts).
         negative_prompt:
           description: >-
             What to keep OUT of the clip. Phrase it as the thing itself ("text overlay", "camera shake"), not as an instruction not to do it. Providers differ in how much weight they give it and several ignore it entirely; it never changes the price.
@@ -15758,7 +15786,9 @@ components:
         prompt:
           type: string
           minLength: 1
-          maxLength: 2000
+          maxLength: 32000
+          description: >-
+            This shot's direction. The shots compose into one prompt, held to the model's `video.max_prompt_chars` on `GET /models`.
         duration_seconds:
           type: integer
           minimum: 1
@@ -16495,7 +16525,7 @@ components:
           examples: ['Hero shot v2']
         prompt:
           type: string
-          maxLength: 4000
+          maxLength: 32000
           description: >
             Overwrites the asset's prompt. Intended for backfilling provenance on uploaded assets (e.g. recording the prompt a file was generated from elsewhere).
 
