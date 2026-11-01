@@ -1,7 +1,7 @@
 ---
 name: nolgia-video-prompting
 description: "Directing craft for NOLGIA video generation: the film standard (references with stated jobs, casting and styling for the role, location plates, one structured prompt per take, written cuts at the genre's rhythm, best of N takes, sound, typeset words, the realism finish), plus the breathing pattern, per-shot sound design and the keep-what-works iteration loop. Use when: writing or fixing video prompts, planning a multi-clip production, a short film, a series episode, a trailer, a commercial or a music video on NOLGIA, or deciding which shots to regenerate. NOT for: platform mechanics such as auth, flags, jobs and credits (use nolgia-platform), vertical UGC ad pipelines (use nolgia-ugc-ads), or still-image prompting."
-version: 1.7.0
+version: 1.8.0
 author: NOLGIA
 license: MIT
 metadata:
@@ -21,27 +21,35 @@ burning credits.
 
 ```
 <SHOT SIZE>. <subject + one action>. <environment, time, weather>.
-<camera: field of view and move>. <the light, physically>. AUDIO: <sound design>, no music.
+<camera: system, lens and T-stop, the move>. <the lighting setup: fixtures, position, Kelvin>.
+AUDIO: <sound design>, no music.
 ```
 
 Example: *WIDE SHOT. A rust-flecked hatchback moves south on an empty
 two-lane highway through flat farmland. Late afternoon, overcast gray sky.
-Static camera, about 60 degrees of view at road height. Flat overcast light
-from above, no sun, wet asphalt a shade darker than the verge. AUDIO: car
-engine, wind, distant birds, no music.*
+Locked off on an ARRI Alexa Mini LF, a 40 mm prime at T4, at road height.
+Soft overcast daylight about 6500 K from above, no direct sun, wet asphalt a
+shade darker than the verge; Kodak Vision3 250D look. AUDIO: car engine, wind,
+distant birds, no music.*
 
 Rules that survived production:
 - **One action per shot.** Two actions and the model picks one or morphs.
 - **Repeat exact wording** for wardrobe, props and locations in every prompt
   that shows them ("olive field jacket with a tear at the left elbow",
   verbatim, every time). Paraphrasing drifts.
-- **Describe what the lens does, never its brand.** No camera or lens brand
-  stacks, no film stock names in the prompt, and never "cinematic, 8k, ultra
-  detailed, hyperrealistic, masterpiece, award winning, perfect, beautiful
-  bokeh, flawless, glass smooth": those words gave a centred, symmetric
-  advert frame with teal and orange. Never describe lens artifacts as things
-  in the frame ("streak flares", "barrel distortion" and "vignette corners"
-  render as overlays). Grain and halation go on in post.
+- **Write the camera, light and grade as a director of photography's spec**, in
+  the real terms taught in film school, one coherent spec the way a camera and
+  lighting report reads (section "The LOOK block"): the camera system and format
+  chosen for the look, the lens set, focal length and T-stop, the grip move, the
+  named lighting setup with its fixtures, positions, Kelvin and gels, and the
+  stock, grade and LUT as the target look.
+- **Never a pile of buzzwords**: no "cinematic" as filler, no "8k, masterpiece,
+  hyperrealistic, ultra detailed, award winning, perfect, beautiful bokeh,
+  flawless, glass smooth". Those stacks gave a centred, symmetric advert frame
+  with teal and orange.
+- **Never describe lens artifacts as things in the frame** ("streak flares",
+  "barrel distortion" and "vignette corners" render as overlays). Halation, grain
+  and softness go on in post.
 - **Never default to teal and orange**, neon, or any colour cast the LOOK block
   does not name (section "The LOOK block").
 - **No text in generated frames.** Models garble it; typeset words in the edit.
@@ -139,10 +147,21 @@ the first still and pasted verbatim into every still and take prompt:
 - **The colour world**: 3 or 4 named colours with hex codes and rough ratios
   ("tungsten cream #E8D9B5 about 60%, oxblood #5A1E1B about 25%, charcoal #2B2B2B
   about 15%").
-- **Every light source** by type, position and colour temperature in Kelvin ("a
-  3200 K tungsten pendant 1.5 m above the table; overcast daylight about 6500 K
-  through the window, camera left"). Never colour words for light such as "green
-  white" or "yellow green": they paint the frame.
+- **The camera and format chosen for the look**: an ARRI Alexa Mini LF, a Sony
+  Venice 2, 16 mm on an Arriflex 416, 35 mm on a Panavision Millennium XL2; the
+  lens set, its focal lengths and T-stop (a set of Cooke S4 primes at T2.8).
+- **The lighting setup by name**, with every fixture by type, position and colour
+  temperature in Kelvin, and its gels: Rembrandt, loop, split, butterfly, low key,
+  high key, motivated practicals, book light, top light, negative fill, bounce;
+  a tungsten Fresnel, a China ball, a Kino Flo, an HMI, a SkyPanel, Astera tubes;
+  CTO, CTB, and minus green, which is how a fluorescent's green spill is
+  corrected ("a 3200 K tungsten Fresnel through a book light camera left, a China
+  ball 1.5 m above the table, overcast daylight about 6500 K through the window
+  behind her, negative fill camera right"). Never colour words for light such as
+  "green white" or "yellow green": they paint the frame.
+- **The stock, grade and LUT as the target look**: Kodak Vision3 500T 5219 or 250D
+  5207, Fuji Eterna, bleach bypass or ENR, a print emulation; the matching LUT is
+  applied in the finish.
 - **Saturation and contrast** in plain words ("low saturation, skin stays skin
   coloured; deep but not crushed blacks").
 - **FORBIDDEN casts**: teal, cyan or green spill, coloured light on walls, teal and
@@ -160,9 +179,11 @@ written stills and takes, and the grade only finishes.
 LOOK (the film's LOOK block for this lighting setup, verbatim), SCENE CONTEXT,
 REFERENCES (each with its job), KEY LOCKS (identity, wardrobe, product phrase,
 headcount, no text: early, so a long prompt never loses them), LOCATION MAP,
-FIRST FRAME, FORMAT (the cuts), OPTICS (field of view per segment), CAMERA,
-ACTION TIMING, ACTING, SCRIPT, PHYSICS, LIGHTING (only the sources in the scene,
-where each sits, its type and Kelvin, what it falls on), AUDIO ("diegetic sound
+FIRST FRAME, FORMAT (the cuts), OPTICS (the lens, focal length and T-stop per
+segment), CAMERA (the grip move: locked off, dolly in or out, tracking, crane,
+Steadicam, handheld, whip pan, rack focus), ACTION TIMING, ACTING, SCRIPT, PHYSICS,
+LIGHTING (the named setup: each fixture, where it sits, its Kelvin and gel, what it
+falls on; only sources the LOOK block names), AUDIO ("diegetic sound
 only, no music"), LOCKS and a FORBIDDEN line (plastic skin, model looks, makeup or
 jewelry off role, beauty light, the LOOK block's forbidden casts, lens flares,
 readable text, music).
@@ -282,10 +303,16 @@ quoting a frame.
   inherits its stills' colour. A still that drifts (a cast, a source the block does
   not name) is regenerated from the LOOK block's words, never patched by adding a
   light.
+- **Check every still, and the first take, at full size for spec words rendering
+  as on screen artifacts**: streaks, flares drawn as objects, rounded or vignetted
+  corners, film borders, sprocket holes, letterbox bars, timecode or camera UI. If
+  any appear, move the artifact words out and keep the spec as properties of the
+  image (an in-house short came back with streaks and rounded corners).
 - **The realism post chain, in this order**: keep the take at 720p; Topaz to 1080p
   with `topaz-proteus-natural` (split long takes at their cuts, since the restore
-  window is about 7.4 s); grade with a negative stock at half strength or less
-  (`kodak-vision3-250d` day, `kodak-vision3-500t` tungsten or sodium night); film
+  window is about 7.4 s); grade with the LUT that matches the LOOK block's stock at
+  half strength or less (`kodak-vision3-250d` day, `kodak-vision3-500t` tungsten
+  or sodium night; `nolgia color-presets list` for the rest); film
   emulation (halation, slight softness, grain) LAST at 0.6 strength, at delivery
   resolution, never before the upscale. The `kodak-2383-print` finish is not the
   default: at half strength it turns shadows cyan and crushes blacks. The grade
