@@ -13976,6 +13976,10 @@ components:
             `false` means the provider's API has no seed field at all, so a seed could only ever be discarded — sending one is refused with a 400 rather than accepted and ignored, because a discarded seed returns a DIFFERENT video than the reproducible one you asked for and still bills you for it.
 
             Omitted means nobody has verified this model's provider yet, and the field is accepted with no promise that it does anything. Absence is deliberately not the same as `false`: refusing on an unchecked assumption would delete a capability that may work.
+        prompt_extend_supported:
+          type: boolean
+          description: >-
+            Whether a request's `prompt_extend` (Alibaba's prompt rewriter on the Wan models, on by default) reaches this model's provider. `false`: it is accepted and not sent, the clip still renders, and the job's `warnings` says so. Published for every video model.
         negative_prompt_supported:
           type: boolean
           description: >-
@@ -15352,7 +15356,7 @@ components:
           type: boolean
           nullable: true
           description: >-
-            Applies Aura, the Nolgia character engine: server-side photoreal composition layered onto the prompt (real skin texture with pores, natural catchlights, no beauty filter, smoothing or airbrushing). It adds no makeup and no beauty features, so makeup appears only when the prompt asks for it, and a face reference is followed as it is. Honored only on models whose catalog entry publishes `image.aura_compatible: true`; a true value on any other model is a no-op, never an error. A prompt worded as an illustration (anime, cartoon, 3D render, painting, sketch and similar) never gets the layer, even with `true`. When OMITTED, the server applies the product default: ON for prompts that read as a person subject on aura_compatible models, OFF otherwise ("model", "face" and "wearing" count only when they name a person, so "a scale model of a ship" stays off). Beside a face reference or a character an omitted flag resolves to ON. An explicit false always wins, face reference and characters included: identity is not the Aura layer, so the identity lock and the face check still apply with Aura off. The job's persisted params echo the effective value for audit and gallery badging, and `enhanced_prompt` on the asset shows the composed text.
+            Applies Aura, the Nolgia character engine: server-side photoreal composition appended to the prompt as three sentences. Skin: real texture down to the pores, tied to the scene's light. Light: from the scene's own sources, off to one side and falling off into shadow, never flat from the front; left out when the prompt names its own light (flash, ring light, front-lit, studio light, golden hour, neon, spotlight, window light, backlit and similar). Finish: no retouching, smoothing, waxy skin or hot shine, a fine even grain. Nano Banana and FLUX get it in positive wording, other models with explicit exclusions; it never writes `negative_prompt`. It adds no makeup and no beauty features, so makeup appears only when the prompt asks for it, and a face reference is followed as it is. Honored only on models whose catalog entry publishes `image.aura_compatible: true`; a true value on any other model is a no-op, never an error. A prompt worded as an illustration (anime, cartoon, 3D render, painting, sketch and similar) never gets the layer, even with `true`. When OMITTED, the server applies the product default: ON for prompts that read as a person subject on aura_compatible models, OFF otherwise ("model", "face" and "wearing" count only when they name a person, so "a scale model of a ship" stays off). Beside a face reference or a character an omitted flag resolves to ON. An explicit false always wins, face reference and characters included: identity is not the Aura layer, so the identity lock and the face check still apply with Aura off. The job's persisted params echo the effective value for audit and gallery badging, and `enhanced_prompt` on the asset shows the composed text.
         face_reference_asset_id:
           type: string
           format: uuid
@@ -15588,6 +15592,11 @@ components:
           maxLength: 32000
           description: >-
             Text prompt. 32000 characters is the transport bound for every model; the model's own ceiling is `video.max_prompt_chars` on `GET /models`, checked on the composed prompt before any credit hold. On reference-to-video models, address the supplied references as `@Video1`..`@Video3` and `@Image1`..`@Image9`, and optionally use `[0-3s]`-style timeline markers to time actions; these tokens are passed through verbatim (including inside multi-shot `shots[]` prompts).
+        prompt_extend:
+          type: boolean
+          nullable: true
+          description: >-
+            Alibaba's prompt rewriter on the Wan models, which is ON by default and rewrites every prompt before it renders. Omit it to keep that default (unchanged); send `false` to render the prompt as written, for a structured prompt such as a written shot plan or a look block; `true` asks for the rewrite explicitly. Sent on the models with `video.prompt_extend_supported: true` on `GET /models` (`wan-3.0` and `wan-3.0-prime`). On their fall-over route, used only while the primary is unavailable, Alibaba's default applies. On every other model it is accepted and not sent, the clip still renders, and the job's `warnings` says so. It never changes the price.
         negative_prompt:
           description: >-
             What to keep OUT of the clip. Phrase it as the thing itself ("text overlay", "camera shake"), not as an instruction not to do it. Only the models with `video.negative_prompt_supported: true` on `GET /models` (Veo 3.1 and Omni today) receive it. On every other model it is accepted and not sent, the clip still renders, and the job's `warnings` says so: write exclusions in the prompt as what IS in the frame instead. It never changes the price.
