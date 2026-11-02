@@ -1,7 +1,7 @@
 ---
 name: nolgia-platform
 description: "Generate images, video, audio, and 3D models on the NOLGIA platform with the `nolgia` CLI or the NOLGIA MCP server (https://mcp.nolgia.ai/mcp): auth, model choice from the live catalog, async jobs, reference images, outpainting, voices, credits, and failure recovery. Use when: the user asks for AI-generated media and NOLGIA is available, e.g. 'generate an image', 'make a video', 'animate this photo', 'extend this image to 9:16', 'make a voiceover', 'check my jobs', or 'assemble these clips into one video', or 'do my DIT / offload and verify these cards / rename the footage'. NOT for: directing craft and multi-shot planning (use nolgia-video-prompting), vertical UGC ad production (use nolgia-ugc-ads), or editing media locally without the platform."
-version: 1.10.2
+version: 1.10.3
 author: NOLGIA
 license: MIT
 metadata:
@@ -157,7 +157,12 @@ provider already started is refunded only if the provider stops it without
 billing, and credits can read `pending` until it answers (check again with
 `nolgia jobs get <job_id>`). A finished job cannot be canceled.
 Asset signed URLs **expire in 15 minutes**: download promptly (`--out`
-handles this). PAT requests spend the `shared_topup` (API) pool only; `402`
+handles this). A video's `signed_url` (what `--out` saves) is the model's
+original: for Seedance 2.5 and every Topaz restore that can be HEVC 10-bit or
+a 4:4:4 QuickTime file. Edit, grade and upscale from it. A ready
+`playback.signed_url` is the 8-bit H.264 copy for players;
+`nolgia api GET "/assets/<id>?variant=playback&disposition=attachment"` gives
+its download link for an app that refuses the original. PAT requests spend the `shared_topup` (API) pool only; `402`
 means top up.
 
 ## Characters, projects, tags
