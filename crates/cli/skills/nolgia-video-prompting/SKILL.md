@@ -1,7 +1,7 @@
 ---
 name: nolgia-video-prompting
 description: "Directing craft for NOLGIA video generation: the film standard (references with stated jobs, casting and styling for the role, location plates, one structured prompt per take, written cuts at the genre's rhythm, best of N takes, sound, typeset words, the realism finish), plus the breathing pattern, per-shot sound design and the keep-what-works iteration loop. Use when: writing or fixing video prompts, planning a multi-clip production, a short film, a series episode, a trailer, a commercial or a music video on NOLGIA, or deciding which shots to regenerate. NOT for: platform mechanics such as auth, flags, jobs and credits (use nolgia-platform), vertical UGC ad pipelines (use nolgia-ugc-ads), or still-image prompting."
-version: 1.10.2
+version: 1.10.3
 author: NOLGIA
 license: MIT
 metadata:
@@ -408,9 +408,17 @@ quoting a frame.
   corners, film borders, sprocket holes, letterbox bars, timecode or camera UI. If
   any appear, move the artifact words out and keep the spec as properties of the
   image (an in-house short came back with streaks and rounded corners).
-- **The realism post chain, in this order**: keep the take at 720p; Topaz to 1080p
-  with `topaz-proteus-natural` (split long takes at their cuts, since the restore
-  window is about 7.4 s); grade with the LUT that matches the LOOK block's stock at
+- **The realism post chain, in this order**: pick the take's resolution per shot.
+  Native 1080p (16:9 and 9:16, about 2.1 times the 720p price) for hero people
+  shots and print that must read: on the models' originals (2026-11-02) it beat
+  720p plus Topaz, with photographed pores, condensation and small print where
+  Topaz invents texture and redraws print. An older bakeoff that found the
+  opposite measured NOLGIA's 8-bit playback copy, not the model's file. Where the
+  budget rules, keep the take at 720p and Topaz it to 1080p with
+  `topaz-proteus-natural` (split long takes at their cuts, since the restore
+  window is about 7.4 s). Work from the model's original (the asset's
+  `signed_url`, what `--out` saves), never `asset.playback`, the copy for
+  players. Then grade with the LUT that matches the LOOK block's stock at
   half strength or less (`kodak-vision3-250d` day, `kodak-vision3-500t` tungsten
   or sodium night; `nolgia color-presets list` for the rest); film
   emulation (halation, slight softness, grain) LAST at 0.6 strength, at delivery
