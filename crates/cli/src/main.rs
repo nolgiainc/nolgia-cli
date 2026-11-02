@@ -106,7 +106,7 @@ pub enum Commands {
     #[command(subcommand, about = "Authenticate this machine")]
     Auth(auth::AuthCommand),
     #[command(subcommand, about = "Generate images, video, or audio")]
-    Gen(r#gen::GenCommand),
+    Gen(Box<r#gen::GenCommand>),
     #[command(
         subcommand,
         about = "Restore and upscale existing footage (de-noise, de-haze, up-res)"
@@ -328,7 +328,7 @@ pub async fn run_cli(cli: Cli) -> Result<()> {
     match command {
         Commands::Api(args) => api::run(args, &ctx).await,
         Commands::Auth(_) => unreachable!("auth handled before client construction"),
-        Commands::Gen(command) => r#gen::run(command, &ctx).await,
+        Commands::Gen(command) => r#gen::run(*command, &ctx).await,
         Commands::Restore(command) => restore::run(command, &ctx).await,
         Commands::Status(args) => status::run(args, &ctx).await,
         Commands::Jobs(command) => jobs::run(command, &ctx).await,
