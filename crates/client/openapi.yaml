@@ -10033,7 +10033,7 @@ paths:
       operationId: listAgentModels
       summary: Selectable agent brains (reasoning models) with their flat per-turn credit rates.
       description: >-
-        Every entry is a model the platform can actually serve for an agent's reasoning loop — routed through the LLM proxy with a provider-outage fallback group — priced as a flat credit rate per chat turn. The default brain is included; premium brains cost more per turn. `claude-opus-5-5` is the best brain, at 70 credits a turn: Anthropic's model for long agent sessions and coding, which stays on track across many steps. `gpt-6.1-sol` (70 credits a turn) is OpenAI's reasoning model, for long documents and hard multi-step reasoning. `gemini-4-argon` (70 credits a turn) is Google's most capable model, for hard coding, math and science problems and long agent work. Retired brains are NOT listed and are REPLACED rather than kept running: `glm-5.3`, `glm-5.2` and `kimi-k3` resolve to `claude-opus-5-5`, and `gpt-6-astra` resolves to `gpt-6.1-sol`, so an agent pinned to one runs and bills as its replacement and GET /agent reports the replacement as its model. Treat this catalogue as the source of truth for both the selectable ids and their rates rather than hard-coding either — it is served from the same table that prices the turn.
+        Every entry is a model the platform can actually serve for an agent's reasoning loop — routed through the LLM proxy with a provider-outage fallback group — priced as a flat credit rate per chat turn. The default brain is included; premium brains cost more per turn. `claude-opus-5-5` is the best brain, at 70 credits a turn: Anthropic's model for long agent sessions and coding, which stays on track across many steps. `gpt-6.1-sol` (70 credits a turn) is OpenAI's reasoning model, for long documents and hard multi-step reasoning. `gemini-4-argon` (70 credits a turn) is Google's most capable model, for hard coding, math and science problems and long agent work. Retired brains are NOT listed and are REPLACED rather than kept running: `glm-5.3`, `glm-5.2` and `kimi-k3` resolve to `claude-opus-5-5`, and `gpt-6-astra` resolves to `gpt-6.1-sol`, so an agent pinned to one runs and bills as its replacement and GET /agent reports the replacement as its model. Treat this catalogue as the source of truth for both the selectable ids and their rates rather than hard-coding either — it is served from the same table that prices the turn. To tell a customer what a turn costs, show `typical_turn_credits` ("About N credits a turn") and `turn_ceiling_credits` (the most a turn's own work is billed), not the flat minimum alone.
       responses:
         '200':
           description: The selectable brains, default first, then by ascending per-turn rate.
@@ -24122,7 +24122,7 @@ components:
     AgentModelOption:
       type: object
       additionalProperties: false
-      required: [model, turn_credits, default]
+      required: [model, turn_credits, typical_turn_credits, default]
       properties:
         model:
           type: string
@@ -24133,6 +24133,16 @@ components:
           description: >-
             Flat credits billed per agent chat turn while the agent runs this brain. The rate is per TURN, not per token, and today does not vary with how much work the turn does: it ranges from 10 for the default brain to 70 for `claude-opus-5-5`, `gemini-4-argon` and `gpt-6.1-sol`. Per-turn rates are under active revision and will change — always read the current rate from this catalogue and show it to the user before a brain is selected, rather than hard-coding it.
           examples: [25, 70]
+        typical_turn_credits:
+          type: integer
+          description: >-
+            What one ordinary chat turn on this brain typically costs, in credits: the figure to show a customer as "About N credits a turn". A turn bills its flat `turn_credits` at minimum and its metered cost above that, so a real turn usually costs more than the minimum; this is the measured typical turn (app turns in the desktop plugins), never below `turn_credits`.
+          examples: [10, 120]
+        turn_ceiling_credits:
+          type: integer
+          description: >-
+            The most one chat turn's own work (its flat rate plus its metered cost) is ever billed when the turn carries no approved run price; the platform absorbs the rest. Generations the turn makes are billed on their own and are not part of this cap. Absent when no cap is set.
+          examples: [200]
         default:
           type: boolean
           description: True for the platform default brain (what an agent runs with no explicit selection).
