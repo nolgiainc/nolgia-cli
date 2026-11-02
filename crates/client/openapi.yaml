@@ -13975,6 +13975,19 @@ components:
             lands never shows less than the charge. Absent when a reference
             video does not change the rate.
           examples: [78]
+        upscaled_from:
+          type: string
+          description: |
+            Present when the model does not render this tier itself: the tier
+            the model renders at, before the same job upscales the clip to
+            this tier's frame on the restore lane. Label the tier as
+            an upscale, for example "4K (upscaled)". The clip keeps its own
+            aspect ratio: 3840x2160 for 16:9, 2160x3840 for 9:16. A clip the
+            upscale could not finish is delivered at the `upscaled_from` tier and charged at
+            it, with the job's `warnings` saying so. Absent on every tier the
+            model renders itself. Example: `seedance-2.5` 4k is upscaled from
+            1080p.
+          examples: ['1080p']
         premium:
           type: boolean
           description: |
