@@ -1,7 +1,7 @@
 ---
 name: nolgia-ugc-ads
 description: "Produce vertical (9:16) UGC-style ad videos on NOLGIA: persona spec, consistent character portraits, app-screenshot B-roll, a lip-synced talking head from a voiceover, and face-safe text overlay rules. Use when: the user wants TikTok, Reels or Shorts ads, testimonial or influencer-style content, a talking-head product pitch, or one character scaled across many ad variants. NOT for: cinematic short films or trailers (use nolgia-video-prompting), single images or plain clips without an ad structure (use nolgia-platform), or horizontal TV spots."
-version: 1.10.2
+version: 1.11.0
 author: NOLGIA
 license: MIT
 metadata:
@@ -23,14 +23,35 @@ narrative, the app where they'd actually message, voice/energy, and 3–5
 screenshot scenarios specific to THEIR story. Generic persona ⇒ generic
 ad. Never reuse screenshots across characters — it kills authenticity.
 
+Write the visual spec the way the distilled creator work writes a person:
+age as a number, job, build and height, hair, the outfit by colour, fabric
+and wear, and at most one mark the story needs ("MARCUS, 38, a plumber, about
+180 cm, broad build; close-cropped black hair, a short beard; a faded navy
+work jacket over a grey t-shirt"). Never a list of skin flaws (pores, lines,
+spots, shine), a skin clause or a "not a model" lock, and never beauty words
+(flawless, dewy, glass smooth): the model draws every listed flaw at once and
+the face reads as made.
+
 ## 2. Assets, in this order
 
 ```bash
-# Portrait: head/shoulders in the UPPER 60% of frame (lower 40% = text space)
-nolgia gen image --prompt "<persona visual spec>, selfie framing, golden hour" --out marcus.png
+# Portrait: head/shoulders in the UPPER 60% of frame (lower 40% = text space).
+# Send --aura on every image call (omitted, the server adds its own skin and
+# finish text to a person): --aura false, since the prompt writes its light.
+# nano-banana-pro at 2k makes one image a job: run it 4 times (marcus-1..4)
+# and save the one that fits the persona as marcus.png.
+nolgia gen image --model nano-banana-pro --quality 2k --aura false \
+  --aspect-ratio 9:16 --prompt "Photoreal. <persona visual spec>. LOOK: a \
+candid photo taken on a high-quality phone camera, the phone's portrait lens \
+(about 50 mm equivalent) held at arm's length: his face in focus, the room \
+behind falling into a soft, natural background blur. Soft window light from \
+one side with open shadows; natural, true-to-life colour; casual, unposed \
+framing." --out marcus-1.png
 
-# Screenshots (3-5, each one narrative-specific)
-nolgia gen image --prompt "phone messaging UI: unread 9pm quote request from a customer..." --out s1.png
+# Screenshots (3-5, each one narrative-specific): words that must read go on
+# gpt-image-2.5-flare, also with --aura sent
+nolgia gen image --model gpt-image-2.5-flare --aura false \
+  --prompt "phone messaging UI: unread 9pm quote request from a customer..." --out s1.png
 
 # Voiceover: a TTS model plus a voice from its catalog (the default audio
 # model makes music, not speech)
@@ -44,9 +65,20 @@ nolgia gen audio --model fal-ai/elevenlabs/tts/eleven-v3 --voice <voice id> \
 ```bash
 nolgia gen video --model heygen-avatar-iv \
   --input marcus.png --audio-ref vo.mp3 --aspect-ratio 9:16 \
-  --prompt "speaking to camera, natural expression, small head movements" \
+  --prompt "speaking to camera, natural expression, small head movements; \
+handheld phone footage at arm's length with a small natural sway, focus \
+holding on his face, the room softly blurred behind him; soft window light \
+from one side" \
   --out marcus_talk.mp4
 ```
+
+The phone look in every UGC prompt is the one above: a high-quality phone
+camera, its portrait lens with a natural background blur, soft window light,
+photoreal. A ring light stays an option where the creator format calls for
+one (a beauty desk, a talking head at night); window light is the default.
+Never "HDR", "HDR flattening", "digital smartphone sharpness", "deep focus",
+"NO shallow depth of field" or "NO bokeh": none of the 1,294 people prompts in
+the influencer work we studied writes them.
 
 `heygen-avatar-iv` makes the portrait speak the voice track: the clip is as
 long as the audio and billed on its duration, so leave `--duration-seconds`

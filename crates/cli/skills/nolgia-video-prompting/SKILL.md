@@ -1,7 +1,7 @@
 ---
 name: nolgia-video-prompting
 description: "Directing craft for NOLGIA video generation: the film standard (references with stated jobs, casting and styling for the role, location plates, one structured prompt per take, written cuts at the genre's rhythm, best of N takes, sound, typeset words, the realism finish), plus the breathing pattern, per-shot sound design and the keep-what-works iteration loop. Use when: writing or fixing video prompts, planning a multi-clip production, a short film, a series episode, a trailer, a commercial or a music video on NOLGIA, or deciding which shots to regenerate. NOT for: platform mechanics such as auth, flags, jobs and credits (use nolgia-platform), vertical UGC ad pipelines (use nolgia-ugc-ads), or still-image prompting."
-version: 1.10.2
+version: 1.11.0
 author: NOLGIA
 license: MIT
 metadata:
@@ -20,51 +20,61 @@ burning credits.
 ## Prompt anatomy (one simple clip)
 
 ```
-<SHOT SIZE>. <subject + one action>. <environment, time, weather>.
-<camera: system, lens and T-stop, the move>. <the lighting setup, each light as its effect>.
-AUDIO: <sound design>, no music.
+Photoreal. <SHOT SIZE>. <subject + one action>. <environment, time, weather>.
+<camera: one focal length, the move>. <the light, as what it does>.
+<one look line>. AUDIO: <sound design>, no music.
 ```
 
-Example: *WIDE SHOT. A rust-flecked hatchback moves south on an empty
-two-lane highway through flat farmland. Late afternoon, overcast gray sky.
-Locked off on an ARRI Alexa Mini LF, a 40 mm prime at T4, at road height.
-Soft overcast daylight about 6500 K from above, no direct sun, wet asphalt a
-shade darker than the verge; Kodak Vision3 250D look. AUDIO: car engine, wind,
-distant birds, no music.*
+Example: *Photoreal. WIDE SHOT. A rust-flecked hatchback moves south on an
+empty two-lane highway through flat farmland. Late afternoon, overcast gray
+sky. Locked off at road height on a 40 mm lens. Soft overcast daylight from
+above, no direct sun, wet asphalt a shade darker than the verge. A 35mm film
+look, fine organic grain, natural true-to-life colour. AUDIO: car engine,
+wind, distant birds, no music.*
 
 Rules that survived production:
 - **One action per shot.** Two actions and the model picks one or morphs.
 - **Repeat exact wording** for wardrobe, props and locations in every prompt
   that shows them ("olive field jacket with a tear at the left elbow",
   verbatim, every time). Paraphrasing drifts.
-- **Write the camera, light and grade as a director of photography's spec**, in
-  the real terms taught in film school, one coherent spec the way a camera and
-  lighting report reads (section "The LOOK block"): the camera system and format
-  chosen for the look, the lens set, focal length and T-stop, the grip move, the
-  named lighting setup with each light written as its effect, and the stock,
-  grade and LUT as the target look. The gear behind the light (fixtures,
-  modifiers, flags, frames, grip, stands) never goes in a prompt (section "The
-  gear stays out of the prompt").
+- **Describe what is in the frame, at the size the distilled films write
+  it**: the people (section "Casting and styling for the role"), the place as
+  set objects, the first frame in words, the action on a timeline, one focal
+  length, the move by name with its reason, the light as what it does (section
+  "The LOOK block") and one short look line. The director of photography's
+  spec (camera body and format, lens set, T-stop, stock number, hex codes, LUT)
+  stays in your own shot plan and the finish, never in the prompt: a T-stop and
+  a stock number sat in about 95 of our 141 film prompts and appear in under
+  1.5 per 1,000 of the distilled films'. The gear behind the light (fixtures,
+  modifiers, flags, frames, grip, stands) never goes in a prompt either
+  (section "The gear stays out of the prompt").
 - **Never a pile of buzzwords**: no "cinematic" as filler, no "8k, masterpiece,
   hyperrealistic, ultra detailed, award winning, perfect, beautiful bokeh,
   flawless, glass smooth". Those stacks gave a centred, symmetric advert frame
-  with teal and orange. One plain realism line inside a full spec is fine
-  ("photoreal: a real photographed street, not a render, not CGI").
-- **Lens artifacts never go in a prompt; texture does, lightly** ("streak
-  flares", "barrel distortion" and "vignette corners" render as overlays). Write
-  "fine natural film grain" and "subtle halation only on the brightest
-  highlights" into the STYLE header and every take, and forbid the heavy versions
-  ("no heavy grain, no glow or bloom"). Fine grain is the look term found most
-  often behind takes that reached a final cut in the distilled films.
+  with teal and orange. "Photoreal" once, in the opening line, is what the
+  distilled films write (about 700 of every 1,000 people prompts).
+- **Lens artifacts never go in a prompt; texture does, once** ("streak
+  flares", "barrel distortion" and "vignette corners" render as overlays).
+  Write "fine organic grain" once, in the one short look line ("A 35mm film
+  look, fine organic grain, natural true-to-life colour."). Fine grain is the
+  look term found most often behind takes that reached a final cut in the
+  distilled films.
 - **Never default to teal and orange**, neon, or any colour cast the LOOK block
-  does not name (section "The LOOK block").
+  does not name (section "The LOOK block"): write the colours that are in the
+  frame, never the casts you fear.
 - **No text in generated frames.** Models garble it; typeset words in the edit.
   Printed props and gear (tickets, labels, dive masks, control panels) invite
   pseudo lettering: write them plain, keep them blank or out of focus.
 - **Never name a scene object or piece of gear you do not want**, not even to
-  deny it ("jacket free sleeves" put a jacket on her). Failure modes are
-  different: name them as plain negatives in the FORBIDDEN line (no CGI look, no
-  morphing, no extra limbs, no subtitles, no music).
+  deny it ("jacket free sleeves" put a jacket on her). Faults are not named
+  either: no FORBIDDEN list of the faults you fear (plastic or airbrushed skin,
+  glossy highlights, a generic AI face, model looks, makeup, beauty lighting,
+  over-sharp HDR, a CGI look, morphing, extra fingers, duplicate people, heavy
+  grain, glow, teal and orange, lens flares). The model reads fault words as
+  content. A take ends on one CONTENT line of what is simply not in the scene
+  or the soundtrack: "No on-screen text or subtitles. No music." plus a
+  headcount where it matters ("Nobody else is in the room."). A camera ban that
+  is a move ("no zoom") stays in the CAMERA line.
 - **Three characters per shot at most**; close-up references beat distant ones.
 
 ## Films: the standard, not shot-by-shot prompts
@@ -91,18 +101,25 @@ in-house short came out looking like AI (2026-10-31). The order that works:
 ### References, not keyframes
 
 - **Every take carries 2 to 5 references, each with a stated job and what not to
-  take from it** (`--element`, up to 9 on `seedance-2.5` and `minimax-h3`):
-  "@Image1 is Mara's cast sheet: her face, build, hair and wet work jacket only;
-  not the grey backdrop, the panel layout or the pose." "@Image2 is the harbour
-  plate looking north: geography and light direction only; not the opening frame."
+  take from it** (`--element`, up to 9 on `seedance-2.5` and `minimax-h3`; the
+  distilled films' median is 4): a character reference per person, an empty
+  location plate, a product sheet where there is a product, and a voice
+  reference per speaker (`--audio-ref`). "@Image1 is Mara: her face, hair and
+  clothes only; not the grey backdrop, the panel layout or the pose." "@Image2
+  is the harbour looking north: the space, geography and light direction only;
+  nobody in it."
 - **A written FIRST FRAME block** pins the opening picture: shot size, field of
   view, camera height and side, each person's position as x/y percent of the
-  frame, which way they face, the action already in motion.
+  frame, which way they face, the action already in motion. The first frame is
+  written, never handed over as one generated keyframe called "the opening
+  frame".
 - **A keyframe still is conditional**: only for a take with no references (a true
   start frame), a pose that must be exact, a stylized locked camera shot, or a
   hero frame whose composition must be exact. With references on `seedance-2.5`
-  or `minimax-h3` it rides as an element ("@Image1 is the opening frame of
-  segment 1"), since both refuse a start frame together with reference media.
+  or `minimax-h3` it rides as an element with one job, composition only
+  ("@Image3: composition only: match its framing and blocking, not its light,
+  faces or texture"), since both refuse a start frame together with reference
+  media.
   That is model specific: `kling-v4` takes a start frame beside elements, and
   `wan-3.0` takes a start frame only. Element images run 0.4 to 2.5 in aspect
   ratio.
@@ -115,20 +132,48 @@ in-house short came out looking like AI (2026-10-31). The order that works:
 
 ### Casting and styling for the role
 
-- **Cast the role, not a look**: role, age, build, class, job; the face in plain
-  physical terms with its flaws, led the way the distilled films write it: the
-  age as a number, height and build, weathered or freckled skin, visible pores,
-  one asymmetric mark. "Not a model" in every still and take, as a lock.
-  Characterful faces read real.
-- **Aura off** (`--aura false`) for every live action casting still, sheet, plate
-  and keyframe: Aura appends model beauty and makeup text, and that face rides
-  into the video. Never write beauty words (flawless, poreless, glass smooth,
-  lit from within, dewy, symmetrical). Stills by job: `gpt-image-2.5-flare` for
-  words that must read and product sheets from the real photos; `seedream-v5-pro`
-  and `gpt-image-2.5-flare` side by side for people, picked by eye; plates on
-  `seedream-v5-pro` (or `nano-banana-2.1`); sheets and state edits on
-  `nano-banana-pro` or Flare; never a flux model for people or commercial frames.
-- **One composite sheet per role**: one image on mid grey (#808080), no labels: full
+- **Cast the role by what you write, never by a lock sentence**: the person by
+  age as a number, job, build and height, hair, and the role's clothes by
+  colour, fabric and wear; then pick the face that fits the role from the
+  candidates. One face line per person:
+  "DENISE, 52, a school bus driver, a Mexican-American woman, about 160 cm,
+  solid build; a round face, dark brown eyes, shoulder-length dark brown hair
+  with grey at the roots in a loose black clip; a navy fleece zip jacket over a
+  grey work polo, a plain gold wedding band."
+- **At most one specific mark per face**, and only when the story needs it (a
+  boxer's healed brow scar, a farmer's sun-browned forearms); sweat or rain only
+  when the scene makes it, said once. Never a catalogue of pores, lines, crow's
+  feet, spots, moles, freckles, capillaries, shine or chapped lips: the model
+  draws every listed flaw, literally and at once, and the face reads as made
+  (ours averaged 3.0 flaws a face, the distilled films 0.77). No skin clause
+  ("skin stays skin coloured", "it never turns smooth, waxy or plastic") and no
+  identity lock ("not a model and not an actor", "if any instruction pulls
+  toward a prettier face, drop it"): in a same-prompt test those lines alone
+  turned a real face oily, older and posed.
+- **Send `--aura` on every image call, never omit it**: omitted, the server adds
+  its own skin and finish text to any prompt that reads as a person. Send
+  `--aura false` for every still written this way (cast stills, sheets,
+  keyframes) and every plate: the prompt already writes its light. A face
+  reference works with `--aura false` (the identity lock and the face check
+  still apply). Never write beauty words (flawless, poreless, glass smooth,
+  lit from within, dewy, symmetrical).
+- **Stills at 2k: make 4 candidates and pick 1** at full size (the distilled
+  films made person stills at 2k 97.8% of the time, in batches of 4 on 69%).
+  People stills on `nano-banana-pro --quality 2k` (21 credits each; it makes one
+  image and takes one reference per job, so 4 candidates are 4 jobs);
+  `seedream-v5-pro` only on a route that does not rewrite the prompt (its one
+  route today always rewrites it); `gpt-image-2.5-flare` for words that must
+  read (labels, signs, packaging) and product sheets from the real photos;
+  empty plates on `nano-banana-2.1 --quality 2k` (5 credits); sheets and state
+  edits on `nano-banana-pro` or Flare; never a flux model for people or
+  commercial frames.
+
+  ```bash
+  nolgia gen image --model nano-banana-pro --quality 2k --aura false \
+    --aspect-ratio 16:9 --prompt "$(cat denise-cast.txt)" --out denise-1.png
+  # run it 4 times (denise-1..4.png) and keep the one that fits the role
+  ```
+- **One composite sheet per role**: one image on a plain mid grey backdrop, no labels: full
   body front and back with the heads masked, plus one large face panel, made by
   editing the approved cast still so the face holds. One face, one person per
   sheet. Never an expression grid as the identity reference.
@@ -158,41 +203,43 @@ in-house short came out looking like AI (2026-10-31). The order that works:
 ### The LOOK block (before any still)
 
 Every film, commercial, music video and trailer has a LOOK block, written before
-the first still and pasted verbatim into every still and take prompt:
+the first still, at the size the distilled films write it: four short lines,
+not a spec sheet. Its lines go into every scene still and take of that lighting
+setup, word for word, each in its place (the light in LIGHT, the focal length in
+CAMERA, the look and colour lines near the end):
 
-- **The colour world**: 3 or 4 named colours with hex codes and rough ratios
-  ("tungsten cream #E8D9B5 about 60%, oxblood #5A1E1B about 25%, charcoal #2B2B2B
-  about 15%").
-- **The camera and format chosen for the look**, one per film, led by the ones
-  the distilled films write most: the ARRI Alexa family (an Alexa Mini LF), or
-  35 mm or 16 mm film on a Kodak Vision3 stock (a Sony Venice 2 is fine but hardly
-  named there); the lens set, its focal lengths and T-stop (a set of Cooke S4
-  primes at T2.8). Never an either-or pile of bodies. In a video take the field
-  of view in degrees works as a lens lock and "waist up" as a shot size; on a
-  still frame by shot size and set the shape by the aspect ratio parameter.
-- **The lighting setup by name**, led by the ones the distilled films write (low
-  key or high key, motivated practicals, top light, contre-jour with the camera on
-  the shadow side, one source per frame, "favour short side angles, modelled
-  faces, never flatly front lit"); Rembrandt, loop, split, butterfly, direct
-  on-camera flash and dark-field for glass stay allowed. Every light is written as its effect: where it comes from (from
-  off-frame, unless it is a practical really in the shot), how big and soft it
-  is, its colour temperature in Kelvin, what it falls on, how it falls off and
-  the shadow it leaves ("a large, soft key at 3200 K from off-frame, camera left, wrapping
-  her near cheek; a 2700 K pendant 1.5 m above the table, in the shot; overcast
-  daylight about 6500 K through the window behind her; the right side of the
-  room dark, nothing filling her shadow side"). A plain "warm" or "cool" may sit
-  beside the Kelvin number ("a warm 3200 K tungsten practical"); never a hue mix
+- **Light**: soft motivated natural light unless the story needs otherwise.
+  "Soft natural light: window daylight from camera left (contre-jour where it
+  fits), bouncing off the pale walls onto her face, a faint haze in the air.
+  Faces readable; highlights roll off softly." A night or interior story writes
+  the practical as a set object and what its light does ("lit only by the desk
+  lamp beside him, its warm pool falling across his hands"); the story's own
+  hard light (a boxing ring's top light) is written once, as its effect. Named
+  setups stay allowed (low key or high key, motivated practicals, top light,
+  contre-jour with the camera on the shadow side, Rembrandt, loop, split,
+  butterfly, direct on-camera flash, dark-field for glass). Every light is
+  written as its effect: where it comes from (from off-frame, unless it is a
+  practical really in the shot), how soft it is, what it falls on, how it falls
+  off. A plain "warm" or "cool" may sit beside a Kelvin number; never a hue mix
   word for light such as "green white", "yellow green" or "teal": they paint the
-  frame. A fluorescent
-  corrected with minus green is written as "4000 K, no green cast".
-- **The stock, grade and LUT as the target look**: Kodak Vision3 500T 5219 or 250D
-  5207, Fuji Eterna, bleach bypass or ENR, a print emulation; the matching LUT is
-  applied in the finish.
-- **Saturation and contrast** in plain words ("low saturation, skin stays skin
-  coloured; deep but not crushed blacks").
-- **FORBIDDEN casts**: teal, cyan or green spill, coloured light on walls, teal and
-  orange, neon. One is allowed only when the story calls for it and the LOOK block
-  names it.
+  frame. A fluorescent corrected with minus green is written as "4000 K, no
+  green cast".
+- **Optics**: one focal length, "shallow but readable depth of field, the
+  background falling into a soft, natural blur". In a video take the field of
+  view in degrees works as a lens lock and "waist up" as a shot size; on a still
+  frame by shot size and set the shape by the aspect ratio parameter.
+- **One look line**, with "fine organic grain" once: "A 35mm film look, fine
+  organic grain, natural true-to-life colour."
+- **Colour as one sentence** of the named colours in the frame, optionally a
+  60:30:10 split in words: "mostly cream walls and worn pine, faded chambray
+  blue second, the amber honey as the accent." No hex codes in a still or take.
+  A coloured light (neon, a red practical) is in it only when the story calls
+  for it, written as a set object.
+
+The director of photography's spec stays in your shot plan: the camera body and
+format, the lens set and T-stop, the stock and its number, the hex codes and
+ratios, the LUT and the crew notes. None of it is pasted into a prompt. The stock
+you plan picks the LUT the finish applies.
 
 A new lighting setup gets its own LOOK block. Palette spread and bits per pixel
 are warnings, never targets: never add a coloured source or change the light to
@@ -232,10 +279,12 @@ describe a light, and none of their kept takes names an off-frame fixture.
 - Gear meant to be seen (a behind-the-scenes shot, a photo shoot, a creator's
   ring light) is named as a set object in the shot.
 - Keep naming what names a look or something really in the shot: the setups
-  (Rembrandt, butterfly, low key, direct on-camera flash, dark-field), the stock
-  and grade, the camera body and lens, the camera moves (when a move implies a
-  rig the frame could show, add "no camera rig, dolly track, rails or crew
-  visible"), and practicals in the shot, written as set objects.
+  (Rembrandt, butterfly, low key, contre-jour, motivated practicals, direct
+  on-camera flash, dark-field), one focal length, the camera moves (when a move
+  implies a rig the frame could show, add "no camera rig, dolly track, rails or
+  crew visible"), and practicals in the shot, written as set objects. The camera
+  body, lens set, T-stop and stock number stay in the shot plan (section "The
+  LOOK block").
 - The gear names stay in your own shot plan and the LOOK block's crew notes,
   which are never pasted into a prompt. Check the first still for anything the
   light words drew (a lamp, a lantern, a stand, a black panel) and remake it
@@ -243,23 +292,20 @@ describe a light, and none of their kept takes names an off-frame fixture.
 
 ### One structured prompt per take, in a held order
 
-LOOK (the film's LOOK block for this lighting setup, verbatim), SCENE CONTEXT,
-REFERENCES (each with its job), KEY LOCKS (identity, wardrobe, product phrase,
-headcount, no text: early, so a long prompt never loses them), LOCATION MAP,
-FIRST FRAME, FORMAT (the cuts), OPTICS (the lens, focal length and T-stop per
-segment), CAMERA (one move per segment with its reason, led by the ones the
+The distilled films' order: SCENE CONTEXT (who is where and what happens now,
+opening with "Photoreal"), ACTIVE REFERENCES (each with its job), CHARACTER(S)
+(the face line per person, the product phrase), LOCATION (the place as set
+objects), FIRST FRAME, FORMAT (the cuts), CAMERA (the one focal length with its
+depth of field, then one move per segment with its reason, led by the ones the
 distilled films keep: handheld written as an operator with breathing and one late
 correcting reframe, locked off, a slow push in, tracking, crane, rack focus; the
 camera holds through lines; a zoom, whip pan, speed ramp, orbit or gimbal float
-only when the shot asks), ACTION TIMING, ACTING, SCRIPT, PHYSICS,
-LIGHTING (the named setup, and each light as its effect: where it comes from, its
-softness and Kelvin, what it falls on and the shadow it leaves, never the gear by
-name; only sources the LOOK block names), AUDIO ("diegetic sound
-only, no music"), LOCKS and a FORBIDDEN line (plastic skin, model looks, makeup or
-jewelry off role, beauty light, the LOOK block's forbidden casts, lens flares,
-readable text, music; a CGI, 3D render or game engine look; morphing, warping or
-flicker; extra fingers, limbs or duplicate people; heavy grain, glow or bloom;
-and the default camera bans).
+only when the shot asks, and "no zoom" stays here), ACTION TIMING, DIALOGUE and
+VOICE, ACTING, PHYSICS, LIGHT (the LOOK block's light, each light as its effect,
+never the gear by name; only sources the LOOK block names), AUDIO ("diegetic
+sound only, no music"), the LOOK line and the colour sentence, then the CONTENT
+line ("No on-screen text or subtitles. No music." plus a headcount). No IDENTITY
+or LOCKS block and no FORBIDDEN list of faults (section "Prompt anatomy").
 
 - **ACTING**: the full block for a performance take (a scene direction, then per
   character motive, goal, obstacle, tactic, beats in seconds, END STATE; "do not
@@ -269,15 +315,17 @@ and the default camera bans).
   every still and take, then a contradiction check: a night interior never
   inherits a daylight block, and no sentence in the take names a colour or a
   light the LOOK block does not.
-- **Length goes up to the model's limit**, `video.max_prompt_chars` on
-  `nolgia models get <model> --json` (`seedance-2.5` 19,800, `minimax-h3` 7,000,
-  `grok-imagine-video-1.5` 4,096). The long structured prompt (5,000 to 8,000
-  characters, the distilled films' norm up to 10,000) is proven on
-  `seedance-2.5` only; `kling-v4` and Wan get lean prompts (the distilled Kling
+- **A people take stays at or under about 8,000 characters** (the distilled
+  films' median is 8,001; our 13,000 to 18,000 character takes carried the
+  boilerplate this skill now leaves out), and always under the model's own
+  limit, `video.max_prompt_chars` on `nolgia models get <model> --json`
+  (`seedance-2.5` 19,800, `minimax-h3` 7,000, `grok-imagine-video-1.5` 4,096).
+  The long structured prompt is proven on `seedance-2.5` only; `kling-v4` and
+  Wan get lean prompts (the distilled Kling
   B roll ran about 260 characters, and the vendor rewrites every Wan prompt).
   `seedance-2.5` reads timestamps in steps of about a second; the Seedance 2.0
   ids ignore them and follow "Shot 1", "Shot 2" beats. Over the limit the request is refused up front; trim
-  style prose first, never a lock, the acting or a line. A CLI build older than
+  style prose first, never a reference job, the acting or a line. A CLI build older than
   the per-model limits (0.2.35 among them) refuses anything over 4,000
   characters client side ("longer than 4000 characters"): send that take with
   `nolgia api POST /generate/video` and a JSON body instead.
@@ -293,11 +341,12 @@ and the default camera bans).
   `kling-v4` has no such flag and splits a take itself, so a single shot on it
   says "one continuous long take without any cuts, no subtitles, no background
   music".
-- **Keep the FORBIDDEN line on every lane**, and on `seedance-2.5` and
-  `kling-v4` also write the wanted look positively. Only Veo 3.1 and Omni take
-  `--negative-prompt` (`video.negative_prompt_supported`); every other model
-  accepts it, sends nothing and says so in the job's `warnings`, so every
-  exclusion lives in the prompt text.
+- **Write what is in the frame on every lane**; the one negative line is the
+  CONTENT line (no on-screen text or subtitles, no music, the headcount). Only
+  Veo 3.1 and Omni take `--negative-prompt` (`video.negative_prompt_supported`);
+  every other model accepts it, sends nothing and says so in the job's
+  `warnings`, so what must stay out lives in the prompt text, as content, never
+  as a list of faults.
 - **Handles**: set the duration 1 to 2 s longer than the written timeline and
   write the final hold as the END STATE.
 - **Rhythm**: dialogue drama 1 to 3 segments of 4 to 7.5 s (it holds); comedy and
@@ -324,7 +373,7 @@ and the default camera bans).
 - **Takes say "no music"**; the score or song is laid in the edit. Music goes in a
   take only when it plays in the scene (a radio).
 - **People speaking go on `seedance-2.5` at 720p** (21:9 for films), with their
-  keyframes riding as elements. In the speech lab both lanes said 10 of 10 words,
+  character references riding as elements. In the speech lab both lanes said 10 of 10 words,
   but Seedance with voice references matched each voice better, articulated more
   and kept the skin real (0.28 bits per pixel against H3's 0.048).
   - **One voice audio reference per speaker**: a 5 to 8 s line on
@@ -344,7 +393,8 @@ and the default camera bans).
     in parentheses.
 - **Sung performance** (a music video's sung close up or medium close up only) goes
   on `minimax-h3` at 768p: the song slice is the audio reference (`--audio-ref`),
-  the take is as long as the slice, the keyframe rides as element @Image1, the face
+  the take is as long as the slice, the singer's close-up still rides as element
+  @Image1 (composition only) beside the cast sheet, the face
   fills at least a third of the frame with the lips unobstructed, one continuous
   move per phrase. H3 closed all 5 M and B sounds within a frame and returns the
   real slice, so it drops in at 0. Everything around it (story, B roll, wides) stays
@@ -370,7 +420,8 @@ and the default camera bans).
 | 4:3 | 480p and 720p | yes | yes |
 | 16:9, 9:16 | 480p, 720p, 1080p | yes | yes |
 
-`seedream-v5-pro` stills have no 21:9 (use `nano-banana-pro`). Topaz on a 21:9 take
+People stills are on `nano-banana-pro`, which renders 21:9; `seedream-v5-pro` has
+no 21:9. Topaz on a 21:9 take
 is untested: treat that upscale as open. Re-read `nolgia models get <model>` before
 quoting a frame.
 
@@ -406,12 +457,12 @@ quoting a frame.
 - **Check every still, and the first take, at full size for spec words rendering
   as on screen artifacts**: streaks, flares drawn as objects, rounded or vignetted
   corners, film borders, sprocket holes, letterbox bars, timecode or camera UI. If
-  any appear, move the artifact words out and keep the spec as properties of the
-  image (an in-house short came back with streaks and rounded corners).
+  any appear, take the artifact words out and remake the still before any video
+  credits (an in-house short came back with streaks and rounded corners).
 - **The realism post chain, in this order**: keep the take at 720p; Topaz to 1080p
   with `topaz-proteus-natural` (split long takes at their cuts, since the restore
-  window is about 7.4 s); grade with the LUT that matches the LOOK block's stock at
-  half strength or less (`kodak-vision3-250d` day, `kodak-vision3-500t` tungsten
+  window is about 7.4 s); grade with the LUT that matches the stock in your shot
+  plan at half strength or less (`kodak-vision3-250d` day, `kodak-vision3-500t` tungsten
   or sodium night; `nolgia color-presets list` for the rest); film
   emulation (halation, slight softness, grain) LAST at 0.6 strength, at delivery
   resolution, never before the upscale, lighter when the take already carries
