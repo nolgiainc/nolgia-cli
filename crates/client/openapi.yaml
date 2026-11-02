@@ -7741,6 +7741,104 @@ paths:
           $ref: '#/components/responses/ProblemResponse'
         default:
           $ref: '#/components/responses/ProblemResponse'
+  /renders/green-screen:
+    post:
+      tags: [Compositions]
+      operationId: createGreenScreenRender
+      summary: Put a person filmed on a green screen on a new background, exactly as filmed.
+      description: |
+        "Green screen → new background": keys the green screen out of a
+        video in your library and puts the person on a new background (a
+        still image or a video in your library), the whole length, with the
+        clip's own sound, at the clip's own size and frame rate.
+
+        The person is never changed. Wherever the matte is solid, the result
+        carries the clip's own samples, copied, not recomputed; only the edge
+        band (hair, motion blur, a few pixels inside the outline) is unmixed
+        from the screen colour, held free of green spill and blended with the
+        background. Nothing is generated and nothing is re-rendered by a
+        model. Everything that makes the shot sit together happens to the
+        background: it is cover-fitted to the clip's frame, moved onto the
+        footage's light when `match` is true (the same black level, the same
+        brightness of lit surfaces and the same colour of light, read from
+        the person's own pixels), softened like a lens focused on the person
+        (`blur`), given the footage's grain, and mirrored when `flip` is true
+        (which moves its light to the other side). To relight a background
+        picture instead, make a relit copy of it first (an image edit, priced
+        as usual) and pass that.
+
+        The clip must show a green screen (the render fails, saying so, when
+        none is found). Clips up to 120 seconds at 1080p and 30 frames a
+        second, longer for smaller or slower clips (270 seconds at 720p, never
+        more than 300), shorter for larger or faster ones (30 seconds at 4K):
+        `max_seconds` in the quote is the clip's own. Renders are not billed: the quote
+        (`GET /renders/green-screen/quote`) answers 0 credits. Creates a named
+        carrier composition (in `project_id` when given, else in the clip's
+        own project) whose `index.html` shows the background under the clip;
+        the MP4 is published as a platform asset. Returns the queued render;
+        poll `GET /renders/{id}` until it succeeds with `asset_id` (and
+        `warnings`, notes saying what was done) or fails with `error`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateGreenScreenRenderRequest'
+      responses:
+        '202':
+          description: Green screen render queued.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Render'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /renders/green-screen/quote:
+    get:
+      tags: [Compositions]
+      operationId: getGreenScreenQuote
+      summary: Check and price a green screen render before making it.
+      description: >
+        What `POST /renders/green-screen` would make from this clip and background and what it costs (renders are not billed, so `credits` is 0), before anything runs: the clip's size and length, the longest clip of its size the render takes, whether the background is a still or a video, and whether it can be made (`eligible`, with `reason` in plain words when it cannot). Both must be in the caller's library (`404` otherwise).
+
+      parameters:
+        - name: asset_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: background_asset_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The quote.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GreenScreenQuote'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
   /assets/{id}/share:
     parameters:
       - name: id
@@ -20509,6 +20607,82 @@ components:
           type: number
           format: double
           description: The longest video a new shape can be made from (600).
+    CreateGreenScreenRenderRequest:
+      type: object
+      additionalProperties: false
+      required: [asset_id, background_asset_id]
+      properties:
+        asset_id:
+          type: string
+          format: uuid
+          description: The clip of the person on the green screen, a ready video in your library.
+        background_asset_id:
+          type: string
+          format: uuid
+          description: The new background, a ready image or video in your library. A video plays from its start, looped when shorter than the clip.
+        match:
+          type: boolean
+          default: true
+          description: Move the background onto the footage's light (black level, brightness of lit surfaces, colour of light). The person is never changed either way.
+        blur:
+          type: string
+          enum: [none, little, more]
+          default: little
+          description: How much the background is softened, like a lens focused on the person.
+        flip:
+          type: boolean
+          default: false
+          description: Mirror the background left to right, which moves its light to the other side.
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+          description: Name for the carrier composition and the new video; the clip's name plus "on a new background" when omitted.
+        project_id:
+          type: string
+          format: uuid
+          description: Project for the carrier composition and output MP4; the clip's own project when omitted.
+    GreenScreenQuote:
+      type: object
+      additionalProperties: false
+      required: [asset_id, background_asset_id, credits, eligible, max_seconds]
+      properties:
+        asset_id:
+          type: string
+          format: uuid
+        background_asset_id:
+          type: string
+          format: uuid
+        credits:
+          type: integer
+          description: What making it costs. Renders are not billed, so this is 0.
+        eligible:
+          type: boolean
+          description: True when `POST /renders/green-screen` can make it now.
+        reason:
+          type: string
+          nullable: true
+          description: Why it cannot be made yet, in plain words; null when eligible.
+        seconds:
+          type: number
+          format: double
+          nullable: true
+          description: The clip's length, when recorded.
+        source_width:
+          type: integer
+          nullable: true
+        source_height:
+          type: integer
+          nullable: true
+        background_kind:
+          type: string
+          nullable: true
+          enum: [image, video]
+          description: Whether the background is a still image or a video.
+        max_seconds:
+          type: number
+          format: double
+          description: The longest clip of this size the render takes (120 seconds at 1080p and 30 frames a second, 270 at 720p, 30 at 4K, never more than 300).
     CreateFollowPlanRequest:
       type: object
       additionalProperties: false
@@ -20642,7 +20816,7 @@ components:
           $ref: '#/components/schemas/RenderStatus'
         params:
           type: object
-          description: 'Empty for a video composition render. For a still render, carries mode: still, background, either frame or at_seconds (resolved using the plan FPS by the worker), and optional max_dimension. For a blocks render, carries mode: blocks plus the normalized request (blocks, block_seconds, aspect_ratio, fit, keep_video_audio, and optional captions). For a reframe render (POST /renders/reframe), carries mode: reframe, asset_id and aspect_ratio. A follow plan (POST /compositions/{id}/follow-plans) carries mode: follow_plan; follow plans render nothing and are left out of the render lists.'
+          description: 'Empty for a video composition render. For a still render, carries mode: still, background, either frame or at_seconds (resolved using the plan FPS by the worker), and optional max_dimension. For a blocks render, carries mode: blocks plus the normalized request (blocks, block_seconds, aspect_ratio, fit, keep_video_audio, and optional captions). For a reframe render (POST /renders/reframe), carries mode: reframe, asset_id and aspect_ratio. For a green screen render (POST /renders/green-screen), carries mode: green_screen, asset_id, background_asset_id, match, blur and flip. A follow plan (POST /compositions/{id}/follow-plans) carries mode: follow_plan; follow plans render nothing and are left out of the render lists.'
         asset_id:
           type: string
           format: uuid
