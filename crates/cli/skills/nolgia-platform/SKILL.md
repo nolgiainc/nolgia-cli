@@ -1,7 +1,7 @@
 ---
 name: nolgia-platform
 description: "Generate images, video, audio, and 3D models on the NOLGIA platform with the `nolgia` CLI or the NOLGIA MCP server (https://mcp.nolgia.ai/mcp): auth, model choice from the live catalog, async jobs, reference images, outpainting, voices, credits, and failure recovery. Use when: the user asks for AI-generated media and NOLGIA is available, e.g. 'generate an image', 'make a video', 'animate this photo', 'extend this image to 9:16', 'make a voiceover', 'check my jobs', or 'assemble these clips into one video', or 'do my DIT / offload and verify these cards / rename the footage'. NOT for: directing craft and multi-shot planning (use nolgia-video-prompting), vertical UGC ad production (use nolgia-ugc-ads), or editing media locally without the platform."
-version: 1.10.3
+version: 1.10.4
 author: NOLGIA
 license: MIT
 metadata:
@@ -114,8 +114,15 @@ SECONDS]` extracts a still (default: last frame) to chain clips.
 | `seedance-2.5` (default) | 4-30s | general cinematic video, and live action people in films, commercials and music videos at 720p with reference elements (`--element`), dialogue included (one voice `--audio-ref` per speaker) |
 | `minimax-h3` | 4-15s | a music video's sung close up at 768p, lip synced to the song slice (`--audio-ref`); its stream is bitrate starved at 768p and 2k, so never for dialogue or any other shot |
 | `fal-ai/bytedance/seedance/v2/pro/text-to-video` | 4-15s | **multi-shot** (`--shot`), native audio |
-| `veo-3.1` / `veo-3.1-fast` | 4/6/8s only | hero quality / fast previz |
+| `omni-1.1-flash` | 3-10s | one short clip with native audio and lines written in the prompt (`The man in the blue sweater replies: "..."`); 720p (default, 29 credits per 5 s) or 1080p (`--quality`, 44); it cuts to several shots unless the prompt says "In a single continuous shot."; no reference images |
+| `veo-3.1-lite` | 4/6/8s only | the budget Veo clip: optional start frame, native audio, no references (14 / 23 credits per 5 s at 720p / 1080p) |
 | `heygen-avatar-iv` | length of the voice track | lip sync: a portrait (`--input`) speaks an audio track (`--audio-ref`) |
+
+Google retires `veo-3.1` and `veo-3.1-fast` (November 17, 2026 or later), so
+NOLGIA no longer lists them: a request naming either renders on
+`omni-1.1-flash` (720p unless you ask for 1080p) with "In a single continuous
+shot." appended to the prompt, and the job carries a warning. Older jobs keep
+their Veo label.
 
 Always set `--aspect-ratio` explicitly for vertical content, and check the
 model publishes it (`nolgia models get <model>`).

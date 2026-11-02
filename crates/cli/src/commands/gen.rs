@@ -196,7 +196,8 @@ pub struct VideoArgs {
     pub seed: Option<u64>,
     /// What to keep out of the clip. Only models with
     /// `video.negative_prompt_supported: true` in `nolgia models get <model>
-    /// --json` receive it (Veo 3.1 and Omni today). On every other model it is
+    /// --json` receive it (Omni today, which writes it into the prompt as
+    /// "Do not include: X."). On every other model it is
     /// accepted and not sent, the clip still renders, and the job's
     /// `warnings` say so: write exclusions in the prompt as what IS in the
     /// frame.
