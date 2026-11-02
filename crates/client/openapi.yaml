@@ -13766,7 +13766,7 @@ components:
       additionalProperties: false
       required: [x, y]
       description: >-
-        A tap on the `edit_target` in the source clip's first frame, as fractions of the frame (0,0 is the top left corner, 1,1 the bottom right). Optional: send it when the words could match more than one thing in the shot (two people, two cups). Needs `edit_target`.
+        A tap on the `edit_target` in the source clip's first frame, as fractions of the frame (0,0 is the top left corner, 1,1 the bottom right). Optional: send it when the words could match more than one thing in the shot (two people, two cups). Needs `edit_target`. When `edit_target` names several things, the tap marks the first one; the others are found by name. A tap that finds nothing usable falls back to the first thing's name alone.
       properties:
         x:
           type: number
