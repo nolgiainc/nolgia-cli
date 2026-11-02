@@ -2968,11 +2968,11 @@ paths:
           in: query
           required: false
           description: >
-            `original` returns the asset's `original` (see `Asset.original`) instead of its playback file: `signed_url`, `mime_type` and `size_bytes` then describe the provider's own file. Combine with `disposition=attachment` to download it. 404 when the asset has no separate original. Omit for the playback file every browser plays.
+            Which file `signed_url` serves. Omitted, it is the asset's own file at full quality: for a video the model delivered in a codec browsers cannot all play, that is the model's original (see `Asset.original`), never the playback copy. `original` asks for that original explicitly and answers 404 when the asset keeps no separate one. `playback` serves the browser-playable copy (see `Asset.playback`): an 8-bit H.264 MP4 for a re-encoded model original, or the light copy of an upload in a codec browsers cannot decode; offer it as the compatible download for apps that refuse 10-bit HEVC or 4:4:4 H.264. 404 when the asset has no separate playback copy (its own file already plays everywhere). `signed_url`, `mime_type` and `size_bytes` always describe the file served. Combine with `disposition=attachment` to download it.
 
           schema:
             type: string
-            enum: [original]
+            enum: [original, playback]
       responses:
         '200':
           description: Asset found.
@@ -16561,7 +16561,7 @@ components:
       additionalProperties: false
       required: [mime_type, size_bytes]
       description: >
-        The provider's own file for a video the platform re-encoded for playback. Some models deliver video that browsers cannot all decode (HEVC 10-bit from Seedance 2.5 at 1080p, Seedance 2.0 Pro at 4K and the `topaz-*` restore models; VP9 in an MP4). For those the asset's `signed_url` is an 8-bit H.264 MP4 that every browser and editor plays, and this is the full-quality original. Fetch it with `GET /assets/{id}?variant=original`. Absent for every other asset.
+        The model's own file for a video the platform also re-encoded for playback. Some models deliver video that browsers cannot all decode (HEVC 10-bit from Seedance 2.5 at 1080p, Seedance 2.0 Pro at 4K and the `topaz-*` restore models; H.264 4:4:4 in a QuickTime file from Seedance 2.5 at 720p; VP9 in an MP4). For those the asset is handed out as this original: `signed_url`, `mime_type` and `size_bytes` describe it, and downloads, app imports, exports and every server step read it. The 8-bit H.264 copy made for players is `Asset.playback` (`GET /assets/{id}?variant=playback` to download it). Absent for every other asset.
 
       properties:
         mime_type:
@@ -16583,7 +16583,7 @@ components:
       additionalProperties: false
       required: [status]
       description: >
-        A browser-playable copy of an uploaded video whose own codec browsers cannot decode: ProRes, DNxHD/HR, CineForm, HEVC, MJPEG, or 10-bit or 4:2:2 H.264. Players (Studio's preview and timeline, the Library) use `signed_url` here; the asset's own `signed_url` stays the upload, which export, render, generation inputs and downloads read at full quality. The copy is an H.264 MP4 (long edge at most 1920), or a VP9 WebM with alpha when the upload carries an alpha channel (ProRes 4444). It is made in the background after the upload completes, usually within a minute or two for a short clip. Absent for every other asset, including uploads browsers already play.
+        A browser-playable copy of a video whose own file browsers cannot all decode. Players (Studio's preview and timeline, the Library) use `signed_url` here; the asset's own `signed_url` stays the full-quality file, which downloads, app imports, export and render read. Two kinds: (1) an uploaded video in ProRes, DNxHD/HR, CineForm, HEVC, MJPEG, or 10-bit or 4:2:2 H.264 gets an H.264 MP4 (long edge at most 1920), or a VP9 WebM with alpha when the upload carries an alpha channel (ProRes 4444), made in the background after the upload completes, usually within a minute or two for a short clip; (2) a generated video whose model delivered HEVC 10-bit, 4:4:4 H.264 or VP9 in MP4 (see `Asset.original`) gets an 8-bit H.264 MP4 at the original's frame, made before the job succeeds, so it is always `ready`. Absent for every other asset, including files browsers already play.
 
       properties:
         status:
@@ -16616,7 +16616,7 @@ components:
         source_codec:
           type: string
           nullable: true
-          description: The upload's video codec as ffmpeg names it.
+          description: The full-quality file's video codec as ffmpeg names it (the upload, or the model's original).
           examples: ['prores']
     Asset:
       type: object
@@ -16670,7 +16670,7 @@ components:
           type: string
           format: uri
           description: >-
-            Time-limited GCS signed URL for download. Stable for about an hour: every read of the same asset inside the same clock hour returns the identical URL, so clients may cache the media it points to and reuse it across list refreshes. The URL always has at least an hour of validity left; `expires_at` reports the exact expiry.
+            Time-limited GCS signed URL of the asset's file at full quality: what downloads, app imports and exports should fetch. For a video the model delivered in a codec browsers cannot all decode (see `original`) this is that original, so a browser player should load `playback.signed_url` when `playback.status` is `ready` and this URL otherwise. Stable for about an hour: every read of the same asset inside the same clock hour returns the identical URL, so clients may cache the media it points to and reuse it across list refreshes. The URL always has at least an hour of validity left; `expires_at` reports the exact expiry.
           examples: ['https://storage.googleapis.com/nolgia-generations-prod/u/abc/img/xyz.png?X-Goog-Signature=...']
         expires_at:
           type: string
