@@ -7752,6 +7752,25 @@ paths:
         still image or a video in your library), the whole length, with the
         clip's own sound, at the clip's own size and frame rate.
 
+        `backdrop` says what the person was filmed against: a green or a
+        blue screen is keyed by its colour (the same method for both); a
+        white (a white or light grey cyc) or any other backdrop is keyed from
+        an AI matte of the person, which you make first with `POST
+        /remove-background/video` (the clip as `source_asset_id`, priced per
+        second of clip, up to 60 seconds) and pass as `matte_asset_id`. The
+        matte's solid part keeps the clip's own samples exactly like a screen
+        key; its edge band is refined against the backdrop's own colour (soft
+        hair and motion blur stay soft) and cleaned of the backdrop's bounce
+        and fringe instead of a despill. The quote reads the backdrop from the
+        clip's poster frame (`backdrop_detected`); quote the matte itself with
+        `POST /jobs/cost`.
+
+        `background_from_clip: true` says the background video was generated
+        from this very clip (a New world made from it): it is laid frame for
+        frame (stretched to the clip's length when the model returned a few
+        frames more or fewer, never looped), and it is not matched to the
+        footage unless `match` is set, since it was made in its own light.
+
         The person is never changed. Wherever the matte is solid, the result
         carries the clip's own samples, copied, not recomputed; only the edge
         band (hair, motion blur, a few pixels inside the outline) is unmixed
@@ -7767,8 +7786,8 @@ paths:
         picture instead, make a relit copy of it first (an image edit, priced
         as usual) and pass that.
 
-        The clip must show a green screen (the render fails, saying so, when
-        none is found). Clips up to 120 seconds at 1080p and 30 frames a
+        The clip must show the chosen screen (the render fails, saying so and
+        naming the backdrop it does see, when none is found). Clips up to 120 seconds at 1080p and 30 frames a
         second, longer for smaller or slower clips (270 seconds at 720p, never
         more than 300), shorter for larger or faster ones (30 seconds at 4K):
         `max_seconds` in the quote is the clip's own. Renders are not billed: the quote
@@ -7824,6 +7843,12 @@ paths:
           schema:
             type: string
             format: uuid
+        - name: backdrop
+          in: query
+          required: false
+          description: The backdrop to quote for (`max_seconds` and `eligible` follow it); the detected one, else green, when omitted.
+          schema:
+            $ref: '#/components/schemas/GreenScreenBackdrop'
       responses:
         '200':
           description: The quote.
@@ -10008,7 +10033,7 @@ paths:
       operationId: listAgentModels
       summary: Selectable agent brains (reasoning models) with their flat per-turn credit rates.
       description: >-
-        Every entry is a model the platform can actually serve for an agent's reasoning loop — routed through the LLM proxy with a provider-outage fallback group — priced as a flat credit rate per chat turn. The default brain is included; premium brains cost more per turn. `claude-opus-5-5` is the best brain, at 70 credits a turn: Anthropic's model for long agent sessions and coding, which stays on track across many steps. `gpt-6.1-sol` (70 credits a turn) is OpenAI's reasoning model, for long documents and hard multi-step reasoning. `gemini-4-argon` (70 credits a turn) is Google's most capable model, for hard coding, math and science problems and long agent work. Retired brains are NOT listed and are REPLACED rather than kept running: `glm-5.3`, `glm-5.2` and `kimi-k3` resolve to `claude-opus-5-5`, and `gpt-6-astra` resolves to `gpt-6.1-sol`, so an agent pinned to one runs and bills as its replacement and GET /agent reports the replacement as its model. Treat this catalogue as the source of truth for both the selectable ids and their rates rather than hard-coding either — it is served from the same table that prices the turn.
+        Every entry is a model the platform can actually serve for an agent's reasoning loop — routed through the LLM proxy with a provider-outage fallback group — priced as a flat credit rate per chat turn. The default brain is included; premium brains cost more per turn. `claude-opus-5-5` is the best brain, at 70 credits a turn: Anthropic's model for long agent sessions and coding, which stays on track across many steps. `gpt-6.1-sol` (70 credits a turn) is OpenAI's reasoning model, for long documents and hard multi-step reasoning. `gemini-4-argon` (70 credits a turn) is Google's most capable model, for hard coding, math and science problems and long agent work. Retired brains are NOT listed and are REPLACED rather than kept running: `glm-5.3`, `glm-5.2` and `kimi-k3` resolve to `claude-opus-5-5`, and `gpt-6-astra` resolves to `gpt-6.1-sol`, so an agent pinned to one runs and bills as its replacement and GET /agent reports the replacement as its model. Treat this catalogue as the source of truth for both the selectable ids and their rates rather than hard-coding either — it is served from the same table that prices the turn. To tell a customer what a turn costs, show `typical_turn_credits` ("About N credits a turn") and `turn_ceiling_credits` (the most a turn's own work is billed), not the flat minimum alone.
       responses:
         '200':
           description: The selectable brains, default first, then by ascending per-turn rate.
@@ -14203,9 +14228,9 @@ components:
           description: >-
             Whether this model's provider honors the request's `seed`.
 
-            `false` means the provider's API has no seed field at all, so a seed could only ever be discarded — sending one is refused with a 400 rather than accepted and ignored, because a discarded seed returns a DIFFERENT video than the reproducible one you asked for and still bills you for it.
+            `false` means the provider's API has no seed field at all. A seed sent anyway is not sent to the provider: the clip still renders at the same price, and the job's `warnings` says the seed was not sent, so each render will differ.
 
-            Omitted means nobody has verified this model's provider yet, and the field is accepted with no promise that it does anything. Absence is deliberately not the same as `false`: refusing on an unchecked assumption would delete a capability that may work.
+            Omitted means nobody has verified this model's provider yet, and the seed is forwarded with no promise that it does anything. Absence is deliberately not the same as `false`.
         prompt_extend_supported:
           type: boolean
           description: >-
@@ -16051,6 +16076,12 @@ components:
             edit model from changing faces, wardrobe or the grade elsewhere in
             the shot.
 
+            For a removal, the edit shows only within the thing's own outline
+            and a few pixels past it. When the edit replaces the thing with
+            something else that may be larger (a small sign becoming a
+            billboard), also send `edit_target_change: true`, or the new thing
+            is cut off at the old one's outline.
+
             The thing is found in the source clip when the edit completes.
             When it cannot be found, the job fails with a full refund and a
             message naming it: describe it the way it looks in the shot.
@@ -16067,6 +16098,16 @@ components:
             still in it.
         edit_target_point:
           $ref: '#/components/schemas/EditTargetPoint'
+        edit_target_change:
+          type: boolean
+          nullable: true
+          description: |
+            The edit replaces the `edit_target` with something else instead of
+            removing it. The delivered clip then also shows the edit where it
+            changed strongly next to the thing, up to about twice the thing's
+            size away from it, so a larger replacement is not cut off at the
+            old thing's outline; everywhere else it stays the source clip.
+            Leave it unset for a removal. Needs `edit_target`.
         element_asset_ids:
           type: array
           nullable: true
@@ -16136,7 +16177,7 @@ components:
           nullable: true
           minimum: 0
           description: >-
-            Reproducibility seed. Only meaningful on models whose provider actually takes one: check `video.seed` on `GET /models`, where `false` means the provider has no seed field and sending one is refused with a 400, and an omitted value means unverified. It is NOT a universal video option — most providers here have no seed in their API at all.
+            Reproducibility seed. Only meaningful on models whose provider actually takes one: check `video.seed` on `GET /models`, where `false` means the provider has no seed field (a seed sent anyway is not sent, the clip still renders, and the job's `warnings` says so), and an omitted value means unverified. It is NOT a universal video option — most providers here have no seed in their API at all.
         generate_audio:
           type: boolean
           nullable: true
@@ -20613,6 +20654,10 @@ components:
           type: number
           format: double
           description: The longest video a new shape can be made from (600).
+    GreenScreenBackdrop:
+      type: string
+      enum: [green, blue, white, other]
+      description: What the person was filmed against. `green` and `blue` screens are keyed by their colour; `white` (a white or light grey cyc) and `other` are keyed from an AI matte of the person (`matte_asset_id`).
     CreateGreenScreenRenderRequest:
       type: object
       additionalProperties: false
@@ -20622,6 +20667,19 @@ components:
           type: string
           format: uuid
           description: The clip of the person on the green screen, a ready video in your library.
+        backdrop:
+          allOf:
+            - $ref: '#/components/schemas/GreenScreenBackdrop'
+          default: green
+          description: What the person was filmed against (green when omitted). `white` and `other` need `matte_asset_id`.
+        matte_asset_id:
+          type: string
+          format: uuid
+          description: For a `white` or `other` backdrop, the AI matte of the person in this clip, a ready video in your library made by `POST /remove-background/video` with the clip as `source_asset_id` (a transparent WebM; a video whose brightness is the person also works). It must cover the clip's whole length.
+        background_from_clip:
+          type: boolean
+          default: false
+          description: The background is a video generated from this clip (a New world made from it). It is laid frame for frame instead of looped, and `match` defaults to false.
         background_asset_id:
           type: string
           format: uuid
@@ -20651,7 +20709,7 @@ components:
     GreenScreenQuote:
       type: object
       additionalProperties: false
-      required: [asset_id, background_asset_id, credits, eligible, max_seconds]
+      required: [asset_id, background_asset_id, credits, eligible, max_seconds, backdrop]
       properties:
         asset_id:
           type: string
@@ -20688,7 +20746,14 @@ components:
         max_seconds:
           type: number
           format: double
-          description: The longest clip of this size the render takes (120 seconds at 1080p and 30 frames a second, 270 at 720p, 30 at 4K, never more than 300).
+          description: The longest clip of this size the render takes for the quoted backdrop (for a screen 120 seconds at 1080p and 30 frames a second, 270 at 720p, 30 at 4K, never more than 300; for an AI matte two thirds of that, never more than 60).
+        backdrop:
+          $ref: '#/components/schemas/GreenScreenBackdrop'
+        backdrop_detected:
+          type: string
+          nullable: true
+          enum: [green, blue, white, other]
+          description: The backdrop the clip's poster frame shows around the person, read from its border; null when the clip has no poster to read.
     CreateFollowPlanRequest:
       type: object
       additionalProperties: false
@@ -24057,7 +24122,7 @@ components:
     AgentModelOption:
       type: object
       additionalProperties: false
-      required: [model, turn_credits, default]
+      required: [model, turn_credits, typical_turn_credits, default]
       properties:
         model:
           type: string
@@ -24068,6 +24133,16 @@ components:
           description: >-
             Flat credits billed per agent chat turn while the agent runs this brain. The rate is per TURN, not per token, and today does not vary with how much work the turn does: it ranges from 10 for the default brain to 70 for `claude-opus-5-5`, `gemini-4-argon` and `gpt-6.1-sol`. Per-turn rates are under active revision and will change — always read the current rate from this catalogue and show it to the user before a brain is selected, rather than hard-coding it.
           examples: [25, 70]
+        typical_turn_credits:
+          type: integer
+          description: >-
+            What one ordinary chat turn on this brain typically costs, in credits: the figure to show a customer as "About N credits a turn". A turn bills its flat `turn_credits` at minimum and its metered cost above that, so a real turn usually costs more than the minimum; this is the measured typical turn (app turns in the desktop plugins), never below `turn_credits`.
+          examples: [10, 120]
+        turn_ceiling_credits:
+          type: integer
+          description: >-
+            The most one chat turn's own work (its flat rate plus its metered cost) is ever billed when the turn carries no approved run price; the platform absorbs the rest. Generations the turn makes are billed on their own and are not part of this cap. Absent when no cap is set.
+          examples: [200]
         default:
           type: boolean
           description: True for the platform default brain (what an agent runs with no explicit selection).
