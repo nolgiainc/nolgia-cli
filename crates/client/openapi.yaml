@@ -16083,8 +16083,10 @@ components:
             is cut off at the old one's outline.
 
             The thing is found in the source clip when the edit completes.
-            When it cannot be found, the job fails with a full refund and a
-            message naming it: describe it the way it looks in the shot.
+            When it cannot be found, a removal fails with a full refund and a
+            message naming it: describe it the way it looks in the shot. A
+            change (`edit_target_change`) is delivered instead, as the edit
+            model's whole frame, with a warning naming the thing.
             Commas name several things ("boom microphone, boom pole"). Needs
             exactly one source clip, given as `video_asset_ids`. Billed as the
             edit itself; the pass adds no charge.
@@ -16107,7 +16109,10 @@ components:
             changed strongly next to the thing, up to about twice the thing's
             size away from it, so a larger replacement is not cut off at the
             old thing's outline; everywhere else it stays the source clip.
-            Leave it unset for a removal. Needs `edit_target`.
+            When the thing cannot be found (or the pass cannot run), the
+            render is still delivered as the edit model's whole frame, with a
+            warning, and its asset's `edit_protect.unconfined` is true. Leave
+            it unset for a removal. Needs `edit_target`.
         element_asset_ids:
           type: array
           nullable: true
