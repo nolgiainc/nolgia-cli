@@ -25684,7 +25684,9 @@ components:
           $ref: '#/components/schemas/AgentMessageRole'
         content:
           type: string
-          description: Message text. Empty while an agent reply is `pending` or when it `failed`.
+          description: >
+            Message text. Empty while an agent reply is `pending` or when it `failed`. On a user message with `origin` `background` a customer is always served the plain notice "Background work finished. NOLGIA is reporting what it produced.": the instructions and raw output the agent was given are never served to a customer.
+
         status:
           $ref: '#/components/schemas/AgentMessageStatus'
         error:
@@ -25779,7 +25781,7 @@ components:
       enum: [background]
       x-enum-varnames: [AgentMessageOriginBackground]
       description: >
-        Present on a user message the platform filed rather than one a person sent. `background`: work the agent had sent to the background (a delegated task, a process it was waiting on) finished after its turn ended, and the platform filed the result here so the agent can report it in a normal turn. Render it as "Background work finished", not as something the customer typed. Absent on every message a person or client sent.
+        Present on a user message the platform filed rather than one a person sent. `background`: work the agent had sent to the background (a delegated task, a process it was waiting on) finished after its turn ended, and the platform filed the result here so the agent can report it in a normal turn. Render it as "Background work finished", not as something the customer typed. Its `content` is always the plain notice "Background work finished. NOLGIA is reporting what it produced.", never the instructions and raw output the agent was given (on a pod, its shell commands); the agent's reply that follows says what the work produced. Absent on every message a person or client sent.
 
     AgentTurnCost:
       type: object
