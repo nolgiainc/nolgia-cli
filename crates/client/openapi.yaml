@@ -8879,6 +8879,36 @@ paths:
           $ref: '#/components/responses/ProblemResponse'
         default:
           $ref: '#/components/responses/ProblemResponse'
+  /referrals/invites/{code}:
+    get:
+      tags: [Billing]
+      operationId: getReferralInvite
+      summary: Look up a customer's referral invite (no authentication).
+      description: >
+        Whether a customer referral code (the `<code>` of nolgia.ai/gift/<code>, with or without its leading `_`) is valid and what a friend who signs up through it gets: `welcome_credits` free credits for 30 days. Names nobody. `404` when the code is unknown, its owner can no longer refer, or its owner is an Insider (their code answers on `GET /insiders/codes/{code}`). Rate limited per IP (`429`).
+
+      security: []
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 40
+      responses:
+        '200':
+          description: The invite.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReferralInvite'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '429':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
   /feedback/attachments:
     post:
       tags: [Feedback]
@@ -9940,6 +9970,38 @@ paths:
         '409':
           $ref: '#/components/responses/ProblemResponse'
         '422':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /billing/referral:
+    get:
+      tags: [Billing]
+      operationId: getBillingReferral
+      summary: Get the current user's referral link and rewards ("give 100 credits, get 300").
+      description: |-
+        The customer referral (since 2026-11-03). Every account that has paid
+        for a plan or for credits, and is not a NOLGIA Insider, has a personal
+        share link (`share_url`, nolgia.ai/gift/<code>). A friend who signs up
+        through it gets `welcome_credits` free credits for 30 days (usable
+        without a card). When that friend's first paid plan invoice lands, this
+        account gets `reward_credits` top-up credits that never expire, at most
+        `monthly_cap` a calendar month (UTC); more are held for a person at
+        NOLGIA to look at (`held`). A reward is taken back, as far as it is
+        unspent, when the friend's first payment is refunded or disputed within
+        30 days. The code is made on the first read. `eligible` is false with
+        `reason` `not_paid`, `insider` (an Insider uses their Insider link,
+        `insider_handle`), `organization` (a team workspace; referrals belong
+        to the personal account) or `off`. `ask` is true once the account has
+        paid for a second month or its link has 3 or more views: the moment to
+        ask for a referral.
+      responses:
+        '200':
+          description: The referral link and its rewards.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomerReferral'
+        '401':
           $ref: '#/components/responses/ProblemResponse'
         default:
           $ref: '#/components/responses/ProblemResponse'
@@ -21470,6 +21532,114 @@ components:
         next_cursor:
           type: string
           nullable: true
+    CustomerReferral:
+      type: object
+      additionalProperties: false
+      required: [eligible, welcome_credits, reward_credits, monthly_cap, rewards_this_month, views, signups, waiting, earned, held, credits_earned, ask, friends]
+      properties:
+        eligible:
+          type: boolean
+          description: True when this account has a share link.
+        reason:
+          type: string
+          nullable: true
+          enum: [not_paid, insider, organization, off]
+          x-enum-varnames: [CustomerReferralReasonNotPaid, CustomerReferralReasonInsider, CustomerReferralReasonOrganization, CustomerReferralReasonOff]
+          description: Why there is no share link (null when `eligible`).
+        code:
+          type: string
+          nullable: true
+          description: The personal code (eight lowercase letters and digits).
+        share_url:
+          type: string
+          nullable: true
+          description: The link to share, `https://nolgia.ai/gift/<code>`.
+        insider_handle:
+          type: string
+          nullable: true
+          description: An Insider's @name (reason `insider`); their Insider link is the one to share.
+        welcome_credits:
+          type: integer
+          minimum: 0
+          description: Free credits a friend gets on sign up (30 days, no card needed).
+        reward_credits:
+          type: integer
+          minimum: 0
+          description: Top-up credits (never expire) this account gets when a friend first pays.
+        monthly_cap:
+          type: integer
+          minimum: 0
+          description: The most rewards granted in a calendar month (UTC); more are held for review.
+        rewards_this_month:
+          type: integer
+          minimum: 0
+        views:
+          type: integer
+          minimum: 0
+          description: Visits to the link (the same device within 30 minutes counts once).
+        signups:
+          type: integer
+          minimum: 0
+          description: Friends who signed up through the link.
+        waiting:
+          type: integer
+          minimum: 0
+          description: Friends who signed up and have not paid yet.
+        earned:
+          type: integer
+          minimum: 0
+          description: Rewards granted (taken back ones not counted).
+        held:
+          type: integer
+          minimum: 0
+          description: Rewards held for a person at NOLGIA to look at (over the monthly cap, or a sign up in review).
+        credits_earned:
+          type: integer
+          minimum: 0
+          description: Reward credits granted, less any taken back.
+        ask:
+          type: boolean
+          description: The moment to ask for a referral (a second paid month, or 3 or more link views).
+        friends:
+          type: array
+          maxItems: 20
+          description: The latest friends, newest first. Names nobody.
+          items:
+            $ref: '#/components/schemas/CustomerReferralFriend'
+    CustomerReferralFriend:
+      type: object
+      additionalProperties: false
+      required: [joined_at, state, credits]
+      properties:
+        joined_at:
+          type: string
+          format: date-time
+        state:
+          type: string
+          enum: [waiting, earned, held, reversed, not_eligible]
+          x-enum-varnames: [CustomerReferralFriendStateWaiting, CustomerReferralFriendStateEarned, CustomerReferralFriendStateHeld, CustomerReferralFriendStateReversed, CustomerReferralFriendStateNotEligible]
+          description: >
+            `waiting` for the friend's first payment, `earned` (the reward was granted), `held` (for review), `reversed` (the payment was refunded or disputed) or `not_eligible`.
+
+        credits:
+          type: integer
+          description: Reward credits this friend brought (net of a reversal).
+        rewarded_at:
+          type: string
+          format: date-time
+          nullable: true
+    ReferralInvite:
+      type: object
+      additionalProperties: false
+      required: [code, welcome_credits]
+      properties:
+        code:
+          type: string
+          description: The code as the referral cookie carries it (`_` and eight letters and digits).
+        welcome_credits:
+          type: integer
+          minimum: 0
+          description: Free credits a friend gets on sign up (0 while the program is off).
     InsiderCodeLookup:
       type: object
       additionalProperties: false
