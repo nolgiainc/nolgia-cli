@@ -24707,7 +24707,7 @@ components:
             type: string
         note:
           type: string
-          description: Set when the file was re-encoded by software and no camera metadata survives in it.
+          description: Set, in a filmmaker's words, when the file was re-saved by editing software and no camera settings survive in it.
         cached:
           type: boolean
           description: True when the answer was kept from an earlier read of the same file.
@@ -24776,6 +24776,9 @@ components:
         light:
           type: string
           enum: [warm, neutral, cool]
+        light_note:
+          type: string
+          description: 'When the file records the camera''s white balance: how the measured light relates to it, as a DP would say it (for example "The camera was set to 3749 K; the picture reads neutral at that setting."). The light is read from the picture as recorded at that setting.'
         grain:
           $ref: '#/components/schemas/FootageGrain'
         key:
@@ -24856,8 +24859,13 @@ components:
       properties:
         item:
           type: string
+          description: What is left, in a filmmaker's words (for example "Height of your main light").
         reason:
           type: string
+          description: Why, and what to do, in a filmmaker's words. Shown to customers as it is.
+        detail:
+          type: string
+          description: The technical reason, for support and logs. Not for customers.
     AssetShots:
       type: object
       additionalProperties: false
