@@ -16128,6 +16128,20 @@ components:
             type: string
         video_task:
           $ref: '#/components/schemas/VideoTask'
+        reference_start_seconds:
+          type: number
+          format: double
+          nullable: true
+          minimum: 0
+          description: |
+            Where in your one reference video (from `video_asset_ids`) the
+            footage the render uses starts, in seconds; 0 when omitted. On a
+            reference run (not an `edit` or an `extend`, which use the whole
+            clip) whose provider bills the reference clip's own seconds
+            (Seedance 2.5), a clip longer than the render is cut to the
+            render's length plus a short handle from here, and only that cut
+            is sent and billed: a 30 s clip under a 4 s shot is priced as 4 s
+            of footage, not 30. The job's `warnings` say which part was used.
         edit_target:
           type: string
           nullable: true
