@@ -20695,16 +20695,17 @@ components:
         backdrop:
           allOf:
             - $ref: '#/components/schemas/GreenScreenBackdrop'
-          default: green
           description: What the person was filmed against (green when omitted). `white` and `other` need `matte_asset_id`.
         matte_asset_id:
           type: string
           format: uuid
           description: For a `white` or `other` backdrop, the AI matte of the person in this clip, a ready video in your library made by `POST /remove-background/video` with the clip as `source_asset_id` (a transparent WebM; a video whose brightness is the person also works). It must cover the clip's whole length.
+        follow_camera:
+          type: boolean
+          description: Match the camera move (true when omitted). The plate's camera move (pan, tilt, roll, zoom) is read from the backdrop around the person (tracking marks, seams, floor texture) and the background moves with it, enlarged so no edge shows, with motion blur on fast moves. A locked-off shot is detected and its background stays still; a move that cannot be read well keeps the background still and the result says why. Never applied to a `background_from_clip` background, which already moves with the camera.
         background_from_clip:
           type: boolean
-          default: false
-          description: The background is a video generated from this clip (a New world made from it). It is laid frame for frame instead of looped, and `match` defaults to false.
+          description: (false when omitted) The background is a video generated from this clip (a New world made from it). It is laid frame for frame instead of looped, and `match` defaults to false.
         subject:
           type: string
           enum: [exact, match]
@@ -20715,12 +20716,10 @@ components:
           description: How far `subject` `match` goes toward the scene (`medium` when omitted). Only with `subject` `match`; `medium` is accepted and ignored otherwise. Your face never goes darker than the level allows, so it stays readable in a dark scene.
         subject_filled:
           type: boolean
-          default: false
-          description: The world was generated from your clip with you filled flat grey (see `fill_subject`), because the video model does not take real faces. The model's grey figure is then taken out of the world with you, and `match` sets your brightness from the scene around you. Only with `background_from_clip` and a `white` or `other` backdrop with `matte_asset_id`.
+          description: (false when omitted) The world was generated from your clip with you filled flat grey (see `fill_subject`), because the video model does not take real faces. The model's grey figure is then taken out of the world with you, and `match` sets your brightness from the scene around you. Only with `background_from_clip` and a `white` or `other` backdrop with `matte_asset_id`.
         fill_subject:
           type: boolean
-          default: false
-          description: Make no composite. The result is your clip with you filled flat grey, cut out with `matte_asset_id`, at your clip's size, frame rate, length and sound. Use it to make a world from your clip with a video model that does not take real faces, then put yourself back over that world with `background_from_clip` and `subject_filled`. Needs a `white` or `other` backdrop and `matte_asset_id`, and takes no `background_asset_id`; `match`, `blur` and `flip` are ignored.
+          description: (false when omitted) Make no composite. The result is your clip with you filled flat grey, cut out with `matte_asset_id`, at your clip's size, frame rate, length and sound. Use it to make a world from your clip with a video model that does not take real faces, then put yourself back over that world with `background_from_clip` and `subject_filled`. Needs a `white` or `other` backdrop and `matte_asset_id`, and takes no `background_asset_id`; `match`, `blur` and `flip` are ignored.
         background_asset_id:
           type: string
           format: uuid
