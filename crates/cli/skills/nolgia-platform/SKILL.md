@@ -70,7 +70,7 @@ nolgia gen video --model minimax-h3 \
 # Reference-to-video (remix existing footage; Seedance 2.0 Pro):
 # --video-ref = video asset UUID (up to 3; MP4/MOV, 480p-720p, 2-15s and
 # 50MB combined; this model REQUIRES at least one), --element = image
-# asset UUID (up to 9). Address them in the prompt as @Video1.. / @Image1..
+# asset UUID (up to the model's element_refs_max: 30 on seedance-2.5). Address them as @Video1.. / @Image1..
 nolgia gen video --model fal-ai/bytedance/seedance/v2/pro/reference-to-video \
   --video-ref <video asset uuid> --element <image asset uuid> \
   --prompt "@Video1 restaged in the style of @Image1" \

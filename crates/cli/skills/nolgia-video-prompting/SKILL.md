@@ -91,7 +91,7 @@ in-house short came out looking like AI (2026-10-31). The order that works:
 ### References, not keyframes
 
 - **Every take carries 2 to 5 references, each with a stated job and what not to
-  take from it** (`--element`, up to 9 on `seedance-2.5` and `minimax-h3`):
+  take from it** (`--element`, up to 30 on `seedance-2.5` and 9 on `minimax-h3`):
   "@Image1 is Mara's cast sheet: her face, build, hair and wet work jacket only;
   not the grey backdrop, the panel layout or the pose." "@Image2 is the harbour
   plate looking north: geography and light direction only; not the opening frame."

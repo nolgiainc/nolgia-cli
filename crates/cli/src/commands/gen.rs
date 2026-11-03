@@ -49,6 +49,16 @@ pub struct ImageArgs {
     /// (`reference images` in `nolgia models get <model>`).
     #[arg(long, value_name = "PATH_OR_UUID")]
     pub input: Option<String>,
+    /// Another reference image, after --input (repeat it): a local file or an
+    /// asset UUID, riding `reference_asset_ids` in order, so the prompt can
+    /// name them @Image1 (--input), @Image2 and so on. Each model takes up to
+    /// its own `reference images` count in `nolgia models get <model>` (14 on
+    /// nano-banana-pro and nano-banana-2.1, 10 on seedream-v5-pro and FLUX 3,
+    /// 4 on GPT Image). References past what a model's price includes add a
+    /// credit or two (Nano Banana Pro: 2 to 14 references add 1); the rule
+    /// is the `cost` block of `nolgia models get <model> --json`.
+    #[arg(long = "reference", value_name = "PATH_OR_UUID", requires = "input")]
+    pub references: Vec<String>,
     /// Edit only PART of --input: a PNG with an alpha channel, the same pixel
     /// dimensions as the image, whose TRANSPARENT areas are the region the
     /// model may repaint. Everything the mask leaves opaque is preserved.
@@ -64,8 +74,10 @@ pub struct ImageArgs {
     /// publish a render-quality ladder (`nolgia models get <model>`).
     ///
     /// This is a SECOND axis and not a rename of --quality: --quality is the
-    /// native/2k/4k UPSCALE ladder, which re-renders the finished image
-    /// larger, while this changes how the picture is drawn in the first place.
+    /// output size (on GPT Image the native/2k/4k UPSCALE ladder, which
+    /// enlarges the finished image; on nano-banana-pro and nano-banana-2 the
+    /// model's own 2K and 4K), while this changes how the picture is drawn in
+    /// the first place.
     /// They compose, and a request may carry both.
     ///
     /// `auto` (the default) is the model's own choice at the base rate.
@@ -250,8 +262,10 @@ pub struct VideoArgs {
     #[arg(long = "video-ref", value_name = "ASSET_ID")]
     pub video_refs: Vec<uuid::Uuid>,
     /// Element/reference image for reference-to-video models: the UUID of
-    /// one of your image assets (repeat up to 9). Address them in the
-    /// prompt as @Image1..@Image9.
+    /// one of your image assets (repeat up to the model's
+    /// `references.element_refs_max`: 30 on seedance-2.5, 14 on
+    /// grok-imagine-video-1.5, 9 on most others). Address them in the prompt
+    /// as @Image1, @Image2 and so on.
     #[arg(long = "element", value_name = "ASSET_ID")]
     pub elements: Vec<uuid::Uuid>,
     /// What the --video-ref clip is for, on models that list video tasks
@@ -456,10 +470,19 @@ async fn image(args: ImageArgs, ctx: &CommandContext) -> Result<()> {
         }
     }
 
-    let reference_asset_ids = match args.input.as_deref() {
+    // The request schema's ceiling (`reference_asset_ids` maxItems, the most
+    // any model takes); each model's own cap is the server's to enforce.
+    anyhow::ensure!(
+        args.references.len() < 14,
+        "--input plus --reference: at most 14 reference images per request"
+    );
+    let mut reference_asset_ids = match args.input.as_deref() {
         Some(input) => vec![resolve_reference_asset(input, "--input", ctx).await?],
         None => Vec::new(),
     };
+    for reference in &args.references {
+        reference_asset_ids.push(resolve_reference_asset(reference, "--reference", ctx).await?);
+    }
     let mask_asset_id = match args.mask.as_deref() {
         Some(mask) => Some(resolve_reference_asset(mask, "--mask", ctx).await?),
         None => None,
@@ -657,8 +680,8 @@ async fn video(mut args: VideoArgs, ctx: &CommandContext) -> Result<()> {
         "--video-ref: at most 10 reference videos per request"
     );
     anyhow::ensure!(
-        args.elements.len() <= 9,
-        "--element: at most 9 element images per request"
+        args.elements.len() <= 30,
+        "--element: at most 30 element images per request"
     );
     anyhow::ensure!(
         args.end_frame.is_none() || args.input.is_some(),

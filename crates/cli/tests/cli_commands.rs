@@ -4682,6 +4682,42 @@ async fn gen_image_forwards_mask_and_reference_asset_ids() {
     .stdout(predicate::str::contains(JOB_ID));
 }
 
+/// --reference repeats and rides `reference_asset_ids` after --input, in the
+/// order given (nolgia-api #1420: Nano Banana Pro takes 14).
+#[tokio::test]
+async fn gen_image_forwards_references_after_input_in_order() {
+    let api = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/generate/image"))
+        .and(body_partial_json(json!({
+            "model": "nano-banana-pro",
+            "reference_asset_ids": [ASSET_ID, ELEMENT_ASSET_ID, ASSET_ID],
+        })))
+        .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
+        .expect(1)
+        .mount(&api)
+        .await;
+    run_ok(
+        &api,
+        &[
+            "gen",
+            "image",
+            "--model",
+            "nano-banana-pro",
+            "--prompt",
+            "the two of them at the bar",
+            "--input",
+            ASSET_ID,
+            "--reference",
+            ELEMENT_ASSET_ID,
+            "--reference",
+            ASSET_ID,
+            "--no-wait",
+        ],
+    )
+    .stdout(predicate::str::contains(JOB_ID));
+}
+
 /// A mask on a model whose catalog entry says it cannot take one is refused
 /// before the request. The API refuses it too, before any hold, so this saves
 /// no money — it saves the round trip, and the message names models that can.
