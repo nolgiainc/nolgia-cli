@@ -1,7 +1,7 @@
 ---
 name: nolgia-video-prompting
 description: "Directing craft for NOLGIA video generation: the film standard (references with stated jobs, casting and styling for the role, location plates, one structured prompt per take, written cuts at the genre's rhythm, best of N takes, sound, typeset words, the realism finish), plus the breathing pattern, per-shot sound design and the keep-what-works iteration loop. Use when: writing or fixing video prompts, planning a multi-clip production, a short film, a series episode, a trailer, a commercial or a music video on NOLGIA, or deciding which shots to regenerate. NOT for: platform mechanics such as auth, flags, jobs and credits (use nolgia-platform), vertical UGC ad pipelines (use nolgia-ugc-ads), or still-image prompting."
-version: 1.10.3
+version: 1.10.5
 author: NOLGIA
 license: MIT
 metadata:
@@ -314,8 +314,18 @@ and the default camera bans).
 - **Draft cheap, then promote**: prove a hard take's prompt at `seedance-2.5`
   480p, then render the identical prompt at 720p (no seed on that lane, so the
   720p render is a new roll of a proven prompt).
-- **Patch with video edit before re rolling**: `seedance-2.5` with `video_task`
-  `edit` keeps everything and changes one named thing.
+- **Patch with video edit before re rolling**: `seedance-2.5` with `--video-task
+  edit` and `--edit-target "<the one thing>"` keeps the rest of the clip as
+  filmed, people included, and changes that thing; without `--edit-target` an
+  edit redraws the whole frame, faces too.
+- **Real footage of a real person: keep them exactly as filmed.** A new place
+  or an effect around them never sends the person through a model: cut them
+  out (`--model remove-background-video`), make the grey stand-in with
+  `nolgia render keep-me --fill-subject`, edit the grey clip, then put them
+  back with `nolgia render keep-me --background-from-clip --subject-filled
+  --subject exact` (`match` grades only their brightness and colour).
+  `nolgia render keep-me --help` has the four steps. Send the clip itself only
+  when the customer asks for what they do or how they look to change.
 - **Alternates of the same beat may intercut** at detected cuts; a scene is never
   assembled from unrelated single generations.
 
