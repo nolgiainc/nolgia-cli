@@ -189,8 +189,13 @@ nolgia assets list --tag hero --project-id <uuid>  # filter by tag / project
 
 Characters keep a recurring subject consistent: `gen image --character-id
 <uuid>` and `gen video --character-id <uuid>` bind a character's reference
-and description to the render. The description carries its canonical outfit
-and accessories and overrides written wardrobe, so a story role in a film is
+and description to the render. Dress a recurring character (an AI
+influencer, a brand mascot) with `--outfit "<name>"`: one of the
+character's saved outfits (the wardrobe on `nolgia characters get <id>
+--json`). Its photos ride beside the face, so the clothes keep one design
+from post to post; only a photo holds a design, and an outfit saved as
+words only lets the model invent logos and materials. A description that
+still names clothes overrides written wardrobe, so a story role in a film is
 dressed into a role cast sheet and sent with `--element` instead. Projects group assets (an asset can be in
 many); tags label and filter them. Prefer `--project-id` on
 `gen`/`assets upload` over after-the-fact `projects add-assets` when the

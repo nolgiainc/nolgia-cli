@@ -135,6 +135,15 @@ pub struct ImageArgs {
         conflicts_with = "face_reference_asset_id"
     )]
     pub character_id: Option<uuid::Uuid>,
+    /// Dress the character in one of their saved outfits, by name (the
+    /// wardrobe on `nolgia characters get <id> --json`). The outfit's photos
+    /// ride as references beside the face, so the clothes keep the same
+    /// design in every render; an outfit saved as words only rides as its
+    /// notes. Needs --character-id and a model with room for the photos
+    /// (no room is refused, never trimmed). Photos are priced like any
+    /// reference: `--cost-only` shows the price first.
+    #[arg(long, value_name = "NAME", requires = "character_id")]
+    pub outfit: Option<String>,
     /// File the generated asset(s) into this project (`nolgia projects
     /// list` for ids). The project must exist and belong to you.
     #[arg(long, value_name = "PROJECT_UUID")]
@@ -322,6 +331,15 @@ pub struct VideoArgs {
     /// one more element reference (`nolgia models get <model>`).
     #[arg(long, value_name = "CHARACTER_UUID")]
     pub character_id: Option<uuid::Uuid>,
+    /// Dress the character in one of their saved outfits, by name (the
+    /// wardrobe on `nolgia characters get <id> --json`). The outfit's photos
+    /// ride as element references right after the character's, each on the
+    /// next @Image slot, so the clothes keep the same design from clip to
+    /// clip; an outfit saved as words only rides as its notes. Needs
+    /// --character-id and a model with room for the photos (no room is
+    /// refused, never trimmed).
+    #[arg(long, value_name = "NAME", requires = "character_id")]
+    pub outfit: Option<String>,
     /// File the generated asset into this project (`nolgia projects list`
     /// for ids). The project must exist and belong to you.
     #[arg(long, value_name = "PROJECT_UUID")]
@@ -379,6 +397,17 @@ pub const IMAGE_ASPECT_RATIOS: &[&str] = &[
 /// value", which tells the caller nothing — and the values people reach for
 /// first are the `image_size` aliases (`portrait_16_9`, and NOL-331's
 /// `portrait_1080_1920`), which are a different vocabulary entirely.
+/// `--outfit` as the request's length-checked outfit name: trimmed, empty
+/// treated as absent, over 80 characters refused before any upload.
+fn outfit_name<T, E>(raw: Option<&str>, parse: impl Fn(String) -> Result<T, E>) -> Result<Option<T>> {
+    match raw.map(str::trim).filter(|name| !name.is_empty()) {
+        None => Ok(None),
+        Some(name) => parse(name.to_owned())
+            .map(Some)
+            .map_err(|_| anyhow::anyhow!("--outfit is at most 80 characters: use the outfit's saved name (`nolgia characters get <id> --json`, wardrobe)")),
+    }
+}
+
 fn parse_image_aspect_ratio(raw: &str) -> Result<ImageAspectRatio, String> {
     ImageAspectRatio::try_from(raw).map_err(|_| {
         format!(
@@ -513,6 +542,7 @@ async fn image(args: ImageArgs, ctx: &CommandContext) -> Result<()> {
         .aura(args.aura)
         .face_reference_asset_id(args.face_reference_asset_id)
         .character_id(args.character_id)
+        .outfit(outfit_name(args.outfit.as_deref(), nolgia_client::types::GenerateImageRequestOutfit::try_from)?)
         .reference_asset_ids(reference_asset_ids)
         .mask_asset_id(mask_asset_id)
         .project_id(args.project_id)
@@ -752,6 +782,7 @@ async fn video(mut args: VideoArgs, ctx: &CommandContext) -> Result<()> {
         .motion_id(motion_id)
         .motion_strength(args.motion_strength)
         .character_id(args.character_id)
+        .outfit(outfit_name(args.outfit.as_deref(), nolgia_client::types::GenerateVideoRequestOutfit::try_from)?)
         .project_id(args.project_id)
         .shots(shots)
         // Only ever the duration the caller asked for, or the one a single

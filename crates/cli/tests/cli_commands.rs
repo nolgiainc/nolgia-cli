@@ -892,6 +892,44 @@ async fn gen_image_forwards_character_id_and_refuses_competing_face_reference() 
         .stderr(predicate::str::contains("cannot be used with"));
 }
 
+/// `--outfit` dresses the character in one of their saved outfits: the name
+/// reaches the wire as `outfit` beside `character_id` on both lanes (the
+/// server sends the outfit's photos beside the face), and it needs
+/// `--character-id`, refused at parse time like the API's 400.
+#[tokio::test]
+async fn gen_image_and_video_forward_outfit_with_the_character() {
+    let api = MockServer::start().await;
+    for lane in ["image", "video"] {
+        Mock::given(method("POST"))
+            .and(path(format!("/v1/generate/{lane}")))
+            .and(body_partial_json(json!({ "character_id": CHARACTER_ID, "outfit": "Baby blue Y2K" })))
+            .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
+            .mount(&api)
+            .await;
+        run_ok(
+            &api,
+            &[
+                "gen",
+                lane,
+                "--prompt",
+                "a mirror selfie in the laundromat",
+                "--character-id",
+                CHARACTER_ID,
+                "--outfit",
+                " Baby blue Y2K ",
+                "--no-wait",
+            ],
+        )
+        .stdout(predicate::str::contains(JOB_ID));
+
+        cmd()
+            .args(["gen", lane, "--prompt", "a selfie", "--outfit", "Baby blue Y2K", "--no-wait"])
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains("--character-id"));
+    }
+}
+
 /// The restore lane (`POST /restore/video`) takes a source clip and no
 /// prompt. A URL source must forward `source_url` plus the restore controls
 /// verbatim; `duration_seconds` prices the job.
