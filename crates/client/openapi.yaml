@@ -20731,13 +20731,13 @@ components:
           description: How far `subject` `match` goes toward the scene (`medium` when omitted). Only with `subject` `match`; `medium` is accepted and ignored otherwise. Your face never goes darker than the level allows, so it stays readable in a dark scene.
         subject_filled:
           type: boolean
-          description: (false when omitted) The world was generated from your clip with you filled flat grey (see `fill_subject`), because the video model does not take real faces. The model's grey figure is then taken out of the world with you, and `match` sets your brightness from the scene around you. Only with `background_from_clip` and a `white` or `other` backdrop with `matte_asset_id`.
+          description: (false when omitted) The world was generated from your clip with you filled flat grey (see `fill_subject`), so the video model never sees or redraws you (and a route that refuses real faces can take it, as Seedance's fall-over routes do; its primary route takes an ordinary real person). The model's grey figure is then taken out of the world with you, and `match` sets your brightness from the scene around you. Only with `background_from_clip` and a `white` or `other` backdrop with `matte_asset_id`.
         world_cleaned:
           type: boolean
           description: (false when omitted) The world made from your clip already has the video model's copy of you removed (for example by a Remove edit on it). It is used as delivered; the render does not fill the world under and around you itself. `match` still grades you and lays your shadow. Only with `background_from_clip`.
         fill_subject:
           type: boolean
-          description: (false when omitted) Make no composite. The result is your clip with you filled flat grey, cut out with `matte_asset_id`, at your clip's size, frame rate, length and sound. Use it to make a world from your clip with a video model that does not take real faces, then put yourself back over that world with `background_from_clip` and `subject_filled`. Needs a `white` or `other` backdrop and `matte_asset_id`, and takes no `background_asset_id`; `match`, `blur` and `flip` are ignored.
+          description: (false when omitted) Make no composite. The result is your clip with you filled flat grey, cut out with `matte_asset_id`, at your clip's size, frame rate, length and sound. Use it to make a world from your clip with a video model that must not see or redraw you (or a route that refuses real faces), then put yourself back over that world with `background_from_clip` and `subject_filled`. Needs a `white` or `other` backdrop and `matte_asset_id`, and takes no `background_asset_id`; `match`, `blur` and `flip` are ignored.
         background_asset_id:
           type: string
           format: uuid
