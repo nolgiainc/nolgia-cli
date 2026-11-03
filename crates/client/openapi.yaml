@@ -10042,6 +10042,39 @@ paths:
           $ref: '#/components/responses/ProblemResponse'
         default:
           $ref: '#/components/responses/ProblemResponse'
+  /billing/referral/nudge:
+    post:
+      tags: [Billing]
+      operationId: postBillingReferralNudge
+      summary: Claim or dismiss the weekly referral nudge ("Give 100 credits, get 300").
+      description: |-
+        The referral nudge outside Billing (since 2026-11-03): one short line
+        after a successful paid generation, at most once a week per account.
+        `claim` answers `show: true` with the share link only when the account
+        can refer (as `GET /billing/referral` decides) and has not been shown
+        the nudge in the last 7 days; a `true` answer records the showing, so
+        a second claim the same week, on any device, answers `false`.
+        `dismiss` records that the person closed it (it never shows again
+        sooner than 7 days after it was shown) and answers `show: false`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReferralNudgeRequest'
+      responses:
+        '200':
+          description: Whether to show the nudge now.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReferralNudge'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
   /credits/redeem:
     post:
       tags: [Billing]
@@ -21760,6 +21793,36 @@ components:
           type: integer
           minimum: 0
           description: Free credits a friend gets on sign up (0 while the program is off).
+    ReferralNudgeRequest:
+      type: object
+      additionalProperties: false
+      required: [action]
+      properties:
+        action:
+          type: string
+          enum: [claim, dismiss]
+          x-enum-varnames: [ReferralNudgeRequestActionClaim, ReferralNudgeRequestActionDismiss]
+          description: "`claim` after a successful paid generation; `dismiss` when the person closes the line."
+    ReferralNudge:
+      type: object
+      additionalProperties: false
+      required: [show, welcome_credits, reward_credits]
+      properties:
+        show:
+          type: boolean
+          description: Show the line now (the showing is recorded).
+        share_url:
+          type: string
+          nullable: true
+          description: The account's share link, when `show` is true.
+        welcome_credits:
+          type: integer
+          minimum: 0
+          description: Free credits a friend gets in total (0 while the program is off).
+        reward_credits:
+          type: integer
+          minimum: 0
+          description: Top-up credits this account gets per friend's first paid plan (0 while the program is off).
     InsiderCodeLookup:
       type: object
       additionalProperties: false
