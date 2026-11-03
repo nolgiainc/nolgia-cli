@@ -902,7 +902,9 @@ async fn gen_image_and_video_forward_outfit_with_the_character() {
     for lane in ["image", "video"] {
         Mock::given(method("POST"))
             .and(path(format!("/v1/generate/{lane}")))
-            .and(body_partial_json(json!({ "character_id": CHARACTER_ID, "outfit": "Baby blue Y2K" })))
+            .and(body_partial_json(
+                json!({ "character_id": CHARACTER_ID, "outfit": "Baby blue Y2K" }),
+            ))
             .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
             .mount(&api)
             .await;
@@ -923,10 +925,50 @@ async fn gen_image_and_video_forward_outfit_with_the_character() {
         .stdout(predicate::str::contains(JOB_ID));
 
         cmd()
-            .args(["gen", lane, "--prompt", "a selfie", "--outfit", "Baby blue Y2K", "--no-wait"])
+            .args([
+                "gen",
+                lane,
+                "--prompt",
+                "a selfie",
+                "--outfit",
+                "Baby blue Y2K",
+                "--no-wait",
+            ])
             .assert()
             .failure()
             .stderr(predicate::str::contains("--character-id"));
+    }
+}
+
+/// `--character-voice off` keeps the character's saved voice off a clip
+/// (the API rides it by default); `on` insists.
+#[tokio::test]
+async fn gen_video_forwards_character_voice() {
+    let api = MockServer::start().await;
+    for (flag, want) in [("off", false), ("on", true)] {
+        Mock::given(method("POST"))
+            .and(path("/v1/generate/video"))
+            .and(body_partial_json(
+                json!({ "character_id": CHARACTER_ID, "use_character_voice": want }),
+            ))
+            .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
+            .mount(&api)
+            .await;
+        run_ok(
+            &api,
+            &[
+                "gen",
+                "video",
+                "--prompt",
+                "Saffi scores the fit",
+                "--character-id",
+                CHARACTER_ID,
+                "--character-voice",
+                flag,
+                "--no-wait",
+            ],
+        )
+        .stdout(predicate::str::contains(JOB_ID));
     }
 }
 

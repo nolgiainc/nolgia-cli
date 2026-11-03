@@ -331,6 +331,13 @@ pub struct VideoArgs {
     /// one more element reference (`nolgia models get <model>`).
     #[arg(long, value_name = "CHARACTER_UUID")]
     pub character_id: Option<uuid::Uuid>,
+    /// The character's own voice on this clip. The API rides it by default
+    /// on models that take a voice reference (seedance-2.5), from the
+    /// character's voice clip or its voice sample; `off` lets the model pick a
+    /// voice, `on` insists (refused with the reason when it cannot ride).
+    /// Needs --character-id.
+    #[arg(long, value_name = "on|off", value_parser = ["on", "off"], requires = "character_id")]
+    pub character_voice: Option<String>,
     /// Dress the character in one of their saved outfits, by name (the
     /// wardrobe on `nolgia characters get <id> --json`). The outfit's photos
     /// ride as element references right after the character's, each on the
@@ -399,7 +406,10 @@ pub const IMAGE_ASPECT_RATIOS: &[&str] = &[
 /// `portrait_1080_1920`), which are a different vocabulary entirely.
 /// `--outfit` as the request's length-checked outfit name: trimmed, empty
 /// treated as absent, over 80 characters refused before any upload.
-fn outfit_name<T, E>(raw: Option<&str>, parse: impl Fn(String) -> Result<T, E>) -> Result<Option<T>> {
+fn outfit_name<T, E>(
+    raw: Option<&str>,
+    parse: impl Fn(String) -> Result<T, E>,
+) -> Result<Option<T>> {
     match raw.map(str::trim).filter(|name| !name.is_empty()) {
         None => Ok(None),
         Some(name) => parse(name.to_owned())
@@ -542,7 +552,10 @@ async fn image(args: ImageArgs, ctx: &CommandContext) -> Result<()> {
         .aura(args.aura)
         .face_reference_asset_id(args.face_reference_asset_id)
         .character_id(args.character_id)
-        .outfit(outfit_name(args.outfit.as_deref(), nolgia_client::types::GenerateImageRequestOutfit::try_from)?)
+        .outfit(outfit_name(
+            args.outfit.as_deref(),
+            nolgia_client::types::GenerateImageRequestOutfit::try_from,
+        )?)
         .reference_asset_ids(reference_asset_ids)
         .mask_asset_id(mask_asset_id)
         .project_id(args.project_id)
@@ -782,7 +795,11 @@ async fn video(mut args: VideoArgs, ctx: &CommandContext) -> Result<()> {
         .motion_id(motion_id)
         .motion_strength(args.motion_strength)
         .character_id(args.character_id)
-        .outfit(outfit_name(args.outfit.as_deref(), nolgia_client::types::GenerateVideoRequestOutfit::try_from)?)
+        .outfit(outfit_name(
+            args.outfit.as_deref(),
+            nolgia_client::types::GenerateVideoRequestOutfit::try_from,
+        )?)
+        .use_character_voice(args.character_voice.as_deref().map(|v| v == "on"))
         .project_id(args.project_id)
         .shots(shots)
         // Only ever the duration the caller asked for, or the one a single
