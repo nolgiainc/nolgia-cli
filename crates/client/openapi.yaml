@@ -3468,6 +3468,41 @@ paths:
           $ref: '#/components/responses/ProblemResponse'
         default:
           $ref: '#/components/responses/ProblemResponse'
+  /assets/{id}/shots:
+    get:
+      tags: [Assets]
+      operationId: getAssetShots
+      summary: Find the shots in a video and where it cuts (free).
+      description: >-
+        Read a video for hard cuts, the way an editor joins two shots into one clip, and answer each shot with its start and end, plus the cut times in seconds. Use it before sending the clip as a reference video: a video model follows a clip's cut only when the prompt names it (for example "Keep the cut at 2.0 s"). Nothing is generated and nothing is charged. Videos of up to 120 seconds.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Successful response.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssetShots'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '429':
+          $ref: '#/components/responses/ProblemResponse'
+        '502':
+          $ref: '#/components/responses/ProblemResponse'
+        '503':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
   /assets/{id}/clips:
     post:
       tags: [Assets]
@@ -16627,6 +16662,10 @@ components:
             type: string
           description: >-
             On a Remove (a video edit with `edit_target` that takes things out), the named things the edit found held in a hand, by the names the job's `warnings` use (for example "drink can"). Removing a held thing leaves the hand holding something, and the edit model fills the grip, so these are not redone; a warning says so. Use Replace instead: the same clip, with a prompt that says what goes in the hand. Absent when nothing named is held, and on every other job.
+        person_found:
+          type: boolean
+          description: >-
+            On a video background removal (`remove-background-video`), whether the cut-out holds anyone. After the result is stored the platform reads its transparency twice a second through the whole clip; when no sampled frame shows at least 400 pixels of anyone (fewer on a very small frame) or every sampled frame keeps the whole frame, nothing was cut out and this is `false`. The job still succeeds with the file, and whatever it was charged is refunded in full (see `credits`); once the refund is made, `warnings` says so in a plain sentence (for example "No person was found in your clip, so this cut-out was refunded."). `true` when something was cut out. Absent on every other job, and when the result could not be measured (it is then charged as usual).
     JobCancellation:
       type: object
       additionalProperties: false
@@ -24578,6 +24617,46 @@ components:
         text:
           type: string
           description: The words said in the segment, placed from the transcript. Empty without one.
+    AssetShots:
+      type: object
+      additionalProperties: false
+      required: [duration_seconds, frame_rate, shots, cut_seconds]
+      properties:
+        duration_seconds:
+          type: number
+          format: double
+        frame_rate:
+          type: number
+          format: double
+          description: The rate the shots were read at, the clip's own.
+        shots:
+          type: array
+          description: The shots in time order, covering the whole clip. One shot for a clip with no cut.
+          items:
+            $ref: '#/components/schemas/AssetShot'
+        cut_seconds:
+          type: array
+          description: Where each cut falls, in seconds from the clip's start. Empty for a clip with no cut.
+          items:
+            type: number
+            format: double
+    AssetShot:
+      type: object
+      additionalProperties: false
+      required: [start_seconds, end_seconds, start_frame, end_frame]
+      properties:
+        start_seconds:
+          type: number
+          format: double
+        end_seconds:
+          type: number
+          format: double
+        start_frame:
+          type: integer
+          description: The shot's first frame, at frame_rate.
+        end_frame:
+          type: integer
+          description: The frame after the shot's last, at frame_rate.
     CutSuggestions:
       type: object
       additionalProperties: false
