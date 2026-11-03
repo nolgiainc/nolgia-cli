@@ -9811,10 +9811,13 @@ paths:
       operationId: getAutoRefresh
       summary: Get the current user's auto-refresh settings.
       description: |-
-        Returns the stored auto-refresh (auto top-up) preference. It is a stored
-        preference only: nothing reads it, so no top-up is ever bought
-        automatically and no card is charged, whatever `enabled` says. Top up
-        from the billing page when the balance runs low.
+        Returns the auto top-up setting (since 2026-11-03): when it is on and the
+        account's plan and top-up credits fall under `threshold_credits`, NOLGIA
+        charges the saved card for `purchase_credits` (one of the top-up packs),
+        at most `monthly_cap_cents` a calendar month, and Stripe emails a receipt.
+        `paused_reason` says when it stopped itself (a declined card, or a charge
+        the bank wants the customer to approve). Settings saved before
+        2026-11-03 were switched off: nothing turned on before then ever charged.
       responses:
         '200':
           description: Auto-refresh settings.
@@ -9831,9 +9834,13 @@ paths:
       operationId: putAutoRefresh
       summary: Update the current user's auto-refresh settings.
       description: |-
-        Stores the auto-refresh (auto top-up) preference and nothing else.
-        Automatic top-ups are not available: no job reads this setting, so
-        saving `enabled: true` never buys credits and never charges a card.
+        Turns auto top-up on or off. Turning it ON needs `consent: true`, a
+        `monthly_cap_cents` that covers at least one pack, a threshold from 10 to
+        10,000 credits, a pack size for `purchase_credits`, and a card saved on
+        the account; it is accepted only from the nolgia.ai web app (403
+        `auto_topup_web_only` otherwise). Turning it OFF is accepted from any
+        credential and takes effect at once. 409 `no_saved_card` when there is no
+        card to charge.
       requestBody:
         required: true
         content:
@@ -9850,6 +9857,10 @@ paths:
         '400':
           $ref: '#/components/responses/ProblemResponse'
         '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
           $ref: '#/components/responses/ProblemResponse'
         '422':
           $ref: '#/components/responses/ProblemResponse'
@@ -23959,6 +23970,51 @@ components:
         stripe_payment_method_id:
           type: string
           nullable: true
+        monthly_cap_cents:
+          type: integer
+          minimum: 0
+          description: The most auto top-up may charge in a calendar month (UTC), in US cents.
+        spent_this_month_cents:
+          type: integer
+          minimum: 0
+          description: What auto top-up charged (or is charging) this calendar month (UTC), in US cents.
+        card:
+          $ref: '#/components/schemas/AutoRefreshCard'
+        paused_reason:
+          type: string
+          nullable: true
+          description: >-
+            Set when auto top-up stopped itself: `card_declined`, `authentication_required` (the bank asked the customer to approve the charge) or `no_saved_card`. Saving the setting again clears it.
+        last_charge:
+          $ref: '#/components/schemas/AutoRefreshCharge'
+    AutoRefreshCard:
+      type: object
+      additionalProperties: false
+      required: [brand, last4]
+      description: The saved card auto top-up charges, as the customer sees it.
+      properties:
+        brand:
+          type: string
+        last4:
+          type: string
+    AutoRefreshCharge:
+      type: object
+      additionalProperties: false
+      required: [status, credits, amount_cents, at]
+      properties:
+        status:
+          type: string
+          description: '`pending`, `succeeded` or `failed`.'
+        credits:
+          type: integer
+        amount_cents:
+          type: integer
+        at:
+          type: string
+          format: date-time
+        failure_code:
+          type: string
+          nullable: true
     AutoRefreshSettingsRequest:
       type: object
       additionalProperties: false
@@ -23975,6 +24031,15 @@ components:
         stripe_payment_method_id:
           type: string
           nullable: true
+          description: Ignored since 2026-11-03; the card is the one saved on the account.
+        monthly_cap_cents:
+          type: integer
+          minimum: 0
+          description: The most auto top-up may charge in a calendar month, in US cents. Required to turn it on; at least one pack, at most 200000.
+        consent:
+          type: boolean
+          description: >-
+            Required (true) to turn auto top-up on: the customer agrees that NOLGIA charges their saved card for the chosen pack whenever their credits fall under the threshold, up to the monthly cap. Turning it on is only accepted from the nolgia.ai web app; turning it off is accepted from any credential.
     PAT:
       type: object
       additionalProperties: false
