@@ -1,7 +1,9 @@
 use anyhow::{Context, Result, bail, ensure};
 use clap::{Args, Subcommand};
 use nolgia_client::types::{
-    CreateBlocksRenderRequest, CreateBlocksRenderRequestName, RenderAspectRatio, RenderBlock,
+    CreateBlocksRenderRequest, CreateBlocksRenderRequestName, CreateGreenScreenRenderRequest,
+    CreateGreenScreenRenderRequestMatchLevel, CreateGreenScreenRenderRequestName,
+    CreateGreenScreenRenderRequestSubject, GreenScreenBackdrop, RenderAspectRatio, RenderBlock,
 };
 use uuid::Uuid;
 
@@ -20,6 +22,62 @@ pub enum RenderCommand {
         long_about = "Assemble ordered clip and narration pairs into a narrated explainer MP4.\n\nEach --pair is one fixed-length block, in the order given. A short narration\ntake is centered; a long take is sped up with pitch-preserving atempo to at\nmost 1.25x. A longer take is refused, naming the block and both asset ids.\nClips are trimmed from their start or have their last frame held to fill\nthe block. If an unknown duration is measured during rendering, an overlong\ntake fails the render with the same pair-specific reason.\n\nUse 1 to 60 pairs, 2 to 30 seconds per block, and at most 600 seconds total.\nRenders cost no credits. Use --wait to receive the finished asset URL."
     )]
     Blocks(BlocksArgs),
+    /// Keep a person exactly as filmed: the grey stand-in, or the person back on top of a new world
+    #[command(
+        name = "keep-me",
+        alias = "green-screen",
+        long_about = "Keep a person exactly as filmed (POST /renders/green-screen). Free.\n\nOn real footage of a real person the person never goes through a video model:\n  1. cut them out: nolgia gen video --model remove-background-video --input <clip>\n  2. nolgia render keep-me --clip <clip> --backdrop other --matte <cut-out> --fill-subject\n     (the clip with the person filled flat grey: this is what the model sees)\n  3. the effect or new world on the grey clip: nolgia gen video --video-task edit --video-ref <grey clip> ...\n  4. nolgia render keep-me --clip <clip> --backdrop other --matte <cut-out> --background <world>\n     --background-from-clip --subject-filled --subject exact|match\n     (the person back on top from their own pixels; match moves only their brightness and colour)\n\nA clip shot on a green or blue screen needs no cut-out: --backdrop green|blue --background <picture or video>."
+    )]
+    KeepMe(KeepMeArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct KeepMeArgs {
+    /// The person's clip (the original footage), a video asset id
+    #[arg(long, value_name = "UUID")]
+    pub clip: Uuid,
+    /// What they were filmed against: green, blue, white or other
+    #[arg(long, value_name = "green|blue|white|other")]
+    pub backdrop: Option<GreenScreenBackdrop>,
+    /// The person's cut-out of this clip (remove-background-video), needed for white and other
+    #[arg(long, value_name = "UUID")]
+    pub matte: Option<Uuid>,
+    /// Output the clip with the person filled flat grey (step 2); no background
+    #[arg(long)]
+    pub fill_subject: bool,
+    /// The new background: a picture or video asset, or the world made from the grey clip
+    #[arg(long, value_name = "UUID")]
+    pub background: Option<Uuid>,
+    /// The background video was made from this clip (laid frame for frame)
+    #[arg(long)]
+    pub background_from_clip: bool,
+    /// The world was made from the grey-filled clip of step 2
+    #[arg(long)]
+    pub subject_filled: bool,
+    /// The world already had the model's figure removed
+    #[arg(long)]
+    pub world_cleaned: bool,
+    /// How the person goes back on top: exact (their own pixels) or match (brightness and colour only)
+    #[arg(long, value_name = "exact|match")]
+    pub subject: Option<CreateGreenScreenRenderRequestSubject>,
+    /// How far match goes: subtle, medium or strong
+    #[arg(long, value_name = "subtle|medium|strong")]
+    pub match_level: Option<CreateGreenScreenRenderRequestMatchLevel>,
+    /// Name for the carrier composition
+    #[arg(long, value_name = "NAME")]
+    pub name: Option<CreateGreenScreenRenderRequestName>,
+    /// Project for the carrier composition and finished video
+    #[arg(long, value_name = "UUID")]
+    pub project: Option<Uuid>,
+    /// Wait for the render to finish and resolve the produced asset
+    #[arg(long)]
+    pub wait: bool,
+    /// Max seconds to wait for the render
+    #[arg(long, value_name = "SECONDS", default_value_t = DEFAULT_RENDER_TIMEOUT_SECONDS)]
+    pub timeout: u64,
+    /// Seconds between render-status polls while waiting
+    #[arg(long, value_name = "SECONDS", default_value_t = DEFAULT_POLL_INTERVAL_SECONDS)]
+    pub poll_interval: u64,
 }
 
 #[derive(Args, Debug)]
@@ -56,7 +114,84 @@ pub struct BlocksArgs {
 pub async fn run(command: RenderCommand, ctx: &CommandContext) -> Result<()> {
     match command {
         RenderCommand::Blocks(args) => blocks(args, ctx).await,
+        RenderCommand::KeepMe(args) => keep_me(args, ctx).await,
     }
+}
+
+/// The request `render keep-me` sends, checked before anything is submitted.
+pub fn keep_me_request(args: &KeepMeArgs) -> Result<CreateGreenScreenRenderRequest> {
+    if args.fill_subject {
+        ensure!(
+            args.background.is_none(),
+            "--fill-subject makes the grey stand-in and takes no --background"
+        );
+        ensure!(
+            args.matte.is_some(),
+            "--fill-subject needs the person's cut-out: --matte <UUID>"
+        );
+    } else {
+        ensure!(
+            args.background.is_some(),
+            "--background is required (or --fill-subject for the grey stand-in)"
+        );
+    }
+    let flag = |on: bool| if on { Some(true) } else { None };
+    CreateGreenScreenRenderRequest::builder()
+        .asset_id(args.clip)
+        .backdrop(args.backdrop)
+        .matte_asset_id(args.matte)
+        .fill_subject(flag(args.fill_subject))
+        .background_asset_id(args.background)
+        .background_from_clip(flag(args.background_from_clip))
+        .subject_filled(flag(args.subject_filled))
+        .world_cleaned(flag(args.world_cleaned))
+        .subject(args.subject)
+        .match_level(args.match_level)
+        .name(args.name.clone())
+        .project_id(args.project)
+        .try_into()
+        .context("building keep-me render request")
+}
+
+async fn keep_me(args: KeepMeArgs, ctx: &CommandContext) -> Result<()> {
+    if args.wait {
+        ensure!(args.timeout > 0, "--timeout must be greater than zero");
+        ensure!(
+            args.poll_interval > 0,
+            "--poll-interval must be greater than zero"
+        );
+    }
+    let body = keep_me_request(&args)?;
+    let render = match ctx
+        .client()
+        .create_green_screen_render()
+        .body(body)
+        .send()
+        .await
+    {
+        Ok(response) => response.into_inner(),
+        Err(err) => return Err(api_error(err, "submitting keep-me render").await),
+    };
+    let render_id = render.id;
+    eprintln!("render {render_id} submitted");
+    crate::livejob::guard_render(render_id, async {
+        if args.wait {
+            let finished = poll_render(render_id, args.timeout, args.poll_interval, ctx).await?;
+            return report_render(render.composition_id, RenderOutcome::Finished(Box::new(finished)), ctx).await;
+        }
+        match ctx.format() {
+            OutputFormat::Json => print_json(
+                ctx.output(),
+                &serde_json::json!({"render_id": render_id, "composition_id": render.composition_id, "status": "queued"}),
+            ),
+            OutputFormat::Text => {
+                println!("{render_id} queued");
+                eprintln!("check it: nolgia compositions status {render_id}");
+                Ok(())
+            }
+        }
+    })
+    .await
 }
 
 async fn blocks(args: BlocksArgs, ctx: &CommandContext) -> Result<()> {
@@ -144,4 +279,77 @@ async fn blocks(args: BlocksArgs, ctx: &CommandContext) -> Result<()> {
         }
     })
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args() -> KeepMeArgs {
+        KeepMeArgs {
+            clip: Uuid::nil(),
+            backdrop: Some(GreenScreenBackdrop::Other),
+            matte: Some(Uuid::from_u128(1)),
+            fill_subject: false,
+            background: Some(Uuid::from_u128(2)),
+            background_from_clip: true,
+            subject_filled: true,
+            world_cleaned: false,
+            subject: Some(CreateGreenScreenRenderRequestSubject::Match),
+            match_level: Some(CreateGreenScreenRenderRequestMatchLevel::Subtle),
+            name: None,
+            project: None,
+            wait: false,
+            timeout: 1,
+            poll_interval: 1,
+        }
+    }
+
+    #[test]
+    fn keep_me_sends_the_protect_fields() {
+        let body = serde_json::to_value(keep_me_request(&args()).unwrap()).unwrap();
+        assert_eq!(body["subject"], "match");
+        assert_eq!(body["match_level"], "subtle");
+        assert_eq!(body["background_from_clip"], true);
+        assert_eq!(body["subject_filled"], true);
+        assert_eq!(body["backdrop"], "other");
+        assert!(
+            body.get("fill_subject")
+                .is_none_or(serde_json::Value::is_null)
+        );
+    }
+
+    #[test]
+    fn the_grey_stand_in_takes_a_cut_out_and_no_background() {
+        let mut grey = args();
+        grey.fill_subject = true;
+        assert!(
+            keep_me_request(&grey)
+                .unwrap_err()
+                .to_string()
+                .contains("takes no --background")
+        );
+        grey.background = None;
+        let body = serde_json::to_value(keep_me_request(&grey).unwrap()).unwrap();
+        assert_eq!(body["fill_subject"], true);
+        grey.matte = None;
+        assert!(
+            keep_me_request(&grey)
+                .unwrap_err()
+                .to_string()
+                .contains("--matte")
+        );
+    }
+
+    #[test]
+    fn a_composite_needs_a_background() {
+        let mut bare = args();
+        bare.background = None;
+        assert!(
+            keep_me_request(&bare)
+                .unwrap_err()
+                .to_string()
+                .contains("--background is required")
+        );
+    }
 }

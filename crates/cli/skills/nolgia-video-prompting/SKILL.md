@@ -1,7 +1,7 @@
 ---
 name: nolgia-video-prompting
 description: "Directing craft for NOLGIA video generation: the film standard (references with stated jobs, casting and styling for the role, location plates, one structured prompt per take, written cuts at the genre's rhythm, best of N takes, sound, typeset words, the realism finish), plus the breathing pattern, per-shot sound design and the keep-what-works iteration loop. Use when: writing or fixing video prompts, planning a multi-clip production, a short film, a series episode, a trailer, a commercial or a music video on NOLGIA, or deciding which shots to regenerate. NOT for: platform mechanics such as auth, flags, jobs and credits (use nolgia-platform), vertical UGC ad pipelines (use nolgia-ugc-ads), or still-image prompting."
-version: 1.10.4
+version: 1.11.1
 author: NOLGIA
 license: MIT
 metadata:
@@ -241,6 +241,45 @@ describe a light, and none of their kept takes names an off-frame fixture.
   light words drew (a lamp, a lantern, a stand, a black panel) and remake it
   before any video credits.
 
+### Takes with people in motion (round 49, the owner's blind pick 2026-11-03)
+
+A video take with people in motion (a close-up, a dialogue or performance take in
+a film, short, scene, series, trailer or music video story shot) is written this
+way, and it wins over the held order below for such a take. Commercial and product
+scenes and takes with no people keep the held order. In the owner's blind review
+a talking close-up written this way passed (3,256 characters against the old
+4,226) and a one-minute boxing close-up beat its 18,049 character original. The
+owner's AI tells on what lost: skin too smooth or waxy, too sharp and HDR.
+
+- **Out of the take:** the per-face flaw catalogue (at most ONE mark, only when the
+  story needs it), skin clauses ("skin stays skin coloured", "visible pores",
+  "not plastic"), the "not a model" identity lock, the FORBIDDEN fault list, and
+  the lens brand, T-stop, stock number, camera body and hex colours (they stay in
+  the shot plan). The model reads fault words as content.
+- **In the take, in this order:** an opening line with "photoreal" once and the
+  kind of film; SCENE CONTEXT; ACTIVE REFERENCES; CHARACTER (one face line: name,
+  age as a number, job, height and build, face, eyes, hair, the role's clothes);
+  LOCATION; FIRST FRAME in words; FORMAT only with written cuts; CAMERA (one focal
+  length, "shallow but readable depth of field, the background falling into a
+  soft, natural blur", the move, "No zoom, no cuts."); ACTION TIMING; VOICE;
+  ACTING; PHYSICS; LIGHT (soft motivated light as what it does: window or sky light
+  from the side or behind, bouncing onto the face, a faint haze, highlights rolling
+  off softly; the story's own hard light written once as its effect); AUDIO; one
+  LOOK line ("photoreal, a 35mm film look, fine organic grain; natural,
+  true-to-life colour: mostly ..., ... second, ... as the accent"); and one
+  CONTENT line ("No on-screen text or subtitles. No music.").
+- **Length:** about 3,000 to 3,500 characters for a single 5 to 8 s shot; at or
+  under about 8,000 for a take with written cuts.
+- **References: 2 or 3 with stated jobs.** "@Image1 is Denise: her face, hair,
+  build and clothes only. Not its grey backdrop, its panel layout or its poses."
+  "@Image2 is the break room: the walls, the lockers, the table and the window
+  light only. Nobody is in it." A voice reference per speaker. No generated
+  keyframe rides as "the opening frame"; a framing still only as "composition
+  only". Stills are made as the casting and location sections say (unchanged).
+- **Finish:** when the Resolve reference grade finishes the take, BALANCE is
+  trimmed per shot, never one fixed chain pasted across shots (the same take read
+  AI under the exact chain).
+
 ### One structured prompt per take, in a held order
 
 LOOK (the film's LOOK block for this lighting setup, verbatim), SCENE CONTEXT,
@@ -293,7 +332,8 @@ and the default camera bans).
   `kling-v4` has no such flag and splits a take itself, so a single shot on it
   says "one continuous long take without any cuts, no subtitles, no background
   music".
-- **Keep the FORBIDDEN line on every lane**, and on `seedance-2.5` and
+- **Keep the FORBIDDEN line on every lane** (except a take with people in motion,
+  which ends on its CONTENT line instead, above), and on `seedance-2.5` and
   `kling-v4` also write the wanted look positively. Only Omni takes
   `--negative-prompt` (`video.negative_prompt_supported`; it is written into
   the prompt as "Do not include: X."); every other model
@@ -315,8 +355,18 @@ and the default camera bans).
 - **Draft cheap, then promote**: prove a hard take's prompt at `seedance-2.5`
   480p, then render the identical prompt at 720p (no seed on that lane, so the
   720p render is a new roll of a proven prompt).
-- **Patch with video edit before re rolling**: `seedance-2.5` with `video_task`
-  `edit` keeps everything and changes one named thing.
+- **Patch with video edit before re rolling**: `seedance-2.5` with `--video-task
+  edit` and `--edit-target "<the one thing>"` keeps the rest of the clip as
+  filmed, people included, and changes that thing; without `--edit-target` an
+  edit redraws the whole frame, faces too.
+- **Real footage of a real person: keep them exactly as filmed.** A new place
+  or an effect around them never sends the person through a model: cut them
+  out (`--model remove-background-video`), make the grey stand-in with
+  `nolgia render keep-me --fill-subject`, edit the grey clip, then put them
+  back with `nolgia render keep-me --background-from-clip --subject-filled
+  --subject exact` (`match` grades only their brightness and colour).
+  `nolgia render keep-me --help` has the four steps. Send the clip itself only
+  when the customer asks for what they do or how they look to change.
 - **Alternates of the same beat may intercut** at detected cuts; a scene is never
   assembled from unrelated single generations.
 

@@ -3468,6 +3468,116 @@ paths:
           $ref: '#/components/responses/ProblemResponse'
         default:
           $ref: '#/components/responses/ProblemResponse'
+  /assets/{id}/shots:
+    get:
+      tags: [Assets]
+      operationId: getAssetShots
+      summary: Find the shots in a video and where it cuts (free).
+      description: >-
+        Read a video for hard cuts, the way an editor joins two shots into one clip, and answer each shot with its start and end, plus the cut times in seconds. Use it before sending the clip as a reference video: a video model follows a clip's cut only when the prompt names it (for example "Keep the cut at 2.0 s"). Nothing is generated and nothing is charged. Videos of up to 120 seconds.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Successful response.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssetShots'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '429':
+          $ref: '#/components/responses/ProblemResponse'
+        '502':
+          $ref: '#/components/responses/ProblemResponse'
+        '503':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /assets/{id}/footage:
+    get:
+      tags: [Assets]
+      operationId: getAssetFootage
+      summary: Read and measure a filmed clip, and write the prompt block that matches it (free).
+      description: >-
+        Match my footage. Reads the camera metadata in one of your video files (camera body, frame rate, shutter, ISO, white balance, lens, colour, HDR) and measures the picture (the camera move, the colour of the light, the black floor and contrast, the grain on a locked shot, the key side on the person when a matte is given, depth of field when the backdrop has detail), then writes `block`: a plain, editable paragraph that describes the real shot to a video model, for example "Camera: match the original, GoPro HERO10 Black, 239.76 fps, 1/242 s shutter (about 356°), ISO about 989, ... locked off, no camera movement." Every value in `read` names where it came from, `measured` holds what the pixels said, and `left_to_you` lists what was neither, with why. A file with no camera metadata (a phone export, a re-encode) is still read: the block is written from what there is, and what is missing is listed. GPS, location and serial numbers are never read. The first 60 seconds of picture are measured (fewer for 4K and high frame rates); tags and boxes are read from the whole file. A picture under 32 or over 16384 pixels a side, or more than 8 times as wide as tall (or as tall as wide), is not footage this read measures: it answers 400 saying so. Nothing is generated and nothing is charged; the answer is kept with the asset, so asking again is instant.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: matte_asset_id
+          in: query
+          required: false
+          description: A cut-out matte of the same clip (the result of remove-background-video on it). With it, the light on the person (key side and softness) and the depth of field are measured too.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The read, the measurements and the block.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssetFootage'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '429':
+          $ref: '#/components/responses/ProblemResponse'
+        '502':
+          $ref: '#/components/responses/ProblemResponse'
+        '503':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /assets/{id}/faces:
+    get:
+      tags: [Assets]
+      operationId: getAssetFaces
+      summary: Whether a face is in one of your pictures or clips (free).
+      description: >-
+        Counts the faces in an image, or in three frames of a video (at a quarter, half and three quarters of its length), with the same detector the identity checks use. Use it before a restore or an enhance: when `face_count` is above zero and the chosen engine `redraws_faces`, say once that the engine may redraw the person's face and offer a faithful one. Only the count is answered; no box, no landmark and nothing about who is in shot is read or kept. Nothing is generated and nothing is charged. 503 where the detector is not installed.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The face count.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssetFaces'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '429':
+          $ref: '#/components/responses/ProblemResponse'
+        '503':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
   /assets/{id}/clips:
     post:
       tags: [Assets]
@@ -3693,18 +3803,20 @@ paths:
     post:
       tags: [Characters]
       operationId: createCharacterSheet
-      summary: Generate a one-tap character sheet (split, five-view turnaround, or expression).
+      summary: Generate a one-tap character sheet (split, five-panel turnaround, or expression).
       description: |
         Composes the requested sheet scaffold with the character's canonical
-        description and the full Aura layer on gpt-image-2, with the
-        character's primary reference attached as identity conditioning. The
+        description and the full Aura layer, with the character's primary
+        reference attached as identity conditioning. The turnaround renders on
+        gpt-image-2.5-sunburst as an edit of that reference; split and
+        expression render on gpt-image-2. The
         character must have at least one reference image. Optional wearable
         references ride the same request and are rendered exactly as shown in
         every view - a request whose references exceed what the sheet lane can
         carry is refused (400), never silently dropped.
 
-        Billed exactly like the equivalent gpt-image-2 `POST /generate/image`
-        call.
+        Billed exactly like the equivalent `POST /generate/image` call on the
+        model the sheet renders on (the job records it).
       parameters:
         - name: id
           in: path
@@ -7771,7 +7883,22 @@ paths:
         frames more or fewer, never looped), and it is not matched to the
         footage unless `match` is set, since it was made in its own light.
 
-        The person is never changed. Wherever the matte is solid, the result
+        "Keep me exactly as filmed": with `background_from_clip` and an AI
+        matte (`white` or `other`), the world holds the model's own copy of
+        the person. It is taken out from under them and a ring around them,
+        and filled with the scene as the world's other frames show it there
+        (aligned to the camera's move), smoothly only where no frame does, so
+        their soft edge mixes with the scene, never with the copy. `subject`
+        chooses how they go back on top: `exact` (their own samples) or
+        `match` (only the brightness and colour of their own footage moved
+        toward the scene, `match_level` saying how far; nothing of them is
+        generated). Video models that refuse real faces take the clip with
+        the person filled flat grey instead: make it with `fill_subject:
+        true` (no background), generate the world from that, then render
+        over it with `subject_filled: true`.
+
+        The person is never changed (with `subject` `match`, only graded).
+        Wherever the matte is solid, the result
         carries the clip's own samples, copied, not recomputed; only the edge
         band (hair, motion blur, a few pixels inside the outline) is unmixed
         from the screen colour, held free of green spill and blended with the
@@ -7782,7 +7909,11 @@ paths:
         brightness of lit surfaces and the same colour of light, read from
         the person's own pixels), softened like a lens focused on the person
         (`blur`), given the footage's grain, and mirrored when `flip` is true
-        (which moves its light to the other side). To relight a background
+        (which moves its light to the other side). The result comes with the
+        matte it was composited with, published as its own grey MP4 (white =
+        the person) and named on the result as `matte_layer_asset_id`, so an
+        editor can composite the person again in After Effects, Premiere or
+        Resolve. To relight a background
         picture instead, make a relit copy of it first (an image edit, priced
         as usual) and pass that.
 
@@ -7790,7 +7921,12 @@ paths:
         naming the backdrop it does see, when none is found). Clips up to 120 seconds at 1080p and 30 frames a
         second, longer for smaller or slower clips (270 seconds at 720p, never
         more than 300), shorter for larger or faster ones (30 seconds at 4K):
-        `max_seconds` in the quote is the clip's own. Renders are not billed: the quote
+        `max_seconds` in the quote is the clip's own. A render over a world
+        made from the clip with an AI matte (`background_from_clip` with
+        `white` or `other`) does about twice the work a frame and takes
+        shorter clips where the work is the limit: 40 seconds at 1080p and 30
+        frames a second (still 60 at 720p); the quote does not know the
+        background and answers the plain limit. Renders are not billed: the quote
         (`GET /renders/green-screen/quote`) answers 0 credits. Creates a named
         carrier composition (in `project_id` when given, else in the clip's
         own project) whose `index.html` shows the background under the clip;
@@ -8774,6 +8910,36 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/InsiderCodeLookup'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '429':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /referrals/invites/{code}:
+    get:
+      tags: [Billing]
+      operationId: getReferralInvite
+      summary: Look up a customer's referral invite (no authentication).
+      description: >
+        Whether a customer referral code (the `<code>` of nolgia.ai/gift/<code>, with or without its leading `_`) is valid and what a friend who signs up through it gets: `welcome_credits` free credits for 30 days. Names nobody. `404` when the code is unknown, its owner can no longer refer, or its owner is an Insider (their code answers on `GET /insiders/codes/{code}`). Rate limited per IP (`429`).
+
+      security: []
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 40
+      responses:
+        '200':
+          description: The invite.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReferralInvite'
         '404':
           $ref: '#/components/responses/ProblemResponse'
         '429':
@@ -9789,10 +9955,13 @@ paths:
       operationId: getAutoRefresh
       summary: Get the current user's auto-refresh settings.
       description: |-
-        Returns the stored auto-refresh (auto top-up) preference. It is a stored
-        preference only: nothing reads it, so no top-up is ever bought
-        automatically and no card is charged, whatever `enabled` says. Top up
-        from the billing page when the balance runs low.
+        Returns the auto top-up setting (since 2026-11-03): when it is on and the
+        account's plan and top-up credits fall under `threshold_credits`, NOLGIA
+        charges the saved card for `purchase_credits` (one of the top-up packs),
+        at most `monthly_cap_cents` a calendar month, and Stripe emails a receipt.
+        `paused_reason` says when it stopped itself (a declined card, or a charge
+        the bank wants the customer to approve). Settings saved before
+        2026-11-03 were switched off: nothing turned on before then ever charged.
       responses:
         '200':
           description: Auto-refresh settings.
@@ -9809,9 +9978,13 @@ paths:
       operationId: putAutoRefresh
       summary: Update the current user's auto-refresh settings.
       description: |-
-        Stores the auto-refresh (auto top-up) preference and nothing else.
-        Automatic top-ups are not available: no job reads this setting, so
-        saving `enabled: true` never buys credits and never charges a card.
+        Turns auto top-up on or off. Turning it ON needs `consent: true`, a
+        `monthly_cap_cents` that covers at least one pack, a threshold from 10 to
+        10,000 credits, a pack size for `purchase_credits`, and a card saved on
+        the account; it is accepted only from the nolgia.ai web app (403
+        `auto_topup_web_only` otherwise). Turning it OFF is accepted from any
+        credential and takes effect at once. 409 `no_saved_card` when there is no
+        card to charge.
       requestBody:
         required: true
         content:
@@ -9829,7 +10002,43 @@ paths:
           $ref: '#/components/responses/ProblemResponse'
         '401':
           $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
         '422':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /billing/referral:
+    get:
+      tags: [Billing]
+      operationId: getBillingReferral
+      summary: Get the current user's referral link and rewards ("give 100 credits, get 300").
+      description: |-
+        The customer referral (since 2026-11-03). Every account that has paid
+        for a plan or for credits, and is not a NOLGIA Insider, has a personal
+        share link (`share_url`, nolgia.ai/gift/<code>). A friend who signs up
+        through it gets `welcome_credits` free credits for 30 days (usable
+        without a card). When that friend's first paid plan invoice lands, this
+        account gets `reward_credits` top-up credits that never expire, at most
+        `monthly_cap` a calendar month (UTC); more are held for a person at
+        NOLGIA to look at (`held`). A reward is taken back, as far as it is
+        unspent, when the friend's first payment is refunded or disputed within
+        30 days. The code is made on the first read. `eligible` is false with
+        `reason` `not_paid`, `insider` (an Insider uses their Insider link,
+        `insider_handle`), `organization` (a team workspace; referrals belong
+        to the personal account) or `off`. `ask` is true once the account has
+        paid for a second month or its link has 3 or more views: the moment to
+        ask for a referral.
+      responses:
+        '200':
+          description: The referral link and its rewards.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomerReferral'
+        '401':
           $ref: '#/components/responses/ProblemResponse'
         default:
           $ref: '#/components/responses/ProblemResponse'
@@ -13337,6 +13546,9 @@ components:
         restore:
           type: boolean
           description: Mirrors `Model.restore`.
+        redraws_faces:
+          type: boolean
+          description: Mirrors `Model.redraws_faces`.
         remove_background:
           type: boolean
           description: Mirrors `Model.remove_background`.
@@ -13469,6 +13681,22 @@ components:
           type: boolean
           description: Whether this value costs more than the base rate.
           examples: [true]
+    AssetFaces:
+      type: object
+      additionalProperties: false
+      required: [asset_id, face_count, frames_checked]
+      properties:
+        asset_id:
+          type: string
+          format: uuid
+        face_count:
+          type: integer
+          minimum: 0
+          description: The most faces seen in any one checked frame (the image itself for a picture).
+        frames_checked:
+          type: integer
+          minimum: 0
+          description: How many frames were read (1 for an image, up to 3 for a video).
     Model:
       type: object
       additionalProperties: false
@@ -13509,6 +13737,10 @@ components:
           type: boolean
           description: >-
             True for video-restoration lane models: they are submitted via `POST /restore/video` with a source clip and NO prompt, not via `POST /generate/video`. Absent for generation models.
+        redraws_faces:
+          type: boolean
+          description: >-
+            True for restore engines that can REDRAW a face rather than reconstruct it: the diffusion restorers (`seedvr2-restore`, the Starlight family, `topaz-wonder`) and Iris, which rebuilds degraded faces. A face from them can come back close to the person but not theirs, so on footage of real people offer a faithful engine first (Proteus, Artemis, Nyx, Dione and the other restore engines sharpen and scale what the clip holds), label these "may redraw faces", and check the faces of what they deliver. `GET /assets/{id}/faces` says whether a face is in shot. Absent on every other model.
         remove_background:
           type: boolean
           description: |
@@ -13955,14 +14187,18 @@ components:
           nullable: true
           minimum: 1
           description: |
-            Extra credits for each input image past `free_input_images`, on a
-            model that charges for input images. Input images
-            are the reference images plus the start and end frames. The
-            surcharge is added once per request, at every tier, and is NOT
-            scaled by duration. A request carrying N input images is charged
-            the clip price plus `max(0, N - free_input_images) *
-            input_image_credits`. Absent when input images have no price
-            impact.
+            Extra credits for each input image past `free_input_images` (for
+            each block of `input_images_per_credit` of them, where that is
+            published), on a model that charges for input images. On video,
+            input images are the reference images plus the start and end
+            frames, the surcharge is added once per request at every tier and
+            is NOT scaled by duration: a request carrying N input images is
+            charged the clip price plus `max(0, N - free_input_images) *
+            input_image_credits`. On image models the input images are the
+            references (`image_url`, `image_urls`, `reference_asset_ids` and
+            every server-side reference: character, location, product, brand
+            logo, elements), and the surcharge is added for each output image.
+            Absent when input images have no price impact.
           examples: [5]
         free_input_images:
           type: integer
@@ -13972,6 +14208,19 @@ components:
             Present with `input_image_credits`: how many input images a
             request carries before the surcharge starts.
           examples: [2]
+        input_images_per_credit:
+          type: integer
+          nullable: true
+          minimum: 2
+          description: |
+            Present when the provider bills each input image a small fraction
+            of a credit: input images past `free_input_images` are charged in
+            blocks of this many, `ceil(max(0, N - free_input_images) /
+            input_images_per_credit) * input_image_credits`. Example:
+            `nano-banana-pro` takes 14 references, the first is in its price,
+            and the other 13 add 1 credit (blocks of 16). Absent when every
+            image past the allowance is charged on its own.
+          examples: [16]
         baseline_seconds:
           type: integer
           nullable: true
@@ -14102,14 +14351,21 @@ components:
           type: string
           description: |
             Present when the model does not render this tier itself: the tier
-            the model renders at, before the same job upscales the clip to
-            this tier's frame on the restore lane. Label the tier as
-            an upscale, for example "4K (upscaled)". The clip keeps its own
-            aspect ratio: 3840x2160 for 16:9, 2160x3840 for 9:16. A clip the
-            upscale could not finish is delivered at the `upscaled_from` tier and charged at
-            it, with the job's `warnings` saying so. Absent on every tier the
-            model renders itself. Example: `seedance-2.5` 4k is upscaled from
-            1080p.
+            the model renders at, before the same job upscales the result to
+            this tier. Label the tier as an upscale, for example "4K
+            (upscaled)". Absent on every tier the model renders itself.
+
+            Video: the clip is upscaled to this tier's frame on the restore
+            lane and keeps its own aspect ratio (3840x2160 for 16:9, 2160x3840
+            for 9:16). A clip the upscale could not finish is delivered at the
+            `upscaled_from` tier and charged at it, with the job's `warnings`
+            saying so. Example: `seedance-2.5` 4k is upscaled from 1080p.
+
+            Image: the `2k` and `4k` tiers of the shared upscale ladder name
+            `native`, the model's own render that the same job enlarges to
+            the tier's long side (2,048 or 4,096 px). On `nano-banana-pro`,
+            `nano-banana-2` and every model with native size tiers the field
+            is absent: the model renders that size itself.
           examples: ['1080p']
         premium:
           type: boolean
@@ -14663,6 +14919,12 @@ components:
         (Gemini 3 Pro Image) is the flagship Gemini image model and
         `nano-banana-2-lite` (Gemini 3.1 Flash Lite Image) the budget tier,
         both with the ten Gemini aspect ratios and reference-image editing.
+        On `nano-banana-pro` and `nano-banana-2` the `2k` and `4k` tiers are
+        rendered at that resolution by the model itself (since 2026-11-03;
+        they were an upscale of a 1K render before), and `native` (the
+        default) is the model's 1K. `nano-banana-pro` charges its `2k` the
+        same as `native`, because Google bills them alike. `nano-banana-2-lite`
+        renders 1K only, so its `2k` and `4k` stay an upscale.
         `nano-banana-2.1` (Gemini Nano Banana 2.1) is the update to
         `nano-banana-2`: native `1k` (default), `2k` and `4k` output tiers,
         each rendered at that resolution by the model itself and priced by
@@ -14703,8 +14965,7 @@ components:
         the family's edit route whenever a reference image rides the request
         (`image_url`, `image_urls`, `reference_asset_ids`, a face or element
         reference) and the text-to-image route otherwise. `reve-2.1` (Reve
-        2.1): a single reference, the shared `native`/`2k`/`4k` upscaler
-        tiers. `seedream-v5-pro` (ByteDance Seedream 5 Pro): native `1k`
+        2.1): a single reference, `native`/`2k`/`4k` tiers. `seedream-v5-pro` (ByteDance Seedream 5 Pro): native `1k`
         (default) and `2k` output tiers, up to 4 reference images.
         `ideogram-v4` (Ideogram v4): `turbo`/`balanced`/`quality` tiers that
         select the rendering speed, a single reference. `qwen-image-3`
@@ -15478,7 +15739,7 @@ components:
         reference_asset_ids:
           type: array
           nullable: true
-          maxItems: 4
+          maxItems: 14
           items:
             type: string
             format: uuid
@@ -15685,9 +15946,9 @@ components:
         image_urls:
           type: array
           nullable: true
-          maxItems: 4
+          maxItems: 14
           description: >-
-            Multiple reference images (https URLs) for models that support multi-reference input (OpenAI gpt-image models — e.g. character + outfit + style references combined — Kling Image 3.0 multi-reference i2i, `seedream-v5-pro` (up to 4) and `qwen-image-3` (up to 3)). Mutually additive with `image_url` (it is treated as the first reference); at most 4 references total, and never more than the model's `image.reference_images_max`. OpenAI references are fetched server-side under one 10 MB combined download budget; every other model fetches the URLs itself, so they must stay reachable until the render completes. Rejected (400) on models without multi-reference support. An entry can also be the id of one of your own image assets: it is signed for you, in its place in the list.
+            Multiple reference images (https URLs) for models that support multi-reference input: `nano-banana-pro` and `nano-banana-2.1` (up to 14), `seedream-v5-pro`, `flux-3-image` and `flux-3-image-klein` (up to 10), the OpenAI gpt-image models and Kling Image 3.0 (up to 4) and `qwen-image-3` (up to 3). Mutually additive with `image_url` (it is treated as the first reference); never more than the model's `image.reference_images_max`, and never more than 14. A model that bills references past an allowance publishes it as `cost.free_input_images` / `cost.input_images_per_credit`. OpenAI references are fetched server-side under one 10 MB combined download budget; every other model fetches the URLs itself, so they must stay reachable until the render completes. Rejected (400) on models without multi-reference support. An entry can also be the id of one of your own image assets: it is signed for you, in its place in the list.
           items:
             type: string
             maxLength: 2048
@@ -15695,9 +15956,9 @@ components:
         reference_asset_ids:
           type: array
           nullable: true
-          maxItems: 4
+          maxItems: 14
           description: >-
-            Reference images given as ids of your own image assets — the server resolves each to a signed URL and it rides the same multi-reference path as `image_urls` (the image lane's sibling of the video lane's `element_asset_ids`). Counted against the same per-model cap as `image_url` + `image_urls` combined (`image.reference_images_max` on `GET /models` — 4 on gpt-image-2, Kling Image 3.0 and seedream-v5-pro, 3 on qwen-image-3, 1 on single-reference models, 0 on models with no reference input, where any reference is rejected with a 400 rather than silently dropped). Prefer this over `image_urls` for assets already in your Library: the server re-signs the underlying objects at execution time, so a queued job never runs with an expired URL.
+            Reference images given as ids of your own image assets — the server resolves each to a signed URL and it rides the same multi-reference path as `image_urls` (the image lane's sibling of the video lane's `element_asset_ids`). Counted against the same per-model cap as `image_url` + `image_urls` combined (`image.reference_images_max` on `GET /models` — 14 on nano-banana-pro and nano-banana-2.1, 10 on seedream-v5-pro and FLUX 3, 4 on gpt-image-2 and Kling Image 3.0, 3 on qwen-image-3, 1 on single-reference models, 0 on models with no reference input, where any reference is rejected with a 400 rather than silently dropped). Prefer this over `image_urls` for assets already in your Library: the server re-signs the underlying objects at execution time, so a queued job never runs with an expired URL.
           items:
             type: string
             format: uuid
@@ -15735,10 +15996,26 @@ components:
 
             Accepted only on models publishing `image.inpaint_mask: true` on `GET /models` (`gpt-image-2` and the GPT Image 2.5 pair), and only alongside exactly one reference image — `image_url`, one entry in `image_urls`, or one `reference_asset_ids` entry, including any reference a `character_id`, `face_reference_asset_id` or `element_ids` attaches. A mask on an unsupported model, with the wrong number of references, or on a non-PNG asset is rejected with a 400 before any credit hold, so a rejected request never costs credits; a mask with no alpha channel or the wrong dimensions fails the job with the same explanation and a full refund.
 
-            The mask is guidance the model follows, not a hard clip, and the prompt decides what it does with it. Describe the WHOLE picture you want, including what should now fill the see-through area ("a desk with a red mug on the left and a potted fern in the centre"), not just the change ("add a fern"): a prompt that names only the change returns the see-through area painted flat black with the change placed elsewhere. Paint the full footprint of the new content with some margin, because an object larger than its window spills past the edge, and keep a fair share of the image opaque — a mask that leaves almost everything see-through is also returned black on the 2.5 models. The preserved area is re-rendered rather than copied, so expect it to match to the eye, not byte for byte.
+            The mask is guidance the model follows, not a hard clip, and the prompt decides what it does with it. Describe the WHOLE picture you want, including what should now fill the see-through area ("a desk with a red mug on the left and a potted fern in the centre"), not just the change ("add a fern"): a prompt that names only the change returns the see-through area painted flat black with the change placed elsewhere. Paint the full footprint of the new content with some margin, because an object larger than its window spills past the edge, and keep a fair share of the image opaque — a mask that leaves almost everything see-through is also returned black on the 2.5 models.
+
+            The model repaints the whole canvas, so after it (and after a 2k or 4k tier's upscale pass) your own picture is put back wherever the mask is opaque, blended along the mask's soft edge. When your picture is the delivered size, every pixel outside the mask is your picture's own, byte for byte; a larger picture is resampled to the delivered size. A smaller picture is enlarged to the model's own size, but at a 2k or 4k tier the whole picture stays upscaled, and a picture of another shape is never stretched on: the job's `warnings` say so in both cases.
 
             A masked edit costs exactly what the same model's ordinary generation costs — a mask changes no price.
           examples: ['9a3e1a1a-6c1e-4a4f-9f3e-2d4b6c8e0a11']
+        keep_subject:
+          type: string
+          nullable: true
+          enum: [exact, match]
+          description: >-
+            "Keep me" on a photo of a person: the person goes back over the new background the way a compositor puts them back, never redrawn. Two places take it. With `mask_asset_id` on an inpaint model (a new background described in the prompt), the mask is the person's cut-out: make it first with `remove-background` on the same picture (1 credit) and pass that PNG as `mask_asset_id`, so its opaque person is kept and the rest repainted. With `background_asset_id` on `remove-background`, the person is cut out and put on that picture. `exact` ("Exactly as shot"): every solid pixel of the person is your photo's own, byte for byte, and their soft edge (hair) has your photo's old background taken out and the new one put in; under the edge, a model's own copy of the person is replaced by the new scene beside them. `match` ("Match me to the scene"): the same, then only the brightness and colour of the person's own pixels are moved toward the new scene (its brightness round them over the old one's, and its light colour on the amber-blue axis); nothing of them is generated. When the person or the background is too small to read, `match` keeps them exactly as shot and the job's `warnings` say so. Changes no price. A 400 without `mask_asset_id` on an inpaint model or `background_asset_id` on `remove-background`.
+          examples: ['exact']
+        background_asset_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: >-
+            Only on `remove-background`: one of your own image assets to put the cut-out person on, instead of a transparent PNG. The picture is cover-fitted to the photo's own size and shape (centred, never stretched) and the result is an opaque PNG at the photo's size. `keep_subject` (default `exact`) says how the person goes on it. Changes no price: the result costs what the cut-out costs.
+          examples: ['3f2c1e0a-6c1e-4a4f-9f3e-2d4b6c8e0a11']
         quality:
           type: string
           nullable: true
@@ -16010,7 +16287,7 @@ components:
           minLength: 1
           maxLength: 32000
           description: >-
-            Text prompt. 32000 characters is the transport bound for every model; the model's own ceiling is `video.max_prompt_chars` on `GET /models`, checked on the composed prompt before any credit hold. On reference-to-video models, address the supplied references as `@Video1`..`@Video3` and `@Image1`..`@Image9`, and optionally use `[0-3s]`-style timeline markers to time actions; these tokens are passed through verbatim (including inside multi-shot `shots[]` prompts).
+            Text prompt. 32000 characters is the transport bound for every model; the model's own ceiling is `video.max_prompt_chars` on `GET /models`, checked on the composed prompt before any credit hold. On reference-to-video models, address the supplied references as `@Video1`..`@Video3` and `@Image1`..`@ImageN` (N = the model's `references.element_refs_max`: 30 on `seedance-2.5`), and optionally use `[0-3s]`-style timeline markers to time actions; these tokens are passed through verbatim (including inside multi-shot `shots[]` prompts).
         prompt_extend:
           type: boolean
           nullable: true
@@ -16060,6 +16337,20 @@ components:
             type: string
         video_task:
           $ref: '#/components/schemas/VideoTask'
+        reference_start_seconds:
+          type: number
+          format: double
+          nullable: true
+          minimum: 0
+          description: |
+            Where in your one reference video (from `video_asset_ids`) the
+            footage the render uses starts, in seconds; 0 when omitted. On a
+            reference run (not an `edit` or an `extend`, which use the whole
+            clip) whose provider bills the reference clip's own seconds
+            (Seedance 2.5), a clip longer than the render is cut to the
+            render's length plus a short handle from here, and only that cut
+            is sent and billed: a 30 s clip under a 4 s shot is priced as 4 s
+            of footage, not 30. The job's `warnings` say which part was used.
         edit_target:
           type: string
           nullable: true
@@ -16083,8 +16374,10 @@ components:
             is cut off at the old one's outline.
 
             The thing is found in the source clip when the edit completes.
-            When it cannot be found, the job fails with a full refund and a
-            message naming it: describe it the way it looks in the shot.
+            When it cannot be found, a removal fails with a full refund and a
+            message naming it: describe it the way it looks in the shot. A
+            change (`edit_target_change`) is delivered instead, as the edit
+            model's whole frame, with a warning naming the thing.
             Commas name several things ("boom microphone, boom pole"). Needs
             exactly one source clip, given as `video_asset_ids`. Billed as the
             edit itself; the pass adds no charge.
@@ -16107,22 +16400,25 @@ components:
             changed strongly next to the thing, up to about twice the thing's
             size away from it, so a larger replacement is not cut off at the
             old thing's outline; everywhere else it stays the source clip.
-            Leave it unset for a removal. Needs `edit_target`.
+            When the thing cannot be found (or the pass cannot run), the
+            render is still delivered as the edit model's whole frame, with a
+            warning, and its asset's `edit_protect.unconfined` is true. Leave
+            it unset for a removal. Needs `edit_target`.
         element_asset_ids:
           type: array
           nullable: true
-          maxItems: 9
+          maxItems: 30
           description: >-
-            Element/reference images for reference-to-video models, given as ids of your image assets — resolved to signed URLs and forwarded as the provider's `image_urls`. Address them in the prompt as `@Image1`..`@Image9`. At most 9 combined with `image_urls`. Images-only requests (no reference video) are allowed and bill at exactly the published reference-to-video credit price, the same as a request carrying a reference video: both execute on the same provider route at the same rate.
+            Element/reference images for reference-to-video models, given as ids of your image assets — resolved to signed URLs and forwarded as the provider's `image_urls`. Address them in the prompt as `@Image1`..`@ImageN`. At most the model's `references.element_refs_max` combined with `image_urls` (30 on `seedance-2.5`, 14 on `grok-imagine-video-1.5`, 9 on most others). Images-only requests (no reference video) are allowed and bill at exactly the published reference-to-video credit price, the same as a request carrying a reference video: both execute on the same provider route at the same rate.
           items:
             type: string
             format: uuid
         image_urls:
           type: array
           nullable: true
-          maxItems: 9
+          maxItems: 30
           description: >-
-            Raw https element-image URLs. Counted against the same 9-image cap as `element_asset_ids`. Prefer `element_asset_ids`. An entry can also be the id of one of your own image assets: it is signed for you, in its place in the list.
+            Raw https element-image URLs. Counted against the same `references.element_refs_max` cap as `element_asset_ids`. Prefer `element_asset_ids`. An entry can also be the id of one of your own image assets: it is signed for you, in its place in the list.
           items:
             type: string
         audio_asset_ids:
@@ -16304,7 +16600,7 @@ components:
           nullable: true
           maxItems: 9
           description: >-
-            Registry elements (`GET /elements`) to condition this clip: each element's reference images are appended to the element-reference slots (before any `character_id` reference, which stays appended last) and its `canonical_description` rides into the prompt verbatim with the binding clause ("100% matches the reference") - the belt-and-braces continuity stack. A character id is accepted here too and injects exactly what `character_id` would; naming the SAME character in both fields is a 400. All injected references count against `references.element_refs_max` on `GET /models` (minimax-h3: 9, Seedance: 9) - an overflow is a 400 NAMING which elements to drop, raised before any credits are held, never a silent truncation. On the Seedance 2.0 text-to-video and image-to-video entries an element-carrying request silently dispatches on the reference-to-video route's reference twin (the only Seedance 2.0 route that executes image references); a start/end frame is passed through with it (if the provider rejects that combination, the error surfaces as the usual provider 400). `seedance-2.5`, `seedance-2.0-fast` and `seedance-2.0-mini` take up to 9 element images on their own direct routes. Elements must be visible in the caller's library (their own, or the active organization's); an unknown or out-of-scope id is a 400. Cannot be combined with `source_video_asset_id` (a regeneration re-renders existing footage; there is nothing for an element to condition).
+            Registry elements (`GET /elements`) to condition this clip: each element's reference images are appended to the element-reference slots (before any `character_id` reference, which stays appended last) and its `canonical_description` rides into the prompt verbatim with the binding clause ("100% matches the reference") - the belt-and-braces continuity stack. A character id is accepted here too and injects exactly what `character_id` would; naming the SAME character in both fields is a 400. All injected references count against `references.element_refs_max` on `GET /models` (minimax-h3: 9, seedance-2.5: 30, Seedance 2.0: 9) - an overflow is a 400 NAMING which elements to drop, raised before any credits are held, never a silent truncation. On the Seedance 2.0 text-to-video and image-to-video entries an element-carrying request silently dispatches on the reference-to-video route's reference twin (the only Seedance 2.0 route that executes image references); a start/end frame is passed through with it (if the provider rejects that combination, the error surfaces as the usual provider 400). `seedance-2.5` takes up to 30 element images, `seedance-2.0-fast` and `seedance-2.0-mini` up to 9, on their own direct routes. Elements must be visible in the caller's library (their own, or the active organization's); an unknown or out-of-scope id is a 400. Cannot be combined with `source_video_asset_id` (a regeneration re-renders existing footage; there is nothing for an element to condition).
           items:
             type: string
             format: uuid
@@ -16589,6 +16885,10 @@ components:
             type: string
           description: >-
             On a Remove (a video edit with `edit_target` that takes things out), the named things the edit found held in a hand, by the names the job's `warnings` use (for example "drink can"). Removing a held thing leaves the hand holding something, and the edit model fills the grip, so these are not redone; a warning says so. Use Replace instead: the same clip, with a prompt that says what goes in the hand. Absent when nothing named is held, and on every other job.
+        person_found:
+          type: boolean
+          description: >-
+            On a video background removal (`remove-background-video`), whether the cut-out holds anyone. After the result is stored the platform reads its transparency twice a second through the whole clip; when no sampled frame shows at least 400 pixels of anyone (fewer on a very small frame) or every sampled frame keeps the whole frame, nothing was cut out and this is `false`. The job still succeeds with the file, and whatever it was charged is refunded in full (see `credits`); once the refund is made, `warnings` says so in a plain sentence (for example "No person was found in your clip, so this cut-out was refunded."). `true` when something was cut out. Absent on every other job, and when the result could not be measured (it is then charged as usual).
     JobCancellation:
       type: object
       additionalProperties: false
@@ -16946,6 +17246,11 @@ components:
             $ref: '#/components/schemas/AssetCharacterScore'
         shape:
           $ref: '#/components/schemas/AssetShape'
+        matte_layer_asset_id:
+          type: string
+          format: uuid
+          description: >-
+            On the result of a green screen or keep-me render (`POST /renders/green-screen`): the matte the composite used, published beside it as its own video, a grey H.264 MP4 at the clip's size and frame rate, white where the person is and soft on their edge. An editor puts it with the result as a separate matte layer (a luma, or after alpha-from-luminance an alpha, track matte) to composite the person over anything else. Absent on everything else, and on the grey stand-in (`fill_subject`).
         source:
           $ref: '#/components/schemas/AssetSource'
         created_at:
@@ -19237,12 +19542,22 @@ components:
           type: string
           nullable: true
           maxLength: 500
-          description: Required and non-empty for scoped steps; substituted into the server's scope template after trimming.
+          description: Required and non-empty for scoped steps (except a `background` step with `background_asset_id`); substituted into the server's scope template after trimming.
         mask_asset_id:
           type: string
           format: uuid
           nullable: true
-          description: Required for an available inpaint scope; also forwarded for unscoped steps. Ignored by edit scopes, which never submit a mask.
+          description: Required for an available inpaint scope (for `background`, the person's cut-out from `remove-background`, unless `background_asset_id` is given); also forwarded for unscoped steps. Ignored by edit scopes, which never submit a mask.
+        keep_subject:
+          type: string
+          nullable: true
+          enum: [exact, match]
+          description: For the `background` scope, how the person goes back on top (see `keep_subject` on POST /generate/image); defaults to `exact`. Refused on any other scope.
+        background_asset_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: For the `background` scope only, a picture of your own to put the person on instead of describing a new background. The step then runs `remove-background` with this picture (no prompt, `detail` may be empty, no model choice) and costs what a cut-out costs.
         model:
           $ref: '#/components/schemas/ImageModel'
           description: Scoped steps require an allowed model and default to the scope's first model. Unscoped steps default to the style model hint, then the previous step model, then gpt-image-2.
@@ -19307,9 +19622,11 @@ components:
       enum: [split, turnaround, expression]
       description: |
         One-tap character-sheet scaffolds: `split` (full-body plus close-up
-        split screen), `turnaround` (five consistent views: close up, medium,
-        full front, side profile, back), `expression` (full-body reference
-        plus an expression grid).
+        split screen), `turnaround` (the five-panel sheet, 16:9 on mid grey,
+        no labels: a front portrait, the full body from the front cropped
+        below the chin, the full body from behind, and two one-third-angle
+        close-ups facing the left and right frame edges), `expression`
+        (full-body reference plus an expression grid).
     CreateCharacterSheetRequest:
       type: object
       additionalProperties: false
@@ -20661,7 +20978,7 @@ components:
     CreateGreenScreenRenderRequest:
       type: object
       additionalProperties: false
-      required: [asset_id, background_asset_id]
+      required: [asset_id]
       properties:
         asset_id:
           type: string
@@ -20670,20 +20987,38 @@ components:
         backdrop:
           allOf:
             - $ref: '#/components/schemas/GreenScreenBackdrop'
-          default: green
           description: What the person was filmed against (green when omitted). `white` and `other` need `matte_asset_id`.
         matte_asset_id:
           type: string
           format: uuid
           description: For a `white` or `other` backdrop, the AI matte of the person in this clip, a ready video in your library made by `POST /remove-background/video` with the clip as `source_asset_id` (a transparent WebM; a video whose brightness is the person also works). It must cover the clip's whole length.
+        follow_camera:
+          type: boolean
+          description: Match the camera move (true when omitted). The plate's camera move (pan, tilt, roll, zoom) is read from the backdrop around the person (tracking marks, seams, floor texture) and the background moves with it, enlarged so no edge shows, with motion blur on fast moves. A locked-off shot is detected and its background stays still; a move that cannot be read well keeps the background still and the result says why. Never applied to a `background_from_clip` background, which already moves with the camera.
         background_from_clip:
           type: boolean
-          default: false
-          description: The background is a video generated from this clip (a New world made from it). It is laid frame for frame instead of looped, and `match` defaults to false.
+          description: (false when omitted) The background is a video generated from this clip (a New world made from it). It is laid frame for frame instead of looped, and `match` defaults to false.
+        subject:
+          type: string
+          enum: [exact, match]
+          description: How you go back over a world made from your clip (`exact` when omitted). `exact` is your own pixels, untouched. `match` adjusts only the brightness and colour of your own footage to the scene (exposure, colour, a rim of the scene's light at your edges and a shadow on the ground); nothing of you is generated. Only with `background_from_clip` and a `white` or `other` backdrop with `matte_asset_id` (`exact` is accepted and ignored otherwise). Either way, the world's own copy of you is taken out from under you and around you and filled with the scene as other frames of the world show it.
+        match_level:
+          type: string
+          enum: [subtle, medium, strong]
+          description: How far `subject` `match` goes toward the scene (`medium` when omitted). Only with `subject` `match`; `medium` is accepted and ignored otherwise. Your face never goes darker than the level allows, so it stays readable in a dark scene.
+        subject_filled:
+          type: boolean
+          description: (false when omitted) The world was generated from your clip with you filled flat grey (see `fill_subject`), so the video model never sees or redraws you (and a route that refuses real faces can take it, as Seedance's fall-over routes do; its primary route takes an ordinary real person). The model's grey figure is then taken out of the world with you, and `match` sets your brightness from the scene around you. Only with `background_from_clip` and a `white` or `other` backdrop with `matte_asset_id`.
+        world_cleaned:
+          type: boolean
+          description: (false when omitted) The world made from your clip already has the video model's copy of you removed (for example by a Remove edit on it). It is used as delivered; the render does not fill the world under and around you itself. `match` still grades you and lays your shadow. Only with `background_from_clip`.
+        fill_subject:
+          type: boolean
+          description: (false when omitted) Make no composite. The result is your clip with you filled flat grey, cut out with `matte_asset_id`, at your clip's size, frame rate, length and sound. Use it to make a world from your clip with a video model that must not see or redraw you (or a route that refuses real faces), then put yourself back over that world with `background_from_clip` and `subject_filled`. Needs a `white` or `other` backdrop and `matte_asset_id`, and takes no `background_asset_id`; `match`, `blur` and `flip` are ignored.
         background_asset_id:
           type: string
           format: uuid
-          description: The new background, a ready image or video in your library. A video plays from its start, looped when shorter than the clip.
+          description: The new background, a ready image or video in your library. A video plays from its start, looped when shorter than the clip. Required unless `fill_subject` is true.
         match:
           type: boolean
           default: true
@@ -20887,7 +21222,7 @@ components:
           $ref: '#/components/schemas/RenderStatus'
         params:
           type: object
-          description: 'Empty for a video composition render. For a still render, carries mode: still, background, either frame or at_seconds (resolved using the plan FPS by the worker), and optional max_dimension. For a blocks render, carries mode: blocks plus the normalized request (blocks, block_seconds, aspect_ratio, fit, keep_video_audio, and optional captions). For a reframe render (POST /renders/reframe), carries mode: reframe, asset_id and aspect_ratio. For a green screen render (POST /renders/green-screen), carries mode: green_screen, asset_id, background_asset_id, match, blur and flip. A follow plan (POST /compositions/{id}/follow-plans) carries mode: follow_plan; follow plans render nothing and are left out of the render lists.'
+          description: 'Empty for a video composition render. For a still render, carries mode: still, background, either frame or at_seconds (resolved using the plan FPS by the worker), and optional max_dimension. For a blocks render, carries mode: blocks plus the normalized request (blocks, block_seconds, aspect_ratio, fit, keep_video_audio, and optional captions). For a reframe render (POST /renders/reframe), carries mode: reframe, asset_id and aspect_ratio. For a green screen render (POST /renders/green-screen), carries mode: green_screen, asset_id, background_asset_id (absent with fill_subject), match, blur and flip, plus backdrop, matte_asset_id, background_from_clip, subject, match_level, subject_filled and fill_subject when set. A follow plan (POST /compositions/{id}/follow-plans) carries mode: follow_plan; follow plans render nothing and are left out of the render lists.'
         asset_id:
           type: string
           format: uuid
@@ -21317,6 +21652,114 @@ components:
         next_cursor:
           type: string
           nullable: true
+    CustomerReferral:
+      type: object
+      additionalProperties: false
+      required: [eligible, welcome_credits, reward_credits, monthly_cap, rewards_this_month, views, signups, waiting, earned, held, credits_earned, ask, friends]
+      properties:
+        eligible:
+          type: boolean
+          description: True when this account has a share link.
+        reason:
+          type: string
+          nullable: true
+          enum: [not_paid, insider, organization, off]
+          x-enum-varnames: [CustomerReferralReasonNotPaid, CustomerReferralReasonInsider, CustomerReferralReasonOrganization, CustomerReferralReasonOff]
+          description: Why there is no share link (null when `eligible`).
+        code:
+          type: string
+          nullable: true
+          description: The personal code (eight lowercase letters and digits).
+        share_url:
+          type: string
+          nullable: true
+          description: The link to share, `https://nolgia.ai/gift/<code>`.
+        insider_handle:
+          type: string
+          nullable: true
+          description: An Insider's @name (reason `insider`); their Insider link is the one to share.
+        welcome_credits:
+          type: integer
+          minimum: 0
+          description: Free credits a friend gets on sign up (30 days, no card needed).
+        reward_credits:
+          type: integer
+          minimum: 0
+          description: Top-up credits (never expire) this account gets when a friend first pays.
+        monthly_cap:
+          type: integer
+          minimum: 0
+          description: The most rewards granted in a calendar month (UTC); more are held for review.
+        rewards_this_month:
+          type: integer
+          minimum: 0
+        views:
+          type: integer
+          minimum: 0
+          description: Visits to the link (the same device within 30 minutes counts once).
+        signups:
+          type: integer
+          minimum: 0
+          description: Friends who signed up through the link.
+        waiting:
+          type: integer
+          minimum: 0
+          description: Friends who signed up and have not paid yet.
+        earned:
+          type: integer
+          minimum: 0
+          description: Rewards granted (taken back ones not counted).
+        held:
+          type: integer
+          minimum: 0
+          description: Rewards held for a person at NOLGIA to look at (over the monthly cap, or a sign up in review).
+        credits_earned:
+          type: integer
+          minimum: 0
+          description: Reward credits granted, less any taken back.
+        ask:
+          type: boolean
+          description: The moment to ask for a referral (a second paid month, or 3 or more link views).
+        friends:
+          type: array
+          maxItems: 20
+          description: The latest friends, newest first. Names nobody.
+          items:
+            $ref: '#/components/schemas/CustomerReferralFriend'
+    CustomerReferralFriend:
+      type: object
+      additionalProperties: false
+      required: [joined_at, state, credits]
+      properties:
+        joined_at:
+          type: string
+          format: date-time
+        state:
+          type: string
+          enum: [waiting, earned, held, reversed, not_eligible]
+          x-enum-varnames: [CustomerReferralFriendStateWaiting, CustomerReferralFriendStateEarned, CustomerReferralFriendStateHeld, CustomerReferralFriendStateReversed, CustomerReferralFriendStateNotEligible]
+          description: >
+            `waiting` for the friend's first payment, `earned` (the reward was granted), `held` (for review), `reversed` (the payment was refunded or disputed) or `not_eligible`.
+
+        credits:
+          type: integer
+          description: Reward credits this friend brought (net of a reversal).
+        rewarded_at:
+          type: string
+          format: date-time
+          nullable: true
+    ReferralInvite:
+      type: object
+      additionalProperties: false
+      required: [code, welcome_credits]
+      properties:
+        code:
+          type: string
+          description: The code as the referral cookie carries it (`_` and eight letters and digits).
+        welcome_credits:
+          type: integer
+          minimum: 0
+          description: Free credits a friend gets on sign up (0 while the program is off).
     InsiderCodeLookup:
       type: object
       additionalProperties: false
@@ -23912,6 +24355,51 @@ components:
         stripe_payment_method_id:
           type: string
           nullable: true
+        monthly_cap_cents:
+          type: integer
+          minimum: 0
+          description: The most auto top-up may charge in a calendar month (UTC), in US cents.
+        spent_this_month_cents:
+          type: integer
+          minimum: 0
+          description: What auto top-up charged (or is charging) this calendar month (UTC), in US cents.
+        card:
+          $ref: '#/components/schemas/AutoRefreshCard'
+        paused_reason:
+          type: string
+          nullable: true
+          description: >-
+            Set when auto top-up stopped itself: `card_declined`, `authentication_required` (the bank asked the customer to approve the charge) or `no_saved_card`. Saving the setting again clears it.
+        last_charge:
+          $ref: '#/components/schemas/AutoRefreshCharge'
+    AutoRefreshCard:
+      type: object
+      additionalProperties: false
+      required: [brand, last4]
+      description: The saved card auto top-up charges, as the customer sees it.
+      properties:
+        brand:
+          type: string
+        last4:
+          type: string
+    AutoRefreshCharge:
+      type: object
+      additionalProperties: false
+      required: [status, credits, amount_cents, at]
+      properties:
+        status:
+          type: string
+          description: '`pending`, `succeeded` or `failed`.'
+        credits:
+          type: integer
+        amount_cents:
+          type: integer
+        at:
+          type: string
+          format: date-time
+        failure_code:
+          type: string
+          nullable: true
     AutoRefreshSettingsRequest:
       type: object
       additionalProperties: false
@@ -23928,6 +24416,15 @@ components:
         stripe_payment_method_id:
           type: string
           nullable: true
+          description: Ignored since 2026-11-03; the card is the one saved on the account.
+        monthly_cap_cents:
+          type: integer
+          minimum: 0
+          description: The most auto top-up may charge in a calendar month, in US cents. Required to turn it on; at least one pack, at most 200000.
+        consent:
+          type: boolean
+          description: >-
+            Required (true) to turn auto top-up on: the customer agrees that NOLGIA charges their saved card for the chosen pack whenever their credits fall under the threshold, up to the monthly cap. Turning it on is only accepted from the nolgia.ai web app; turning it off is accepted from any credential.
     PAT:
       type: object
       additionalProperties: false
@@ -24466,6 +24963,239 @@ components:
         text:
           type: string
           description: The words said in the segment, placed from the transcript. Empty without one.
+    AssetFootage:
+      type: object
+      additionalProperties: false
+      required: [asset_id, read, measured, left_to_you, not_in_the_file, block]
+      properties:
+        asset_id:
+          type: string
+          format: uuid
+        matte_asset_id:
+          type: string
+          format: uuid
+          description: The matte the key side and depth of field were measured with, when one was given.
+        block:
+          type: string
+          description: The plain, editable prompt block that describes the shot to a video model. Light is written as its effect; no gear nouns (a camera body name is allowed), no hype, no flaw list. The filmmaker writes the world (place, characters, action) around it.
+        read:
+          type: array
+          description: Each value read from the file, in the order it was read, with where it came from. GPS, location and serial numbers are never read.
+          items:
+            $ref: '#/components/schemas/FootageReadField'
+        measured:
+          $ref: '#/components/schemas/FootageMeasured'
+        left_to_you:
+          type: array
+          description: What was neither read nor measured, with why. The block leaves these for the filmmaker to say.
+          items:
+            $ref: '#/components/schemas/FootageLeftItem'
+        not_in_the_file:
+          type: array
+          description: The camera settings the file does not carry (make, model, lens, focal_mm, focal_mm_35, f_number, iso, shutter, shutter_angle, white_balance_k, gamma, gamut).
+          items:
+            type: string
+        note:
+          type: string
+          description: Set, in a filmmaker's words, when the file was re-saved by editing software and no camera settings survive in it.
+        cached:
+          type: boolean
+          description: True when the answer was kept from an earlier read of the same file.
+    FootageReadField:
+      type: object
+      additionalProperties: false
+      required: [field, value, source, source_kind]
+      properties:
+        field:
+          type: string
+          description: The field, for example `model`, `fps`, `shutter`, `iso`, `white_balance_k`, `colour_transfer`, `hdr`.
+        value:
+          type: string
+          description: The value as text (a per-frame series reads as its median).
+        number:
+          type: number
+          format: double
+          description: The value as a number, when it is one.
+        samples:
+          $ref: '#/components/schemas/FootageSamples'
+        source:
+          type: string
+          description: Where it came from, for example `format tag com.apple.quicktime.model`, `box moov/udta/GPMF MINF`, `stream 3 (gpmd) SHUT`.
+        source_kind:
+          type: string
+          enum: [container_tag, stream, box, per_frame, sidecar, derived]
+          description: '`container_tag` a tag on the file; `stream` a stream''s tag or its own description (codec, colour, frame durations); `box` a box in the file read directly; `per_frame` timed metadata, one value per frame or second; `sidecar` a sidecar file; `derived` computed from two read values.'
+    FootageSamples:
+      type: object
+      additionalProperties: false
+      required: [median, min, max, count]
+      description: A per-frame value over the clip.
+      properties:
+        median:
+          type: number
+          format: double
+        min:
+          type: number
+          format: double
+        max:
+          type: number
+          format: double
+        count:
+          type: integer
+    FootageMeasured:
+      type: object
+      additionalProperties: false
+      required: [camera_move, black_floor, white_top, contrast, seconds]
+      properties:
+        camera_move:
+          $ref: '#/components/schemas/FootageCameraMove'
+        black_floor:
+          type: number
+          format: double
+          description: The darkest 1% of the picture (on the person with a matte), 0 to 1.
+        white_top:
+          type: number
+          format: double
+          description: The brightest 1%, 0 to 1.
+        contrast:
+          type: string
+          description: The contrast as the block says it.
+        light_cct_k:
+          type: integer
+          description: The rough colour temperature of the light, read from the brightest near-neutral surfaces. Absent when the frame has none.
+        light:
+          type: string
+          enum: [warm, neutral, cool]
+        light_note:
+          type: string
+          description: 'When the file records the camera''s white balance: how the measured light relates to it, as a DP would say it (for example "The camera was set to 3749 K; the picture reads neutral at that setting."). The light is read from the picture as recorded at that setting.'
+        grain:
+          $ref: '#/components/schemas/FootageGrain'
+        key:
+          $ref: '#/components/schemas/FootageKey'
+        depth_of_field:
+          $ref: '#/components/schemas/FootageDepthOfField'
+        tone_mapped_from:
+          type: string
+          description: '`HDR` when HLG or PQ footage was tone-mapped to SDR before it was measured.'
+        seconds:
+          type: number
+          format: double
+          description: How many seconds of the picture were measured.
+    FootageCameraMove:
+      type: object
+      additionalProperties: false
+      required: [kind, width_per_s, scale_per_s, jitter_width_per_sample]
+      properties:
+        kind:
+          type: string
+          enum: [locked, 'handheld, no travel', pushing in, pulling back, panning or tracking right, panning or tracking left, tilting down, tilting up]
+        width_per_s:
+          type: array
+          description: The picture's drift per second (x, y) as a share of the frame width.
+          items:
+            type: number
+            format: double
+        scale_per_s:
+          type: number
+          format: double
+          description: The zoom per second (positive is pushing in).
+        jitter_width_per_sample:
+          type: number
+          format: double
+          description: The shake, as a share of the frame width per sample (about six a second).
+    FootageGrain:
+      type: object
+      additionalProperties: false
+      required: [std_levels, pairs, words]
+      description: Measured on locked shots only (frame differences on a moving shot are motion).
+      properties:
+        std_levels:
+          type: number
+          format: double
+          description: The grain's standard deviation in 8-bit levels.
+        pairs:
+          type: integer
+        words:
+          type: string
+    FootageKey:
+      type: object
+      additionalProperties: false
+      required: [left_minus_right, side, softness]
+      description: The light on the person's upper body, left against right (needs a matte). Key height is never measured.
+      properties:
+        left_minus_right:
+          type: number
+          format: double
+        side:
+          type: string
+        softness:
+          type: string
+    FootageDepthOfField:
+      type: object
+      additionalProperties: false
+      required: [backdrop_over_person_sharpness, words]
+      description: The backdrop's sharpness over the person's (needs a matte and a backdrop with detail).
+      properties:
+        backdrop_over_person_sharpness:
+          type: number
+          format: double
+        words:
+          type: string
+    FootageLeftItem:
+      type: object
+      additionalProperties: false
+      required: [item, reason]
+      properties:
+        item:
+          type: string
+          description: What is left, in a filmmaker's words (for example "Height of your main light").
+        reason:
+          type: string
+          description: Why, and what to do, in a filmmaker's words. Shown to customers as it is.
+        detail:
+          type: string
+          description: The technical reason, for support and logs. Not for customers.
+    AssetShots:
+      type: object
+      additionalProperties: false
+      required: [duration_seconds, frame_rate, shots, cut_seconds]
+      properties:
+        duration_seconds:
+          type: number
+          format: double
+        frame_rate:
+          type: number
+          format: double
+          description: The rate the shots were read at, the clip's own.
+        shots:
+          type: array
+          description: The shots in time order, covering the whole clip. One shot for a clip with no cut.
+          items:
+            $ref: '#/components/schemas/AssetShot'
+        cut_seconds:
+          type: array
+          description: Where each cut falls, in seconds from the clip's start. Empty for a clip with no cut.
+          items:
+            type: number
+            format: double
+    AssetShot:
+      type: object
+      additionalProperties: false
+      required: [start_seconds, end_seconds, start_frame, end_frame]
+      properties:
+        start_seconds:
+          type: number
+          format: double
+        end_seconds:
+          type: number
+          format: double
+        start_frame:
+          type: integer
+          description: The shot's first frame, at frame_rate.
+        end_frame:
+          type: integer
+          description: The frame after the shot's last, at frame_rate.
     CutSuggestions:
       type: object
       additionalProperties: false

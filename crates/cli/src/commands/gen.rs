@@ -255,6 +255,27 @@ pub struct VideoArgs {
     /// prompt as @Image1..@Image9.
     #[arg(long = "element", value_name = "ASSET_ID")]
     pub elements: Vec<uuid::Uuid>,
+    /// What the --video-ref clip is for, on models that list video tasks
+    /// (`nolgia models get <model> --json`, `references.video_tasks`):
+    /// reference (the clip drives a new render; the API's default), edit (the
+    /// clip comes back with one change) or extend.
+    #[arg(long, value_name = "TASK", value_parser = ["reference", "edit", "extend"])]
+    pub video_task: Option<String>,
+    /// Keep the --video-ref clip exactly as filmed except around this one
+    /// thing, in a few plain words (for example "the boom mic", "the red
+    /// mug"): the API finds it in the clip and delivers the source
+    /// everywhere else, frame for frame. Needs an edit: --video-task edit on
+    /// a model that lists it, or a video edit model. Several things go
+    /// comma-separated. For a removal, a thing that cannot be found fails
+    /// the job with a full refund.
+    #[arg(long, value_name = "THING")]
+    pub edit_target: Option<String>,
+    /// The edit replaces --edit-target with something else (possibly
+    /// larger) instead of removing it: the kept-as-filmed patch grows to
+    /// take the new thing in. If the thing cannot be found, the render is
+    /// still delivered as the model's whole frame, with a warning.
+    #[arg(long, default_value_t = false, requires = "edit_target")]
+    pub edit_target_change: bool,
     /// Reference audio track: an audio asset UUID or a local file (uploaded
     /// to /assets first). Repeatable, up to the model's `audio refs` in
     /// `nolgia models get <model>`.
@@ -722,6 +743,25 @@ async fn video(mut args: VideoArgs, ctx: &CommandContext) -> Result<()> {
     if !args.elements.is_empty() {
         builder = builder.element_asset_ids(Some(args.elements));
     }
+    if let Some(task) = args.video_task.as_deref() {
+        let task: nolgia_client::types::VideoTaskInner = task.parse().map_err(|_| {
+            anyhow::anyhow!("--video-task: {task} is not reference, edit or extend")
+        })?;
+        builder = builder.video_task(nolgia_client::types::VideoTask(Some(task)));
+    }
+    if let Some(target) = args
+        .edit_target
+        .as_deref()
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+    {
+        let target = nolgia_client::types::GenerateVideoRequestEditTarget::try_from(target)
+            .map_err(|err| anyhow::anyhow!("--edit-target: {err}"))?;
+        builder = builder.edit_target(Some(target));
+        if args.edit_target_change {
+            builder = builder.edit_target_change(Some(true));
+        }
+    }
     if !audio_asset_ids.is_empty() {
         builder = builder.audio_asset_ids(Some(audio_asset_ids));
     }
@@ -802,6 +842,8 @@ async fn remove_background_video(args: VideoArgs, ctx: &CommandContext) -> Resul
         ("--motion", args.motion.is_some()),
         ("--video-ref", !args.video_refs.is_empty()),
         ("--element", !args.elements.is_empty()),
+        ("--video-task", args.video_task.is_some()),
+        ("--edit-target", args.edit_target.is_some()),
         ("--audio-ref", !args.audio_refs.is_empty()),
         ("--end-frame", args.end_frame.is_some()),
         ("--shot", !args.shots.is_empty()),
