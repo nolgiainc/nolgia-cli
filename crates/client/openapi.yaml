@@ -7771,7 +7771,22 @@ paths:
         frames more or fewer, never looped), and it is not matched to the
         footage unless `match` is set, since it was made in its own light.
 
-        The person is never changed. Wherever the matte is solid, the result
+        "Keep me exactly as filmed": with `background_from_clip` and an AI
+        matte (`white` or `other`), the world holds the model's own copy of
+        the person. It is taken out from under them and a ring around them,
+        and filled with the scene as the world's other frames show it there
+        (aligned to the camera's move), smoothly only where no frame does, so
+        their soft edge mixes with the scene, never with the copy. `subject`
+        chooses how they go back on top: `exact` (their own samples) or
+        `match` (only the brightness and colour of their own footage moved
+        toward the scene, `match_level` saying how far; nothing of them is
+        generated). Video models that refuse real faces take the clip with
+        the person filled flat grey instead: make it with `fill_subject:
+        true` (no background), generate the world from that, then render
+        over it with `subject_filled: true`.
+
+        The person is never changed (with `subject` `match`, only graded).
+        Wherever the matte is solid, the result
         carries the clip's own samples, copied, not recomputed; only the edge
         band (hair, motion blur, a few pixels inside the outline) is unmixed
         from the screen colour, held free of green spill and blended with the
@@ -7790,7 +7805,12 @@ paths:
         naming the backdrop it does see, when none is found). Clips up to 120 seconds at 1080p and 30 frames a
         second, longer for smaller or slower clips (270 seconds at 720p, never
         more than 300), shorter for larger or faster ones (30 seconds at 4K):
-        `max_seconds` in the quote is the clip's own. Renders are not billed: the quote
+        `max_seconds` in the quote is the clip's own. A render over a world
+        made from the clip with an AI matte (`background_from_clip` with
+        `white` or `other`) does about twice the work a frame and takes
+        shorter clips where the work is the limit: 40 seconds at 1080p and 30
+        frames a second (still 60 at 720p); the quote does not know the
+        background and answers the plain limit. Renders are not billed: the quote
         (`GET /renders/green-screen/quote`) answers 0 credits. Creates a named
         carrier composition (in `project_id` when given, else in the clip's
         own project) whose `index.html` shows the background under the clip;
@@ -20666,7 +20686,7 @@ components:
     CreateGreenScreenRenderRequest:
       type: object
       additionalProperties: false
-      required: [asset_id, background_asset_id]
+      required: [asset_id]
       properties:
         asset_id:
           type: string
@@ -20685,10 +20705,26 @@ components:
           type: boolean
           default: false
           description: The background is a video generated from this clip (a New world made from it). It is laid frame for frame instead of looped, and `match` defaults to false.
+        subject:
+          type: string
+          enum: [exact, match]
+          description: How you go back over a world made from your clip (`exact` when omitted). `exact` is your own pixels, untouched. `match` adjusts only the brightness and colour of your own footage to the scene (exposure, colour, a rim of the scene's light at your edges and a shadow on the ground); nothing of you is generated. Only with `background_from_clip` and a `white` or `other` backdrop with `matte_asset_id` (`exact` is accepted and ignored otherwise). Either way, the world's own copy of you is taken out from under you and around you and filled with the scene as other frames of the world show it.
+        match_level:
+          type: string
+          enum: [subtle, medium, strong]
+          description: How far `subject` `match` goes toward the scene (`medium` when omitted). Only with `subject` `match`; `medium` is accepted and ignored otherwise. Your face never goes darker than the level allows, so it stays readable in a dark scene.
+        subject_filled:
+          type: boolean
+          default: false
+          description: The world was generated from your clip with you filled flat grey (see `fill_subject`), because the video model does not take real faces. The model's grey figure is then taken out of the world with you, and `match` sets your brightness from the scene around you. Only with `background_from_clip` and a `white` or `other` backdrop with `matte_asset_id`.
+        fill_subject:
+          type: boolean
+          default: false
+          description: Make no composite. The result is your clip with you filled flat grey, cut out with `matte_asset_id`, at your clip's size, frame rate, length and sound. Use it to make a world from your clip with a video model that does not take real faces, then put yourself back over that world with `background_from_clip` and `subject_filled`. Needs a `white` or `other` backdrop and `matte_asset_id`, and takes no `background_asset_id`; `match`, `blur` and `flip` are ignored.
         background_asset_id:
           type: string
           format: uuid
-          description: The new background, a ready image or video in your library. A video plays from its start, looped when shorter than the clip.
+          description: The new background, a ready image or video in your library. A video plays from its start, looped when shorter than the clip. Required unless `fill_subject` is true.
         match:
           type: boolean
           default: true
@@ -20892,7 +20928,7 @@ components:
           $ref: '#/components/schemas/RenderStatus'
         params:
           type: object
-          description: 'Empty for a video composition render. For a still render, carries mode: still, background, either frame or at_seconds (resolved using the plan FPS by the worker), and optional max_dimension. For a blocks render, carries mode: blocks plus the normalized request (blocks, block_seconds, aspect_ratio, fit, keep_video_audio, and optional captions). For a reframe render (POST /renders/reframe), carries mode: reframe, asset_id and aspect_ratio. For a green screen render (POST /renders/green-screen), carries mode: green_screen, asset_id, background_asset_id, match, blur and flip. A follow plan (POST /compositions/{id}/follow-plans) carries mode: follow_plan; follow plans render nothing and are left out of the render lists.'
+          description: 'Empty for a video composition render. For a still render, carries mode: still, background, either frame or at_seconds (resolved using the plan FPS by the worker), and optional max_dimension. For a blocks render, carries mode: blocks plus the normalized request (blocks, block_seconds, aspect_ratio, fit, keep_video_audio, and optional captions). For a reframe render (POST /renders/reframe), carries mode: reframe, asset_id and aspect_ratio. For a green screen render (POST /renders/green-screen), carries mode: green_screen, asset_id, background_asset_id (absent with fill_subject), match, blur and flip, plus backdrop, matte_asset_id, background_from_clip, subject, match_level, subject_filled and fill_subject when set. A follow plan (POST /compositions/{id}/follow-plans) carries mode: follow_plan; follow plans render nothing and are left out of the render lists.'
         asset_id:
           type: string
           format: uuid
