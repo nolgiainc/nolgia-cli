@@ -3551,7 +3551,7 @@ paths:
       operationId: getAssetFaces
       summary: Whether a face is in one of your pictures or clips (free).
       description: >-
-        Counts the faces in an image, or in three frames of a video (at a quarter, half and three quarters of its length), with the same detector the identity checks use. Use it before a restore or an enhance: when `face_count` is above zero and the chosen engine `redraws_faces`, say once that the engine may redraw the person's face and offer a faithful one. Only the count is answered; no box, no landmark and nothing about who is in shot is read or kept. Nothing is generated and nothing is charged. 503 where the detector is not installed.
+        Counts the faces in an image, or in three frames of a video (at a quarter, half and three quarters of its length), with the same detector the identity checks use. Use it before a restore or an enhance: when `face_count` is above zero and the chosen engine `redraws_faces`, say once that the engine may change the person's face and offer one that was measured keeping it. Only the count is answered; no box, no landmark and nothing about who is in shot is read or kept. Nothing is generated and nothing is charged. 503 where the detector is not installed.
       parameters:
         - name: id
           in: path
@@ -13920,7 +13920,7 @@ components:
         redraws_faces:
           type: boolean
           description: >-
-            True for restore engines that can REDRAW a face rather than reconstruct it: the diffusion restorers (`seedvr2-restore`, the Starlight family, `topaz-wonder`) and Iris, which rebuilds degraded faces. A face from them can come back close to the person but not theirs, so on footage of real people offer a faithful engine first (Proteus, Artemis, Nyx, Dione and the other restore engines sharpen and scale what the clip holds), label these "may redraw faces", and check the faces of what they deliver. `GET /assets/{id}/faces` says whether a face is in shot. Absent on every other model.
+            True for restore engines measured changing a real person's face: on a woman speaking to camera, `topaz-nyx` changed her mouth and teeth, while `seedvr2-restore`, `topaz-starlight`, `topaz-proteus`, `topaz-artemis-medium` and `topaz-iris` kept her (2026-11-03). On footage of real people, label these "may change faces: check faces" and check the faces of what they deliver. `GET /assets/{id}/faces` says whether a face is in shot. No engine brings back a face the clip barely holds: on a very small, noisy face Starlight rebuilt the most natural one and Proteus smoothed it to wax. Absent on every other model, including the engines not yet measured.
         remove_background:
           type: boolean
           description: |
@@ -16274,6 +16274,13 @@ components:
             type: string
             format: uuid
           examples: [['5a2f7c58-9e5a-4f1a-9c7f-2f0b6c3d1e42', 'b2fbb51e-3c33-4a54-b87b-9c2b1e4f9a11']]
+        outfit:
+          type: string
+          nullable: true
+          maxLength: 80
+          description: >-
+            The name of one of the lead character's saved outfits (`wardrobe[].name` on `GET /characters/{id}`, matched without regard to case). Needs `character_id` or `character_ids`. The outfit's photos (up to 3) ride as image references beside the character's face, appended to `reference_asset_ids` after your own and the location's, and an "Outfit:" line asks for the clothes exactly as photographed: the same garments, colors, materials, prints and details, nothing redesigned and no logo added. A photo is what holds an outfit's design from one render to the next; an outfit saved as words only rides as its notes and the model fills in the rest. The photos count against `image.reference_images_max` (no room is a 400 naming outfit, never a silent drop) and are billed like any other reference: on a model whose row publishes an input-image charge (`input_image_credits` on `GET /models`) each one past the free references adds to the quote, and `POST /jobs/cost` shows it before you spend. An unknown name is a 400 that lists the character's outfits. The asset's generation metadata records `outfit`.
+          examples: ['Baby blue Y2K']
         location_id:
           type: string
           format: uuid
@@ -16783,6 +16790,13 @@ components:
             type: string
             format: uuid
           examples: [['5a2f7c58-9e5a-4f1a-9c7f-2f0b6c3d1e42', 'b2fbb51e-3c33-4a54-b87b-9c2b1e4f9a11']]
+        outfit:
+          type: string
+          nullable: true
+          maxLength: 80
+          description: >-
+            The name of one of the lead character's saved outfits (`wardrobe[].name` on `GET /characters/{id}`, matched without regard to case). Needs `character_id` or `character_ids`. The outfit's photos (up to 3) ride as element references right after the cast's, each taking the next `@Image` slot, and an "Outfit:" line binds them to the character ("Outfit: Saffi wears the Baby blue Y2K outfit shown in @Image2, exactly as photographed ..."). A photo is what holds an outfit's design from clip to clip; an outfit saved as words only rides as its notes and the model fills in the rest (logos and materials it invents). The photos count against `references.element_refs_max` (no room is a 400 naming outfit, never a silent drop) and are billed like any other reference image on the model's row (`input_image_credits` on `GET /models`; Seedance 2.5 bills references nothing), shown by `POST /jobs/cost` before you spend. An unknown name is a 400 that lists the character's outfits. The asset's generation metadata records `outfit`.
+          examples: ['Baby blue Y2K']
         location_id:
           type: string
           format: uuid
@@ -17643,9 +17657,11 @@ components:
             generation. This is the continuity contract: downstream prompts
             must fold it in unchanged, never paraphrased. Keep clothing out
             of it: every generation that names the character folds this text
-            in, so an outfit written here is worn in every render. Write the
-            outfit into each prompt, or store it as a named outfit in
-            `wardrobe`, which a sheet renders with `outfit`.
+            in, so an outfit written here is worn in every render. Store
+            each outfit as a named outfit in `wardrobe`, with a photo of it,
+            and wear it with `outfit` on `POST /generate/image`,
+            `POST /generate/video` and the sheets: only a photo holds the
+            design from one render to the next.
             Falls back to `description` when the record predates this field.
             Optional in the schema only so existing clients keep parsing; the
             API always sends it (empty string when never set).
@@ -17975,10 +17991,12 @@ components:
       required: [name]
       description: |
         One named outfit of a character's wardrobe. `name` identifies it
-        within the character (unique, case-insensitive); `reference_asset_ids`
-        name image assets owned by the caller showing the exact garments;
-        `notes` are costume notes folded into the sheet prompt after the
-        canonical description. On a read the API also sends
+        within the character (unique, case-insensitive) and is what `outfit`
+        on `POST /generate/image`, `POST /generate/video` and the sheet
+        endpoints names; `reference_asset_ids` name image assets owned by the
+        caller showing the exact garments (the outfit photos, which ride
+        those renders as references); `notes` are costume notes folded into
+        the prompt after the canonical description. On a read the API also sends
         `reference_assets` (the same ids resolved to signed assets, deleted
         assets dropped) and echoes `reference_asset_ids` and `notes`.
       properties:
@@ -24141,7 +24159,7 @@ components:
     CreditWalletType:
       type: string
       description: >
-        Credit buckets. The app channel (browser and device sessions, the NOLGIA Agent, organization API keys and OAuth connector tokens such as ChatGPT's) uses free credits first, then subscription, then shared top-up overflow; the API channel (personal access tokens created by hand) uses shared top-up only. `free` holds free credits (the daily free allowance, which expires at the end of its Pacific day, and older sign-up, checklist and promo grants, which do not expire): they pay for images, audio, the agent and video below the premium line, never for premium video (Seedance 2.5, Kling 4.0, every Veo model and every video model at or above 5.4 credits per second) and never on the API channel. Free credits exist in the personal space only.
+        Credit buckets. The app channel (browser and device sessions, the NOLGIA Agent, organization API keys and OAuth connector tokens such as ChatGPT's) uses free credits first, then subscription, then shared top-up overflow; the API channel (personal access tokens created by hand) uses shared top-up only. `free` holds free credits (the daily free allowance, whose each day's credits last three Pacific days and whose unspent credits add up to `FREE_DAILY_ROLLOVER_CAP`, 30; the sign-up grant, the referral or Insider welcome and the checklist reward, which last 30 days; and older grants and credit codes, which do not expire): they pay for images, audio, the agent and video below the premium line, never for premium video (Seedance 2.5, Kling 4.0, every Veo model and every video model at or above 5.4 credits per second) and never on the API channel. Free credits exist in the personal space only.
 
       enum: [app_subscription, shared_topup, free]
       x-enum-varnames: [AppSubscription, SharedTopup, CreditWalletTypeFree]
@@ -24211,7 +24229,7 @@ components:
         free_daily_credits:
           type: integer
           description: >
-            The free daily allowance this account gets: set only for an account on the free plan (it has never paid) while the allowance is on. Unused free daily credits expire at the end of the Pacific day; the next day's arrive with the account's first request.
+            The free daily allowance this account gets: set only for an account on the free plan (it has never paid) while the allowance is on. Unspent daily credits roll over: each day's credits last three Pacific days, and a day's credits are added (with the account's first request that day) only up to 30 unspent daily credits in total, so an account that comes back every third day finds 30.
 
         free_refills_at:
           type: string
