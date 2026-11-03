@@ -3693,18 +3693,20 @@ paths:
     post:
       tags: [Characters]
       operationId: createCharacterSheet
-      summary: Generate a one-tap character sheet (split, five-view turnaround, or expression).
+      summary: Generate a one-tap character sheet (split, five-panel turnaround, or expression).
       description: |
         Composes the requested sheet scaffold with the character's canonical
-        description and the full Aura layer on gpt-image-2, with the
-        character's primary reference attached as identity conditioning. The
+        description and the full Aura layer, with the character's primary
+        reference attached as identity conditioning. The turnaround renders on
+        gpt-image-2.5-sunburst as an edit of that reference; split and
+        expression render on gpt-image-2. The
         character must have at least one reference image. Optional wearable
         references ride the same request and are rendered exactly as shown in
         every view - a request whose references exceed what the sheet lane can
         carry is refused (400), never silently dropped.
 
-        Billed exactly like the equivalent gpt-image-2 `POST /generate/image`
-        call.
+        Billed exactly like the equivalent `POST /generate/image` call on the
+        model the sheet renders on (the job records it).
       parameters:
         - name: id
           in: path
@@ -19332,9 +19334,11 @@ components:
       enum: [split, turnaround, expression]
       description: |
         One-tap character-sheet scaffolds: `split` (full-body plus close-up
-        split screen), `turnaround` (five consistent views: close up, medium,
-        full front, side profile, back), `expression` (full-body reference
-        plus an expression grid).
+        split screen), `turnaround` (the five-panel sheet, 16:9 on mid grey,
+        no labels: a front portrait, the full body from the front cropped
+        below the chin, the full body from behind, and two one-third-angle
+        close-ups facing the left and right frame edges), `expression`
+        (full-body reference plus an expression grid).
     CreateCharacterSheetRequest:
       type: object
       additionalProperties: false
@@ -20717,6 +20721,9 @@ components:
         subject_filled:
           type: boolean
           description: (false when omitted) The world was generated from your clip with you filled flat grey (see `fill_subject`), because the video model does not take real faces. The model's grey figure is then taken out of the world with you, and `match` sets your brightness from the scene around you. Only with `background_from_clip` and a `white` or `other` backdrop with `matte_asset_id`.
+        world_cleaned:
+          type: boolean
+          description: (false when omitted) The world made from your clip already has the video model's copy of you removed (for example by a Remove edit on it). It is used as delivered; the render does not fill the world under and around you itself. `match` still grades you and lays your shadow. Only with `background_from_clip`.
         fill_subject:
           type: boolean
           description: (false when omitted) Make no composite. The result is your clip with you filled flat grey, cut out with `matte_asset_id`, at your clip's size, frame rate, length and sound. Use it to make a world from your clip with a video model that does not take real faces, then put yourself back over that world with `background_from_clip` and `subject_filled`. Needs a `white` or `other` backdrop and `matte_asset_id`, and takes no `background_asset_id`; `match`, `blur` and `flip` are ignored.
