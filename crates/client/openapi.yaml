@@ -14912,9 +14912,11 @@ components:
         seed:
           type: boolean
           description: |
-            True when this model takes `seed` on POST /generate/audio: every
-            ElevenLabs voice. Absent on every other model, which refuses it
-            with a 400.
+            True when this model takes `seed` on POST /generate/audio: the
+            ElevenLabs models that repeat a take from one (Multilingual v2 and
+            Turbo 2.5). Absent on every other model, which refuses it with a
+            400; Eleven v3 does not repeat a take from a seed, so it takes
+            none.
     SpeedRange:
       type: object
       additionalProperties: false
@@ -16389,7 +16391,7 @@ components:
           minimum: 0
           maximum: 4294967295
           description: >-
-            Makes a take repeatable, on models that publish audio.seed on GET /models (every ElevenLabs voice): the same seed with the same text, voice and settings asks the provider for the same read. It is a best effort, not a guarantee. Change one word or setting and keep the seed to hear only that change. A model without audio.seed is a 400 naming the model. Does not change the price.
+            Makes a take repeatable, on models that publish audio.seed on GET /models (ElevenLabs Multilingual v2 and Turbo 2.5): the same seed with the same text, voice and settings gives the same take (measured; ElevenLabs calls it a best effort). Change one word or setting and keep the seed to hear only that change. Eleven v3 does not repeat a take from a seed, so it takes none. A model without audio.seed is a 400 naming the model. Does not change the price.
           examples: [1234]
         character_id:
           type: string
