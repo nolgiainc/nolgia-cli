@@ -14756,6 +14756,18 @@ components:
             A request above it is rejected with a 400 that names the limit
             and your length, before any credit hold is taken. Your prompt is
             never shortened.
+        stability:
+          type: boolean
+          description: |
+            True when this model takes `stability` (0 to 1) on POST
+            /generate/audio: every ElevenLabs voice. Absent on every other
+            model, which refuses it with a 400.
+        seed:
+          type: boolean
+          description: |
+            True when this model takes `seed` on POST /generate/audio: every
+            ElevenLabs voice. Absent on every other model, which refuses it
+            with a 400.
     SpeedRange:
       type: object
       additionalProperties: false
@@ -16207,6 +16219,24 @@ components:
           description: >-
             The emotion to speak the whole take in, on text-to-speech models that publish audio.emotions on GET /models (MiniMax Speech 2.8 HD and Turbo: happy, sad, angry, fearful, disgusted, surprised, neutral). Omit it and the model reads the emotion from the text, which is its own default and the better choice for most lines. A model without audio.emotions, or a value it does not list, is a 400 naming the model and its emotions. Does not change the price.
           examples: [sad]
+        stability:
+          type: number
+          format: double
+          nullable: true
+          minimum: 0
+          maximum: 1
+          description: >-
+            How steady the delivery is, on models that publish audio.stability on GET /models (every ElevenLabs voice). Lower gives a wider, more expressive and more variable read; higher a steadier, more even one that can turn flat. Omit it to keep the voice's own setting (ElevenLabs' default is 0.5). A model without audio.stability is a 400 naming the model. Does not change the price.
+          examples: [0.35]
+        seed:
+          type: integer
+          format: int64
+          nullable: true
+          minimum: 0
+          maximum: 4294967295
+          description: >-
+            Makes a take repeatable, on models that publish audio.seed on GET /models (every ElevenLabs voice): the same seed with the same text, voice and settings asks the provider for the same read. It is a best effort, not a guarantee. Change one word or setting and keep the seed to hear only that change. A model without audio.seed is a 400 naming the model. Does not change the price.
+          examples: [1234]
         character_id:
           type: string
           format: uuid
