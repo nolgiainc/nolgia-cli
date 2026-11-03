@@ -1343,6 +1343,8 @@ fn video_help_lists_quality_and_reference_flags() {
         .stdout(predicate::str::contains("--video-ref"))
         .stdout(predicate::str::contains("--element"))
         .stdout(predicate::str::contains("--end-frame"))
+        .stdout(predicate::str::contains("--video-task"))
+        .stdout(predicate::str::contains("--edit-target"))
         .stdout(predicate::str::contains("--project-id"));
 }
 
@@ -1383,6 +1385,57 @@ async fn gen_video_sends_quality_and_reference_fields() {
         ],
     )
     .stdout(predicate::str::contains(JOB_ID));
+}
+
+// A protected edit: the clip comes back exactly as filmed except around the
+// named thing, which a change (a swap) may grow past (real-footage audit G4).
+#[tokio::test]
+async fn gen_video_sends_video_task_and_edit_target_change() {
+    let api = MockServer::start().await;
+    mount_video_models(&api).await;
+    Mock::given(method("POST"))
+        .and(path("/v1/generate/video"))
+        .and(body_partial_json(json!({
+            "model": R2V_MODEL,
+            "video_asset_ids": [ASSET_ID],
+            "video_task": "edit",
+            "edit_target": "the red mug",
+            "edit_target_change": true,
+        })))
+        .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
+        .mount(&api)
+        .await;
+    run_ok(
+        &api,
+        &[
+            "gen",
+            "video",
+            "--model",
+            R2V_MODEL,
+            "--prompt",
+            "Replace the red mug in @Video1 with @Image1",
+            "--video-ref",
+            ASSET_ID,
+            "--element",
+            ELEMENT_ASSET_ID,
+            "--video-task",
+            "edit",
+            "--edit-target",
+            "the red mug",
+            "--edit-target-change",
+            "--no-wait",
+        ],
+    )
+    .stdout(predicate::str::contains(JOB_ID));
+}
+
+#[test]
+fn edit_target_change_needs_edit_target() {
+    cmd()
+        .args(["gen", "video", "--prompt", "x", "--edit-target-change"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--edit-target"));
 }
 
 #[tokio::test]
