@@ -3545,6 +3545,39 @@ paths:
           $ref: '#/components/responses/ProblemResponse'
         default:
           $ref: '#/components/responses/ProblemResponse'
+  /assets/{id}/faces:
+    get:
+      tags: [Assets]
+      operationId: getAssetFaces
+      summary: Whether a face is in one of your pictures or clips (free).
+      description: >-
+        Counts the faces in an image, or in three frames of a video (at a quarter, half and three quarters of its length), with the same detector the identity checks use. Use it before a restore or an enhance: when `face_count` is above zero and the chosen engine `redraws_faces`, say once that the engine may redraw the person's face and offer a faithful one. Only the count is answered; no box, no landmark and nothing about who is in shot is read or kept. Nothing is generated and nothing is charged. 503 where the detector is not installed.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The face count.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssetFaces'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '429':
+          $ref: '#/components/responses/ProblemResponse'
+        '503':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
   /assets/{id}/clips:
     post:
       tags: [Assets]
@@ -7876,7 +7909,11 @@ paths:
         brightness of lit surfaces and the same colour of light, read from
         the person's own pixels), softened like a lens focused on the person
         (`blur`), given the footage's grain, and mirrored when `flip` is true
-        (which moves its light to the other side). To relight a background
+        (which moves its light to the other side). The result comes with the
+        matte it was composited with, published as its own grey MP4 (white =
+        the person) and named on the result as `matte_layer_asset_id`, so an
+        editor can composite the person again in After Effects, Premiere or
+        Resolve. To relight a background
         picture instead, make a relit copy of it first (an image edit, priced
         as usual) and pass that.
 
@@ -13509,6 +13546,9 @@ components:
         restore:
           type: boolean
           description: Mirrors `Model.restore`.
+        redraws_faces:
+          type: boolean
+          description: Mirrors `Model.redraws_faces`.
         remove_background:
           type: boolean
           description: Mirrors `Model.remove_background`.
@@ -13641,6 +13681,22 @@ components:
           type: boolean
           description: Whether this value costs more than the base rate.
           examples: [true]
+    AssetFaces:
+      type: object
+      additionalProperties: false
+      required: [asset_id, face_count, frames_checked]
+      properties:
+        asset_id:
+          type: string
+          format: uuid
+        face_count:
+          type: integer
+          minimum: 0
+          description: The most faces seen in any one checked frame (the image itself for a picture).
+        frames_checked:
+          type: integer
+          minimum: 0
+          description: How many frames were read (1 for an image, up to 3 for a video).
     Model:
       type: object
       additionalProperties: false
@@ -13681,6 +13737,10 @@ components:
           type: boolean
           description: >-
             True for video-restoration lane models: they are submitted via `POST /restore/video` with a source clip and NO prompt, not via `POST /generate/video`. Absent for generation models.
+        redraws_faces:
+          type: boolean
+          description: >-
+            True for restore engines that can REDRAW a face rather than reconstruct it: the diffusion restorers (`seedvr2-restore`, the Starlight family, `topaz-wonder`) and Iris, which rebuilds degraded faces. A face from them can come back close to the person but not theirs, so on footage of real people offer a faithful engine first (Proteus, Artemis, Nyx, Dione and the other restore engines sharpen and scale what the clip holds), label these "may redraw faces", and check the faces of what they deliver. `GET /assets/{id}/faces` says whether a face is in shot. Absent on every other model.
         remove_background:
           type: boolean
           description: |
@@ -17169,6 +17229,11 @@ components:
             $ref: '#/components/schemas/AssetCharacterScore'
         shape:
           $ref: '#/components/schemas/AssetShape'
+        matte_layer_asset_id:
+          type: string
+          format: uuid
+          description: >-
+            On the result of a green screen or keep-me render (`POST /renders/green-screen`): the matte the composite used, published beside it as its own video, a grey H.264 MP4 at the clip's size and frame rate, white where the person is and soft on their edge. An editor puts it with the result as a separate matte layer (a luma, or after alpha-from-luminance an alpha, track matte) to composite the person over anything else. Absent on everything else, and on the grey stand-in (`fill_subject`).
         source:
           $ref: '#/components/schemas/AssetSource'
         created_at:
