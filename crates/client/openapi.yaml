@@ -15925,6 +15925,20 @@ components:
 
             A masked edit costs exactly what the same model's ordinary generation costs — a mask changes no price.
           examples: ['9a3e1a1a-6c1e-4a4f-9f3e-2d4b6c8e0a11']
+        keep_subject:
+          type: string
+          nullable: true
+          enum: [exact, match]
+          description: >-
+            "Keep me" on a photo of a person: the person goes back over the new background the way a compositor puts them back, never redrawn. Two places take it. With `mask_asset_id` on an inpaint model (a new background described in the prompt), the mask is the person's cut-out: make it first with `remove-background` on the same picture (1 credit) and pass that PNG as `mask_asset_id`, so its opaque person is kept and the rest repainted. With `background_asset_id` on `remove-background`, the person is cut out and put on that picture. `exact` ("Exactly as shot"): every solid pixel of the person is your photo's own, byte for byte, and their soft edge (hair) has your photo's old background taken out and the new one put in; under the edge, a model's own copy of the person is replaced by the new scene beside them. `match` ("Match me to the scene"): the same, then only the brightness and colour of the person's own pixels are moved toward the new scene (its brightness round them over the old one's, and its light colour on the amber-blue axis); nothing of them is generated. When the person or the background is too small to read, `match` keeps them exactly as shot and the job's `warnings` say so. Changes no price. A 400 without `mask_asset_id` on an inpaint model or `background_asset_id` on `remove-background`.
+          examples: ['exact']
+        background_asset_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: >-
+            Only on `remove-background`: one of your own image assets to put the cut-out person on, instead of a transparent PNG. The picture is cover-fitted to the photo's own size and shape (centred, never stretched) and the result is an opaque PNG at the photo's size. `keep_subject` (default `exact`) says how the person goes on it. Changes no price: the result costs what the cut-out costs.
+          examples: ['3f2c1e0a-6c1e-4a4f-9f3e-2d4b6c8e0a11']
         quality:
           type: string
           nullable: true
@@ -19446,12 +19460,22 @@ components:
           type: string
           nullable: true
           maxLength: 500
-          description: Required and non-empty for scoped steps; substituted into the server's scope template after trimming.
+          description: Required and non-empty for scoped steps (except a `background` step with `background_asset_id`); substituted into the server's scope template after trimming.
         mask_asset_id:
           type: string
           format: uuid
           nullable: true
-          description: Required for an available inpaint scope; also forwarded for unscoped steps. Ignored by edit scopes, which never submit a mask.
+          description: Required for an available inpaint scope (for `background`, the person's cut-out from `remove-background`, unless `background_asset_id` is given); also forwarded for unscoped steps. Ignored by edit scopes, which never submit a mask.
+        keep_subject:
+          type: string
+          nullable: true
+          enum: [exact, match]
+          description: For the `background` scope, how the person goes back on top (see `keep_subject` on POST /generate/image); defaults to `exact`. Refused on any other scope.
+        background_asset_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: For the `background` scope only, a picture of your own to put the person on instead of describing a new background. The step then runs `remove-background` with this picture (no prompt, `detail` may be empty, no model choice) and costs what a cut-out costs.
         model:
           $ref: '#/components/schemas/ImageModel'
           description: Scoped steps require an allowed model and default to the scope's first model. Unscoped steps default to the style model hint, then the previous step model, then gpt-image-2.
