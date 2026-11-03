@@ -3503,6 +3503,48 @@ paths:
           $ref: '#/components/responses/ProblemResponse'
         default:
           $ref: '#/components/responses/ProblemResponse'
+  /assets/{id}/footage:
+    get:
+      tags: [Assets]
+      operationId: getAssetFootage
+      summary: Read and measure a filmed clip, and write the prompt block that matches it (free).
+      description: >-
+        Match my footage. Reads the camera metadata in one of your video files (camera body, frame rate, shutter, ISO, white balance, lens, colour, HDR) and measures the picture (the camera move, the colour of the light, the black floor and contrast, the grain on a locked shot, the key side on the person when a matte is given, depth of field when the backdrop has detail), then writes `block`: a plain, editable paragraph that describes the real shot to a video model, for example "Camera: match the original, GoPro HERO10 Black, 239.76 fps, 1/242 s shutter (about 356°), ISO about 989, ... locked off, no camera movement." Every value in `read` names where it came from, `measured` holds what the pixels said, and `left_to_you` lists what was neither, with why. A file with no camera metadata (a phone export, a re-encode) is still read: the block is written from what there is, and what is missing is listed. GPS, location and serial numbers are never read. The first 60 seconds of picture are measured (fewer for 4K and high frame rates); tags and boxes are read from the whole file. A picture under 32 or over 16384 pixels a side, or more than 8 times as wide as tall (or as tall as wide), is not footage this read measures: it answers 400 saying so. Nothing is generated and nothing is charged; the answer is kept with the asset, so asking again is instant.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: matte_asset_id
+          in: query
+          required: false
+          description: A cut-out matte of the same clip (the result of remove-background-video on it). With it, the light on the person (key side and softness) and the depth of field are measured too.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The read, the measurements and the block.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssetFootage'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '429':
+          $ref: '#/components/responses/ProblemResponse'
+        '502':
+          $ref: '#/components/responses/ProblemResponse'
+        '503':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
   /assets/{id}/clips:
     post:
       tags: [Assets]
@@ -24631,6 +24673,191 @@ components:
         text:
           type: string
           description: The words said in the segment, placed from the transcript. Empty without one.
+    AssetFootage:
+      type: object
+      additionalProperties: false
+      required: [asset_id, read, measured, left_to_you, not_in_the_file, block]
+      properties:
+        asset_id:
+          type: string
+          format: uuid
+        matte_asset_id:
+          type: string
+          format: uuid
+          description: The matte the key side and depth of field were measured with, when one was given.
+        block:
+          type: string
+          description: The plain, editable prompt block that describes the shot to a video model. Light is written as its effect; no gear nouns (a camera body name is allowed), no hype, no flaw list. The filmmaker writes the world (place, characters, action) around it.
+        read:
+          type: array
+          description: Each value read from the file, in the order it was read, with where it came from. GPS, location and serial numbers are never read.
+          items:
+            $ref: '#/components/schemas/FootageReadField'
+        measured:
+          $ref: '#/components/schemas/FootageMeasured'
+        left_to_you:
+          type: array
+          description: What was neither read nor measured, with why. The block leaves these for the filmmaker to say.
+          items:
+            $ref: '#/components/schemas/FootageLeftItem'
+        not_in_the_file:
+          type: array
+          description: The camera settings the file does not carry (make, model, lens, focal_mm, focal_mm_35, f_number, iso, shutter, shutter_angle, white_balance_k, gamma, gamut).
+          items:
+            type: string
+        note:
+          type: string
+          description: Set when the file was re-encoded by software and no camera metadata survives in it.
+        cached:
+          type: boolean
+          description: True when the answer was kept from an earlier read of the same file.
+    FootageReadField:
+      type: object
+      additionalProperties: false
+      required: [field, value, source, source_kind]
+      properties:
+        field:
+          type: string
+          description: The field, for example `model`, `fps`, `shutter`, `iso`, `white_balance_k`, `colour_transfer`, `hdr`.
+        value:
+          type: string
+          description: The value as text (a per-frame series reads as its median).
+        number:
+          type: number
+          format: double
+          description: The value as a number, when it is one.
+        samples:
+          $ref: '#/components/schemas/FootageSamples'
+        source:
+          type: string
+          description: Where it came from, for example `format tag com.apple.quicktime.model`, `box moov/udta/GPMF MINF`, `stream 3 (gpmd) SHUT`.
+        source_kind:
+          type: string
+          enum: [container_tag, stream, box, per_frame, sidecar, derived]
+          description: '`container_tag` a tag on the file; `stream` a stream''s tag or its own description (codec, colour, frame durations); `box` a box in the file read directly; `per_frame` timed metadata, one value per frame or second; `sidecar` a sidecar file; `derived` computed from two read values.'
+    FootageSamples:
+      type: object
+      additionalProperties: false
+      required: [median, min, max, count]
+      description: A per-frame value over the clip.
+      properties:
+        median:
+          type: number
+          format: double
+        min:
+          type: number
+          format: double
+        max:
+          type: number
+          format: double
+        count:
+          type: integer
+    FootageMeasured:
+      type: object
+      additionalProperties: false
+      required: [camera_move, black_floor, white_top, contrast, seconds]
+      properties:
+        camera_move:
+          $ref: '#/components/schemas/FootageCameraMove'
+        black_floor:
+          type: number
+          format: double
+          description: The darkest 1% of the picture (on the person with a matte), 0 to 1.
+        white_top:
+          type: number
+          format: double
+          description: The brightest 1%, 0 to 1.
+        contrast:
+          type: string
+          description: The contrast as the block says it.
+        light_cct_k:
+          type: integer
+          description: The rough colour temperature of the light, read from the brightest near-neutral surfaces. Absent when the frame has none.
+        light:
+          type: string
+          enum: [warm, neutral, cool]
+        grain:
+          $ref: '#/components/schemas/FootageGrain'
+        key:
+          $ref: '#/components/schemas/FootageKey'
+        depth_of_field:
+          $ref: '#/components/schemas/FootageDepthOfField'
+        tone_mapped_from:
+          type: string
+          description: '`HDR` when HLG or PQ footage was tone-mapped to SDR before it was measured.'
+        seconds:
+          type: number
+          format: double
+          description: How many seconds of the picture were measured.
+    FootageCameraMove:
+      type: object
+      additionalProperties: false
+      required: [kind, width_per_s, scale_per_s, jitter_width_per_sample]
+      properties:
+        kind:
+          type: string
+          enum: [locked, 'handheld, no travel', pushing in, pulling back, panning or tracking right, panning or tracking left, tilting down, tilting up]
+        width_per_s:
+          type: array
+          description: The picture's drift per second (x, y) as a share of the frame width.
+          items:
+            type: number
+            format: double
+        scale_per_s:
+          type: number
+          format: double
+          description: The zoom per second (positive is pushing in).
+        jitter_width_per_sample:
+          type: number
+          format: double
+          description: The shake, as a share of the frame width per sample (about six a second).
+    FootageGrain:
+      type: object
+      additionalProperties: false
+      required: [std_levels, pairs, words]
+      description: Measured on locked shots only (frame differences on a moving shot are motion).
+      properties:
+        std_levels:
+          type: number
+          format: double
+          description: The grain's standard deviation in 8-bit levels.
+        pairs:
+          type: integer
+        words:
+          type: string
+    FootageKey:
+      type: object
+      additionalProperties: false
+      required: [left_minus_right, side, softness]
+      description: The light on the person's upper body, left against right (needs a matte). Key height is never measured.
+      properties:
+        left_minus_right:
+          type: number
+          format: double
+        side:
+          type: string
+        softness:
+          type: string
+    FootageDepthOfField:
+      type: object
+      additionalProperties: false
+      required: [backdrop_over_person_sharpness, words]
+      description: The backdrop's sharpness over the person's (needs a matte and a backdrop with detail).
+      properties:
+        backdrop_over_person_sharpness:
+          type: number
+          format: double
+        words:
+          type: string
+    FootageLeftItem:
+      type: object
+      additionalProperties: false
+      required: [item, reason]
+      properties:
+        item:
+          type: string
+        reason:
+          type: string
     AssetShots:
       type: object
       additionalProperties: false
