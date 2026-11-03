@@ -4078,6 +4078,153 @@ paths:
           $ref: '#/components/responses/ProblemResponse'
         default:
           $ref: '#/components/responses/ProblemResponse'
+  /voices/library:
+    get:
+      tags: [Voices]
+      operationId: searchVoiceLibrary
+      summary: Search ElevenLabs' Voice Library for a real voice to speak in.
+      description: |
+        Searches ElevenLabs' public Voice Library: thousands of voices with
+        real regional accents, each with a sample to hear. Pass a voice's
+        `voice_id` as `voice` on POST /generate/audio with any ElevenLabs
+        model (`audio.custom_voices` true); it needs no saving and takes no
+        place in your custom voice library. Free and read-only.
+
+        Only voices at ElevenLabs' standard rate are listed (no credit
+        multiplier), and no live-moderated or celebrity voices, so a line
+        costs exactly the model's published price. A voice whose owner stops
+        sharing it can disappear: `notice_period_days` is how long it keeps
+        speaking after that (none means it can go at once), so pick one with
+        a notice period for work you will come back to.
+
+        Answers 404 while NOLGIA has the Voice Library and Voice Design
+        switched off.
+      parameters:
+        - {name: search, in: query, required: false, schema: {type: string, maxLength: 100}, description: Words to match in the voice's name, description and labels.: ''}
+        - {name: gender, in: query, required: false, schema: {type: string, enum: [female, male, neutral], x-enum-varnames: [VoiceLibraryGenderFemale, VoiceLibraryGenderMale, VoiceLibraryGenderNeutral]}}
+        - {name: age, in: query, required: false, schema: {type: string, enum: [young, middle_aged, old], x-enum-varnames: [VoiceLibraryAgeYoung, VoiceLibraryAgeMiddleAged, VoiceLibraryAgeOld]}}
+        - {name: accent, in: query, required: false, schema: {type: string, maxLength: 40}, description: 'ElevenLabs'' accent label, for example `american`, `british`, `australian`, `irish`, `southern`, `mexican`.'}
+        - {name: language, in: query, required: false, schema: {type: string, maxLength: 10}, description: 'Language code, for example `en`, `es`, `fr`.'}
+        - {name: use_case, in: query, required: false, schema: {type: string, maxLength: 40}, description: 'For example `narrative_story`, `conversational`, `characters_animation`, `social_media`, `advertisement`.'}
+        - {name: sort, in: query, required: false, schema: {type: string, enum: [trending, most_used, newest], default: trending, x-enum-varnames: [VoiceLibrarySortTrending, VoiceLibrarySortMostUsed, VoiceLibrarySortNewest]}}
+        - {name: page, in: query, required: false, schema: {type: integer, minimum: 0, maximum: 1000, default: 0}}
+        - {name: page_size, in: query, required: false, schema: {type: integer, minimum: 1, maximum: 50, default: 24}}
+      responses:
+        '200':
+          description: One page of matching voices.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VoiceLibraryPage'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '502':
+          $ref: '#/components/responses/ProblemResponse'
+        '503':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /voices/design:
+    post:
+      tags: [Voices]
+      operationId: designVoice
+      summary: Design a voice from a description and hear three takes of it.
+      description: |
+        ElevenLabs Voice Design (Eleven v3): describe a voice (age, accent,
+        texture, pace, the room it is in) and get three different voices
+        reading the same text, to hear before keeping one. Keep one with
+        POST /voices/design/save; previews that are not kept are gone.
+
+        Charged once per design, for the preview text's characters at
+        `elevenlabs-tts-v3`'s price (at least 200 characters, the text to
+        speech minimum), whatever the number of previews: ElevenLabs bills
+        the text once for all three. That is 2 credits up to 200 characters
+        and 6 at 1,000. Without `text`, NOLGIA's own 148-character English
+        line is read; give your own line in the voice's language for a
+        non-English voice.
+
+        Answers 404 while NOLGIA has the Voice Library and Voice Design
+        switched off.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DesignVoiceRequest'
+      responses:
+        '200':
+          description: Three previews of the described voice.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VoiceDesign'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '402':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '422':
+          $ref: '#/components/responses/ProblemResponse'
+        '502':
+          $ref: '#/components/responses/ProblemResponse'
+        '503':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /voices/design/save:
+    post:
+      tags: [Voices]
+      operationId: saveDesignedVoice
+      summary: Keep a designed voice as one of your custom voices.
+      description: |
+        Turns one preview from POST /voices/design into a custom voice in
+        your library (GET /voices, `origin: design`), spoken by passing its
+        `voice_id` as `voice` on any ElevenLabs model. It takes a place in
+        your library like a cloned voice (`max_voices`), and charges
+        `credits_per_voice` once, when it is created; a failed save charges
+        nothing. Included with every paid plan (402 otherwise). A preview
+        can be kept once, soon after it was designed.
+
+        Answers 404 while NOLGIA has the Voice Library and Voice Design
+        switched off.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SaveDesignedVoiceRequest'
+      responses:
+        '201':
+          description: The voice, ready to speak.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomVoice'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '402':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        '422':
+          $ref: '#/components/responses/ProblemResponse'
+        '502':
+          $ref: '#/components/responses/ProblemResponse'
+        '503':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
   /desktop-apps:
     get:
       tags: [Bridge]
@@ -17871,7 +18018,7 @@ components:
       type: object
       additionalProperties: false
       required: [id, voice_id, name, status, source_asset_ids, source_seconds, speaker_consent, consented_at, created_at]
-      description: A custom voice cloned from your recordings.
+      description: 'A custom voice in your library: cloned from your recordings, or designed from a description.'
       properties:
         id:
           type: string
@@ -17913,13 +18060,154 @@ components:
           description: The first source recording still in your library, with a fresh signed URL, for hearing the voice before you generate. Omitted when every source recording was deleted.
         speaker_consent:
           type: boolean
-          description: Always true; recorded when the voice was created.
+          description: True on a cloned voice, recorded when it was created. False on a designed voice, which has no real speaker.
         consented_at:
           type: string
           format: date-time
         created_at:
           type: string
           format: date-time
+        origin:
+          type: string
+          enum: [clone, design]
+          x-enum-varnames: [CustomVoiceOriginClone, CustomVoiceOriginDesign]
+          description: '`clone` was cloned from your recordings; `design` was designed from a description (it has no recordings, so no `sample`).'
+        description:
+          type: string
+          description: A designed voice's description.
+    VoiceLibraryVoice:
+      type: object
+      additionalProperties: false
+      required: [voice_id, name]
+      description: One ElevenLabs Voice Library voice, with ElevenLabs' own labels for it.
+      properties:
+        voice_id:
+          type: string
+          description: Send as `voice` on POST /generate/audio with an ElevenLabs model.
+        name:
+          type: string
+        gender:
+          type: string
+        age:
+          type: string
+        accent:
+          type: string
+        language:
+          type: string
+        locale:
+          type: string
+        description:
+          type: string
+          description: The voice owner's description.
+        descriptive:
+          type: string
+          description: ElevenLabs' one-word character label, for example `calm`, `gravelly`, `upbeat`.
+        use_case:
+          type: string
+        category:
+          type: string
+          description: How the voice was made (`professional` is a professional clone of a real speaker; `generated` was designed).
+        preview_url:
+          type: string
+          description: A sample of the voice, to hear before using it.
+        notice_period_days:
+          type: integer
+          nullable: true
+          description: How long the voice keeps speaking after its owner stops sharing it. Null means it can be withdrawn at once.
+        featured:
+          type: boolean
+    VoiceLibraryPage:
+      type: object
+      additionalProperties: false
+      required: [voices, has_more, page]
+      properties:
+        voices:
+          type: array
+          items:
+            $ref: '#/components/schemas/VoiceLibraryVoice'
+        has_more:
+          type: boolean
+        page:
+          type: integer
+    DesignVoiceRequest:
+      type: object
+      additionalProperties: false
+      required: [description]
+      properties:
+        description:
+          type: string
+          minLength: 20
+          maxLength: 1000
+          description: >-
+            The voice to make: age, gender, accent, texture, pace and setting, for example "A woman in her sixties from rural Georgia, warm and slightly hoarse, unhurried, recorded close in a quiet kitchen". Describe a voice, never a real person.
+        text:
+          type: string
+          nullable: true
+          minLength: 100
+          maxLength: 1000
+          description: The line every preview reads, in the voice's language; it is what the design is charged by. Omit it for NOLGIA's own 148-character English line.
+        seed:
+          type: integer
+          format: int64
+          nullable: true
+          minimum: 0
+          maximum: 4294967295
+          description: The same seed with the same description and text asks for the same three voices.
+    VoiceDesignPreview:
+      type: object
+      additionalProperties: false
+      required: [generated_voice_id, audio_base64, media_type, duration_seconds]
+      properties:
+        generated_voice_id:
+          type: string
+          description: Keep this voice with POST /voices/design/save.
+        audio_base64:
+          type: string
+          description: The preview, base64-encoded.
+        media_type:
+          type: string
+          examples: [audio/mpeg]
+        duration_seconds:
+          type: number
+          format: double
+        language:
+          type: string
+          nullable: true
+    VoiceDesign:
+      type: object
+      additionalProperties: false
+      required: [text, previews, credits_charged]
+      properties:
+        text:
+          type: string
+          description: The line the previews read.
+        previews:
+          type: array
+          items:
+            $ref: '#/components/schemas/VoiceDesignPreview'
+        credits_charged:
+          type: integer
+          description: What this design cost.
+    SaveDesignedVoiceRequest:
+      type: object
+      additionalProperties: false
+      required: [generated_voice_id, name, description]
+      properties:
+        generated_voice_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: One preview's `generated_voice_id` from POST /voices/design.
+        name:
+          type: string
+          minLength: 1
+          maxLength: 60
+          description: Your name for the voice.
+        description:
+          type: string
+          minLength: 20
+          maxLength: 1000
+          description: The description the voice was designed from, kept with it.
     CustomVoiceList:
       type: object
       additionalProperties: false
