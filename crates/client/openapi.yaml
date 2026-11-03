@@ -14187,14 +14187,18 @@ components:
           nullable: true
           minimum: 1
           description: |
-            Extra credits for each input image past `free_input_images`, on a
-            model that charges for input images. Input images
-            are the reference images plus the start and end frames. The
-            surcharge is added once per request, at every tier, and is NOT
-            scaled by duration. A request carrying N input images is charged
-            the clip price plus `max(0, N - free_input_images) *
-            input_image_credits`. Absent when input images have no price
-            impact.
+            Extra credits for each input image past `free_input_images` (for
+            each block of `input_images_per_credit` of them, where that is
+            published), on a model that charges for input images. On video,
+            input images are the reference images plus the start and end
+            frames, the surcharge is added once per request at every tier and
+            is NOT scaled by duration: a request carrying N input images is
+            charged the clip price plus `max(0, N - free_input_images) *
+            input_image_credits`. On image models the input images are the
+            references (`image_url`, `image_urls`, `reference_asset_ids` and
+            every server-side reference: character, location, product, brand
+            logo, elements), and the surcharge is added for each output image.
+            Absent when input images have no price impact.
           examples: [5]
         free_input_images:
           type: integer
@@ -14204,6 +14208,19 @@ components:
             Present with `input_image_credits`: how many input images a
             request carries before the surcharge starts.
           examples: [2]
+        input_images_per_credit:
+          type: integer
+          nullable: true
+          minimum: 2
+          description: |
+            Present when the provider bills each input image a small fraction
+            of a credit: input images past `free_input_images` are charged in
+            blocks of this many, `ceil(max(0, N - free_input_images) /
+            input_images_per_credit) * input_image_credits`. Example:
+            `nano-banana-pro` takes 14 references, the first is in its price,
+            and the other 13 add 1 credit (blocks of 16). Absent when every
+            image past the allowance is charged on its own.
+          examples: [16]
         baseline_seconds:
           type: integer
           nullable: true
@@ -15722,7 +15739,7 @@ components:
         reference_asset_ids:
           type: array
           nullable: true
-          maxItems: 4
+          maxItems: 14
           items:
             type: string
             format: uuid
@@ -15929,9 +15946,9 @@ components:
         image_urls:
           type: array
           nullable: true
-          maxItems: 4
+          maxItems: 14
           description: >-
-            Multiple reference images (https URLs) for models that support multi-reference input (OpenAI gpt-image models — e.g. character + outfit + style references combined — Kling Image 3.0 multi-reference i2i, `seedream-v5-pro` (up to 4) and `qwen-image-3` (up to 3)). Mutually additive with `image_url` (it is treated as the first reference); at most 4 references total, and never more than the model's `image.reference_images_max`. OpenAI references are fetched server-side under one 10 MB combined download budget; every other model fetches the URLs itself, so they must stay reachable until the render completes. Rejected (400) on models without multi-reference support. An entry can also be the id of one of your own image assets: it is signed for you, in its place in the list.
+            Multiple reference images (https URLs) for models that support multi-reference input: `nano-banana-pro` and `nano-banana-2.1` (up to 14), `seedream-v5-pro`, `flux-3-image` and `flux-3-image-klein` (up to 10), the OpenAI gpt-image models and Kling Image 3.0 (up to 4) and `qwen-image-3` (up to 3). Mutually additive with `image_url` (it is treated as the first reference); never more than the model's `image.reference_images_max`, and never more than 14. A model that bills references past an allowance publishes it as `cost.free_input_images` / `cost.input_images_per_credit`. OpenAI references are fetched server-side under one 10 MB combined download budget; every other model fetches the URLs itself, so they must stay reachable until the render completes. Rejected (400) on models without multi-reference support. An entry can also be the id of one of your own image assets: it is signed for you, in its place in the list.
           items:
             type: string
             maxLength: 2048
@@ -15939,9 +15956,9 @@ components:
         reference_asset_ids:
           type: array
           nullable: true
-          maxItems: 4
+          maxItems: 14
           description: >-
-            Reference images given as ids of your own image assets — the server resolves each to a signed URL and it rides the same multi-reference path as `image_urls` (the image lane's sibling of the video lane's `element_asset_ids`). Counted against the same per-model cap as `image_url` + `image_urls` combined (`image.reference_images_max` on `GET /models` — 4 on gpt-image-2, Kling Image 3.0 and seedream-v5-pro, 3 on qwen-image-3, 1 on single-reference models, 0 on models with no reference input, where any reference is rejected with a 400 rather than silently dropped). Prefer this over `image_urls` for assets already in your Library: the server re-signs the underlying objects at execution time, so a queued job never runs with an expired URL.
+            Reference images given as ids of your own image assets — the server resolves each to a signed URL and it rides the same multi-reference path as `image_urls` (the image lane's sibling of the video lane's `element_asset_ids`). Counted against the same per-model cap as `image_url` + `image_urls` combined (`image.reference_images_max` on `GET /models` — 14 on nano-banana-pro and nano-banana-2.1, 10 on seedream-v5-pro and FLUX 3, 4 on gpt-image-2 and Kling Image 3.0, 3 on qwen-image-3, 1 on single-reference models, 0 on models with no reference input, where any reference is rejected with a 400 rather than silently dropped). Prefer this over `image_urls` for assets already in your Library: the server re-signs the underlying objects at execution time, so a queued job never runs with an expired URL.
           items:
             type: string
             format: uuid
@@ -16270,7 +16287,7 @@ components:
           minLength: 1
           maxLength: 32000
           description: >-
-            Text prompt. 32000 characters is the transport bound for every model; the model's own ceiling is `video.max_prompt_chars` on `GET /models`, checked on the composed prompt before any credit hold. On reference-to-video models, address the supplied references as `@Video1`..`@Video3` and `@Image1`..`@Image9`, and optionally use `[0-3s]`-style timeline markers to time actions; these tokens are passed through verbatim (including inside multi-shot `shots[]` prompts).
+            Text prompt. 32000 characters is the transport bound for every model; the model's own ceiling is `video.max_prompt_chars` on `GET /models`, checked on the composed prompt before any credit hold. On reference-to-video models, address the supplied references as `@Video1`..`@Video3` and `@Image1`..`@ImageN` (N = the model's `references.element_refs_max`: 30 on `seedance-2.5`), and optionally use `[0-3s]`-style timeline markers to time actions; these tokens are passed through verbatim (including inside multi-shot `shots[]` prompts).
         prompt_extend:
           type: boolean
           nullable: true
@@ -16390,18 +16407,18 @@ components:
         element_asset_ids:
           type: array
           nullable: true
-          maxItems: 9
+          maxItems: 30
           description: >-
-            Element/reference images for reference-to-video models, given as ids of your image assets — resolved to signed URLs and forwarded as the provider's `image_urls`. Address them in the prompt as `@Image1`..`@Image9`. At most 9 combined with `image_urls`. Images-only requests (no reference video) are allowed and bill at exactly the published reference-to-video credit price, the same as a request carrying a reference video: both execute on the same provider route at the same rate.
+            Element/reference images for reference-to-video models, given as ids of your image assets — resolved to signed URLs and forwarded as the provider's `image_urls`. Address them in the prompt as `@Image1`..`@ImageN`. At most the model's `references.element_refs_max` combined with `image_urls` (30 on `seedance-2.5`, 14 on `grok-imagine-video-1.5`, 9 on most others). Images-only requests (no reference video) are allowed and bill at exactly the published reference-to-video credit price, the same as a request carrying a reference video: both execute on the same provider route at the same rate.
           items:
             type: string
             format: uuid
         image_urls:
           type: array
           nullable: true
-          maxItems: 9
+          maxItems: 30
           description: >-
-            Raw https element-image URLs. Counted against the same 9-image cap as `element_asset_ids`. Prefer `element_asset_ids`. An entry can also be the id of one of your own image assets: it is signed for you, in its place in the list.
+            Raw https element-image URLs. Counted against the same `references.element_refs_max` cap as `element_asset_ids`. Prefer `element_asset_ids`. An entry can also be the id of one of your own image assets: it is signed for you, in its place in the list.
           items:
             type: string
         audio_asset_ids:
@@ -16583,7 +16600,7 @@ components:
           nullable: true
           maxItems: 9
           description: >-
-            Registry elements (`GET /elements`) to condition this clip: each element's reference images are appended to the element-reference slots (before any `character_id` reference, which stays appended last) and its `canonical_description` rides into the prompt verbatim with the binding clause ("100% matches the reference") - the belt-and-braces continuity stack. A character id is accepted here too and injects exactly what `character_id` would; naming the SAME character in both fields is a 400. All injected references count against `references.element_refs_max` on `GET /models` (minimax-h3: 9, Seedance: 9) - an overflow is a 400 NAMING which elements to drop, raised before any credits are held, never a silent truncation. On the Seedance 2.0 text-to-video and image-to-video entries an element-carrying request silently dispatches on the reference-to-video route's reference twin (the only Seedance 2.0 route that executes image references); a start/end frame is passed through with it (if the provider rejects that combination, the error surfaces as the usual provider 400). `seedance-2.5`, `seedance-2.0-fast` and `seedance-2.0-mini` take up to 9 element images on their own direct routes. Elements must be visible in the caller's library (their own, or the active organization's); an unknown or out-of-scope id is a 400. Cannot be combined with `source_video_asset_id` (a regeneration re-renders existing footage; there is nothing for an element to condition).
+            Registry elements (`GET /elements`) to condition this clip: each element's reference images are appended to the element-reference slots (before any `character_id` reference, which stays appended last) and its `canonical_description` rides into the prompt verbatim with the binding clause ("100% matches the reference") - the belt-and-braces continuity stack. A character id is accepted here too and injects exactly what `character_id` would; naming the SAME character in both fields is a 400. All injected references count against `references.element_refs_max` on `GET /models` (minimax-h3: 9, seedance-2.5: 30, Seedance 2.0: 9) - an overflow is a 400 NAMING which elements to drop, raised before any credits are held, never a silent truncation. On the Seedance 2.0 text-to-video and image-to-video entries an element-carrying request silently dispatches on the reference-to-video route's reference twin (the only Seedance 2.0 route that executes image references); a start/end frame is passed through with it (if the provider rejects that combination, the error surfaces as the usual provider 400). `seedance-2.5` takes up to 30 element images, `seedance-2.0-fast` and `seedance-2.0-mini` up to 9, on their own direct routes. Elements must be visible in the caller's library (their own, or the active organization's); an unknown or out-of-scope id is a 400. Cannot be combined with `source_video_asset_id` (a regeneration re-renders existing footage; there is nothing for an element to condition).
           items:
             type: string
             format: uuid
