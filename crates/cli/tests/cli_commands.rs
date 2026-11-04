@@ -6530,7 +6530,10 @@ async fn gen_3d_no_wait_omits_defaults() {
     let api = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path("/v1/generate/3d"))
-        .and(body_json(json!({"image_asset_ids": [ASSET_ID]})))
+        // PBR materials are the default on a textured hunyuan3d-v3 model, said either way.
+        .and(body_json(
+            json!({"image_asset_ids": [ASSET_ID], "pbr": true}),
+        ))
         .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
         .expect(1)
         .mount(&api)
@@ -6562,7 +6565,11 @@ async fn gen_3d_forwards_options() {
         ),
         (
             vec!["--image-url", "https://example.com/front.png"],
-            json!({"image_url": "https://example.com/front.png"}),
+            json!({"image_url": "https://example.com/front.png", "pbr": true}),
+        ),
+        (
+            vec!["--input", ASSET_ID, "--no-pbr"],
+            json!({"image_asset_ids": [ASSET_ID], "pbr": false}),
         ),
         (
             vec![
@@ -6612,6 +6619,10 @@ async fn gen_3d_invalid_options_make_no_requests() {
         (
             vec!["--input", "front.png", "--pbr", "--no-texture"],
             "--no-texture",
+        ),
+        (
+            vec!["--input", "front.png", "--pbr", "--no-pbr"],
+            "--no-pbr",
         ),
         (
             vec!["--input", "front.png", "--draft", "--model", "trellis"],
@@ -6705,32 +6716,104 @@ async fn mount_three_d_models(api: &MockServer) {
         ]}))).mount(api).await;
 }
 
+/// A stand-in server quote for `POST /jobs/cost` priced like nolgia-api: hunyuan3d-v3 21
+/// textured (13 untextured), +9 PBR (on unless pbr false, on a textured model), +9 for
+/// extra asset views; trellis 2.
+struct ThreeDQuote;
+
+impl wiremock::Respond for ThreeDQuote {
+    fn respond(&self, request: &wiremock::Request) -> ResponseTemplate {
+        let body: serde_json::Value = serde_json::from_slice(&request.body).unwrap();
+        assert_eq!(body["kind"], "3d", "{body}");
+        let req = &body["three_d"];
+        let trellis = req["model"] == "trellis" || req["quality"] == "draft";
+        let textured = req["texture"] != json!(false);
+        let views = req["image_asset_ids"].as_array().map_or(1, |ids| ids.len());
+        let credits = if trellis {
+            2
+        } else {
+            (if textured { 21 } else { 13 })
+                + if textured && req["pbr"] != json!(false) {
+                    9
+                } else {
+                    0
+                }
+                + if views > 1 { 9 } else { 0 }
+        };
+        ResponseTemplate::new(200).set_body_json(json!({
+            "basis": "quote", "confirmation_token": "tok", "credits": credits, "kind": "3d",
+            "model": req["model"].as_str().unwrap_or("hunyuan3d-v3"), "settings": [],
+            "expires_at": "2099-01-01T00:00:00Z", "sufficient_credits": true, "suggested_models": []
+        }))
+    }
+}
+
 #[tokio::test]
-async fn gen_3d_cost_only_uses_catalog_without_uploading() {
+async fn gen_3d_cost_only_asks_the_server_without_uploading() {
     let api = MockServer::start().await;
     mount_three_d_models(&api).await;
-    for (options, credits) in [
-        (vec![], "21 credits"),
-        (vec!["--no-texture"], "13 credits"),
-        (vec!["--pbr"], "30 credits"),
+    Mock::given(method("POST"))
+        .and(path("/v1/jobs/cost"))
+        .respond_with(ThreeDQuote)
+        .mount(&api)
+        .await;
+    for (inputs, options, credits) in [
+        (vec!["front.png"], vec![], "30 credits"),
+        (vec!["front.png"], vec!["--pbr"], "30 credits"),
+        (vec!["front.png"], vec!["--no-pbr"], "21 credits"),
+        (vec!["front.png"], vec!["--no-texture"], "13 credits"),
         (
-            vec!["--input", "back.png", "--input", "left.png", "--pbr"],
+            vec!["front.png", "back.png", "left.png"],
+            vec![],
             "39 credits",
         ),
-        (vec!["--input", "back.png", "--no-texture"], "22 credits"),
-        (vec!["--draft"], "2 credits"),
-        (vec!["--model", "trellis"], "2 credits"),
+        (
+            vec!["front.png", "back.png"],
+            vec!["--no-pbr"],
+            "30 credits",
+        ),
+        (
+            vec!["front.png", "back.png"],
+            vec!["--no-texture"],
+            "22 credits",
+        ),
+        (vec![ASSET_ID, ELEMENT_ASSET_ID], vec![], "39 credits"),
+        (vec!["front.png"], vec!["--draft"], "2 credits"),
+        (vec!["front.png"], vec!["--model", "trellis"], "2 credits"),
     ] {
-        let mut args = vec!["gen", "3d", "--input", "front.png", "--cost-only"];
+        let mut args = vec!["gen", "3d", "--cost-only"];
+        for input in inputs {
+            args.extend(["--input", input]);
+        }
         args.extend(options);
         run_ok(&api, &args).stdout(predicate::str::contains(credits));
     }
+    let requests = api.received_requests().await.unwrap();
+    // Quotes only: nothing uploaded, nothing submitted.
     assert!(
-        api.received_requests()
-            .await
-            .unwrap()
+        requests
             .iter()
-            .all(|r| r.method == "GET" && r.url.path() == "/v1/models")
+            .all(|r| (r.method == "POST" && r.url.path() == "/v1/jobs/cost")
+                || (r.method == "GET" && r.url.path() == "/v1/models"))
+    );
+    // A local front view is quoted on a stand-in URL; asset ids go as they will be sent.
+    let bodies: Vec<serde_json::Value> = requests
+        .iter()
+        .filter(|r| r.method == "POST")
+        .map(|r| serde_json::from_slice(&r.body).unwrap())
+        .collect();
+    assert_eq!(bodies[0]["three_d"]["pbr"], json!(true));
+    assert!(
+        bodies[0]["three_d"]["image_url"]
+            .as_str()
+            .unwrap()
+            .starts_with("https://")
+    );
+    assert_eq!(bodies[2]["three_d"]["pbr"], json!(false));
+    assert!(bodies[3]["three_d"].get("pbr").is_none());
+    assert_eq!(
+        bodies[7]["three_d"]["image_asset_ids"],
+        json!([ASSET_ID, ELEMENT_ASSET_ID])
     );
 }
 
@@ -6750,7 +6833,7 @@ async fn models_list_filters_and_describes_3d() {
     run_ok(&api, &["models", "list", "--modality", "3d"])
         .stdout(predicate::str::contains("21 credits (per_generation)"))
         .stdout(predicate::str::contains(
-            "up to 4 images  multi-view  untextured  PBR",
+            "up to 4 images  multi-view  untextured  PBR +9, on by default",
         ))
         .stdout(predicate::str::contains("trellis"));
 }
