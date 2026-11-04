@@ -2281,10 +2281,13 @@ paths:
 
         Credits are charged per generation. Hunyuan costs 21 credits with
         textures or 13 for an untextured white model. PBR materials add 9
-        credits and require textures. Extra views add 9 credits once,
-        whether you send one, two or three extra views. The textured totals
-        are 21, 30 with PBR, 30 with extra views, or 39 with both; untextured
-        totals are 13 or 22 with extra views. Trellis costs 2 credits.
+        credits and require textures; on Hunyuan with textures they are on
+        unless the request sends `pbr: false`, so a request that names
+        neither costs 30. Extra views add 9 credits once, whether you send
+        one, two or three extra views. The textured totals are 21 without
+        PBR, 30 with PBR (the default), 30 without PBR and with extra views,
+        or 39 with both; untextured totals are 13 or 22 with extra views.
+        Trellis costs 2 credits.
 
         **Duplicate submissions are never billed twice.** Without an
         `Idempotency-Key`, submitting the same request twice within five
@@ -16914,7 +16917,8 @@ components:
           description: Defaults to true. False creates an untextured white model and is available only with hunyuan3d-v3.
         pbr:
           type: boolean
-          description: Defaults to false. PBR materials require hunyuan3d-v3 with textures enabled.
+          description: >-
+            PBR materials (+9 credits). Defaults to true on hunyuan3d-v3 with textures, and false on trellis or an untextured model; send false to leave them out. PBR materials require hunyuan3d-v3 with textures enabled.
         tags:
           type: array
           maxItems: 10
