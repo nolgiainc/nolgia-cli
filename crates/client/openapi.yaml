@@ -14462,6 +14462,15 @@ components:
             Tier applied when the request omits `quality`; it costs the
             model's base `cost.credits`.
           examples: ['720p']
+        video_input_default:
+          type: string
+          description: |
+            Tier applied instead of `default` when the request omits `quality`
+            and carries its own reference video (`video_asset_ids` or
+            `video_urls`): a swap, an edit, an extension or a recast. Absent
+            when such a request opens at `default` like any other. A named
+            `quality` always wins. Wan 3.0 and Wan 3.0 Prime publish `720p`.
+          examples: ['720p']
         options:
           type: array
           minItems: 1
