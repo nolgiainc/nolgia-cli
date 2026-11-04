@@ -17770,23 +17770,42 @@ components:
         embeddings computed and discarded in memory on NOLGIA's own
         servers, a 0.60 gate, one automatic re-roll, video sampled at 2
         frames per second) and, when a photo joins the character, judges
-        whether the photo shows one clear, front-facing face. It runs ONLY
-        on photos whose consent is recorded. Consent is recorded per photo
-        (the same photo on another character, or a duplicate, is covered
-        too) with who gave it, when and the wording version. A photo
-        without consent still rides every generation as a reference; it is
-        simply never face-compared and no `identity_score` is stored.
+        whether the photo shows one clear, front-facing face. It runs on
+        photos whose consent is recorded, and (since 2026-11-03, influencer
+        round 48) on photos NOLGIA made from words alone: an image NOLGIA
+        generated with no image input of any kind, so the face is one
+        NOLGIA invented and no real person is in it. Those need no consent
+        and are listed in `nolgia_made_asset_ids`. An uploaded photo, or an
+        image made from any picture (an edit, a reference, a face
+        reference), is never treated as NOLGIA-made, so real people's faces
+        keep the consent rule unchanged; a withdrawn consent on a
+        NOLGIA-made photo still turns the check off. Consent is recorded per
+        photo (the same photo on another character, or a duplicate, is
+        covered too) with who gave it, when and the wording version. A photo
+        the check does not cover still rides every generation as a
+        reference; it is simply never face-compared and no `identity_score`
+        is stored.
       properties:
         enabled:
           type: boolean
-          description: True when consent covers the primary reference photo, so renders cast on this character are face-checked.
+          description: True when the primary reference photo is covered (consent recorded, or a NOLGIA-made face), so renders cast on this character are face-checked.
+        nolgia_made:
+          type: boolean
+          description: True when the primary reference photo is a face NOLGIA made from words alone, so the check runs with no consent asked.
+        nolgia_made_asset_ids:
+          type: array
+          maxItems: 8
+          description: The reference photos NOLGIA made from words alone (checked without consent unless a consent was withdrawn).
+          items:
+            type: string
+            format: uuid
         needs_consent:
           type: boolean
           description: |
             True when at least one reference photo has never been consented
-            (a photo whose consent was withdrawn does not count: that was the
-            user's choice). Clients show the consent prompt; generation is
-            never blocked on it.
+            and is not NOLGIA-made (a photo whose consent was withdrawn does
+            not count: that was the user's choice). Clients show the consent
+            prompt; generation is never blocked on it.
         consented_asset_ids:
           type: array
           maxItems: 8
