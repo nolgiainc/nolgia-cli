@@ -1,7 +1,7 @@
 ---
 name: nolgia-video-prompting
 description: "Directing craft for NOLGIA video generation: the film standard (references with stated jobs, casting and styling for the role, location plates, one structured prompt per take, written cuts at the genre's rhythm, best of N takes, sound, typeset words, the realism finish), plus the breathing pattern, per-shot sound design and the keep-what-works iteration loop. Use when: writing or fixing video prompts, planning a multi-clip production, a short film, a series episode, a trailer, a commercial or a music video on NOLGIA, or deciding which shots to regenerate. NOT for: platform mechanics such as auth, flags, jobs and credits (use nolgia-platform), vertical UGC ad pipelines (use nolgia-ugc-ads), or still-image prompting."
-version: 1.11.1
+version: 1.11.2
 author: NOLGIA
 license: MIT
 metadata:
@@ -104,7 +104,8 @@ in-house short came out looking like AI (2026-10-31). The order that works:
   or `minimax-h3` it rides as an element ("@Image1 is the opening frame of
   segment 1"), since both refuse a start frame together with reference media.
   That is model specific: `kling-v4` takes a start frame beside elements, and
-  `wan-3.0` takes a start frame only. Element images run 0.4 to 2.5 in aspect
+  `wan-3.0` takes a start frame or references (up to 10 images and 5 videos since
+  2026-11-04), never both in one request. Element images run 0.4 to 2.5 in aspect
   ratio.
 - **Grok takes its start frame alone.** On `grok-imagine-video-1.5` send `--input`
   with no `--element`: with elements it ignores the start frame. Its prompt
@@ -433,7 +434,8 @@ quoting a frame.
   naming either renders on `omni-1.1-flash`, which is untested for people who
   must read as real.
 - **The cheaper lanes, offered as options, never forced** (5 s at 720p: `wan-3.0`
-  28 credits, `kling-v4` 44, `seedance-2.5` 66; check `nolgia models get`).
+  28 credits, `kling-v4` 44, `seedance-2.5` 66; check `nolgia models get`; `wan-3.0`
+  opens at 1080p, 56, so pass `--quality 720p` for the 28).
   `kling-v4` is the budget lane for silent B roll, establishing shots, atmosphere
   and static photographic wides: image to video from a finished keyframe, 4 to 8 s,
   one move and one action, ending "single continuous shot; everything else in the
@@ -441,8 +443,8 @@ quoting a frame.
   hero close ups. Its audio is always on: send `strip_audio: true` in the API body
   for a silent file. `wan-3.0` is not routed yet for its one corpus job: the
   distilled films used Wan (2.7) for a stylized character speaking a supplied
-  voice track, and our `wan-3.0` takes a start frame only, with no audio
-  reference. For silent B roll it may be offered as the cheapest option, never the
+  voice track, and our `wan-3.0` takes no audio reference (its reference images
+  and video since 2026-11-04 do not change that). For silent B roll it may be offered as the cheapest option, never the
   proven one: a lean prompt ending "No dialogue.", `strip_audio: true`, and a
   conform in the edit (Wan renders 30 fps, Seedance and Kling 24). Everything else, every
   photoreal person speaking included, stays on `seedance-2.5`.
