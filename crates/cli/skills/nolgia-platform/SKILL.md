@@ -51,7 +51,8 @@ nolgia voices list --model <tts model>   # voice ids for --voice
 
 ```bash
 # Image (prints the signed URL; --out saves it, renamed to the real format
-# when the extension is wrong, e.g. .png -> .jpg). Default model: flux-pro.
+# when the extension is wrong, e.g. .png -> .jpg). Default model: flux-3-image
+# (FLUX 3 Image, 3 credits at 1k; takes --input references).
 nolgia gen image --prompt "isometric server room, dramatic lighting" --out img.png
 
 # 3D (GLB): 1 to 4 photos; --draft costs 2 credits. Estimate with --cost-only.

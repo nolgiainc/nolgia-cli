@@ -3,6 +3,24 @@
 Release notes for the Nolgia CLI. Each `## vX.Y.Z` section becomes the body of
 the matching GitHub release.
 
+## Unreleased
+
+- **`gen image` defaults to `flux-3-image`.** With no `--model`, it now
+  asks for FLUX 3 Image (3 credits at its 1k default) instead of
+  `flux-pro`, because the older FLUX models (`flux-pro`, `flux-ultra`,
+  `flux-schnell` and the FLUX 2 family) left the public catalog on
+  2026-11-03 (nolgia-api #1461). The new default takes `--input` and
+  `--reference` images (up to 10), which `flux-pro` refused.
+  - **The older ids still run.** `--model flux-pro` (or any other older
+    FLUX id) works at its own price; it is only gone from the lists.
+  - **Two differences from `flux-pro`.** FLUX 3 has no 3:1 or 1:3
+    `--aspect-ratio`, and it makes one image per request.
+  - **`--expand-to` is unchanged.** With no `--model`, or with
+    `--model flux-pro` from an older script, it still outpaints with
+    `flux-expand`.
+  - The README, `INSTALL_FOR_AGENTS.md`, the client crate's examples and
+    the bundled `nolgia-platform` skill name the new default.
+
 ## v0.3.3
 
 - **The bundled film skill is current.** `nolgia-video-prompting` goes from

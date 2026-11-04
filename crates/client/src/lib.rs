@@ -20,7 +20,7 @@
 //!     let image = nolgia_client::subscribe(
 //!         &nolgia,
 //!         "/generate/image",
-//!         nolgia_client::json!({"model": "flux-pro", "prompt": "a paper-cut mountain range at dawn"}),
+//!         nolgia_client::json!({"model": "flux-3-image", "prompt": "a paper-cut mountain range at dawn"}),
 //!         Default::default(),
 //!     )
 //!     .await?;
@@ -172,7 +172,7 @@ pub mod rt {
 ///     let result = nolgia_client::subscribe(
 ///         &nolgia,
 ///         "/generate/image",
-///         nolgia_client::json!({"model": "flux-pro", "prompt": "a paper-cut mountain range"}),
+///         nolgia_client::json!({"model": "flux-3-image", "prompt": "a paper-cut mountain range"}),
 ///         Default::default(),
 ///     )
 ///     .await?;
@@ -609,8 +609,8 @@ mod one_command_tests {
     #[test]
     fn the_runtime_and_json_reach_callers_without_a_second_crate() {
         // Exactly what the quickstart uses, through this crate alone.
-        let body = crate::json!({"model": "flux-pro", "prompt": "a paper-cut mountain range"});
-        assert_eq!(body["model"], "flux-pro");
+        let body = crate::json!({"model": "flux-3-image", "prompt": "a paper-cut mountain range"});
+        assert_eq!(body["model"], "flux-3-image");
         let answer: u8 = crate::rt::block_on(async { 7 });
         assert_eq!(answer, 7);
         let _: crate::Value = body;

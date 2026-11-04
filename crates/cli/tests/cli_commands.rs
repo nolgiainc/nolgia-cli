@@ -6199,7 +6199,7 @@ async fn gen_image_expand_forwards_prompt() {
             "gen",
             "image",
             "--model",
-            "flux-pro",
+            "flux-3-image",
             "--expand-to",
             "9:16",
             "--input",
@@ -6208,6 +6208,52 @@ async fn gen_image_expand_forwards_prompt() {
             "sandy beach",
             "--no-wait",
         ],
+    );
+}
+
+/// flux-pro was `gen image`'s default until 2026-11-03, so a script written
+/// then may still name it beside --expand-to. It keeps getting flux-expand.
+#[tokio::test]
+async fn gen_image_expand_switches_from_the_old_default_too() {
+    let api = MockServer::start().await;
+    mount_expand_models(&api).await;
+    Mock::given(method("POST")).and(path("/v1/generate/image"))
+        .and(body_partial_json(json!({"model": "flux-expand", "aspect_ratio": "9:16", "reference_asset_ids": [ASSET_ID]})))
+        .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
+        .expect(1).mount(&api).await;
+    run_ok(
+        &api,
+        &[
+            "gen",
+            "image",
+            "--model",
+            "flux-pro",
+            "--expand-to",
+            "9:16",
+            "--input",
+            ASSET_ID,
+            "--no-wait",
+        ],
+    );
+}
+
+/// With no --model, `gen image` asks for FLUX 3 Image: the older FLUX models
+/// left the public catalog on 2026-11-03 (nolgia-api #1461).
+#[tokio::test]
+async fn gen_image_defaults_to_flux_3_image() {
+    let api = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/generate/image"))
+        .and(body_partial_json(
+            json!({"model": "flux-3-image", "prompt": "a red bicycle"}),
+        ))
+        .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
+        .expect(1)
+        .mount(&api)
+        .await;
+    run_ok(
+        &api,
+        &["gen", "image", "--prompt", "a red bicycle", "--no-wait"],
     );
 }
 
@@ -6329,7 +6375,7 @@ async fn gen_image_still_requires_prompt_without_expand() {
         .assert()
         .failure()
         .stderr(predicate::str::contains(
-            "--prompt is required for flux-pro",
+            "--prompt is required for flux-3-image",
         ));
     assert!(
         api.received_requests()
@@ -6906,8 +6952,8 @@ async fn mount_encore_models(api: &MockServer) {
                 "video": {"min_duration": 1, "max_duration": 120, "image_input": false},
             },
             {
-                "id": "flux-pro", "modality": "image", "recommended": true,
-                "image": {"reference_images_max": 1},
+                "id": "flux-3-image", "modality": "image", "recommended": true,
+                "image": {"reference_images_max": 10},
             },
             {
                 "id": "seedance-2.5", "modality": "video", "recommended": true,
@@ -6999,7 +7045,7 @@ async fn gen_image_without_a_prompt_is_refused_on_generators_and_without_input()
         .assert()
         .failure()
         .stderr(predicate::str::contains(
-            "--prompt is required for flux-pro",
+            "--prompt is required for flux-3-image",
         ));
     cmd()
         .args([

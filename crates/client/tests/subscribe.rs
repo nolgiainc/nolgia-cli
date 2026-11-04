@@ -31,7 +31,7 @@ fn options() -> SubscribeOptions {
     }
 }
 fn arguments() -> Value {
-    json!({"model":"flux-pro", "prompt":"a paper-cut mountain range"})
+    json!({"model":"flux-3-image", "prompt":"a paper-cut mountain range"})
 }
 fn job(status: &str) -> Value {
     json!({"id":"job-1", "status":status})

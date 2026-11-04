@@ -33,8 +33,9 @@ pub enum GenCommand {
 pub struct ImageArgs {
     /// Model id (see `nolgia models list --modality image`). Any id the API
     /// accepts is forwarded verbatim, so a model added after this binary was
-    /// built still works — the API is the authority on what exists.
-    #[arg(long, default_value = "flux-pro")]
+    /// built still works — the API is the authority on what exists. The
+    /// default is FLUX 3 Image, which also takes --input references.
+    #[arg(long, default_value = DEFAULT_IMAGE_MODEL)]
     pub model: String,
     /// What to draw. Required, except on a model that takes no prompt: one
     /// marked `remove background` (cuts the subject out onto a transparent
@@ -446,6 +447,16 @@ pub(crate) struct AsyncJob {
 
 const DEFAULT_WAIT_TIMEOUT_SECONDS: u64 = 300;
 
+/// `gen image`'s model when --model is omitted. FLUX 3 Image since the older
+/// FLUX models (flux-pro, flux-ultra, flux-schnell and the FLUX 2 family) left
+/// the public catalog on 2026-11-03 (nolgia-api #1461); they still run when
+/// named.
+const DEFAULT_IMAGE_MODEL: &str = "flux-3-image";
+
+/// The model --expand-to used to switch away from before the default moved,
+/// so a script that still names it keeps getting flux-expand.
+const LEGACY_DEFAULT_IMAGE_MODEL: &str = "flux-pro";
+
 pub async fn run(command: GenCommand, ctx: &CommandContext) -> Result<()> {
     match command {
         GenCommand::Image(args) => image(args, ctx).await,
@@ -456,7 +467,13 @@ pub async fn run(command: GenCommand, ctx: &CommandContext) -> Result<()> {
 }
 
 async fn image(args: ImageArgs, ctx: &CommandContext) -> Result<()> {
-    let model = if args.expand_to.is_some() && args.model == "flux-pro" {
+    // --expand-to with no --model means the default, which cannot outpaint:
+    // it switches to flux-expand. A named outpainting model is kept.
+    let model = if args.expand_to.is_some()
+        && matches!(
+            args.model.as_str(),
+            DEFAULT_IMAGE_MODEL | LEGACY_DEFAULT_IMAGE_MODEL
+        ) {
         "flux-expand".to_string()
     } else {
         args.model
@@ -2035,8 +2052,8 @@ mod encore_gap_tests {
     use serde_json::json;
 
     use super::{
-        check_promptless_image, counted_reference_seconds, fit_duration, identity_line,
-        mime_format, path_for_format, sniffed_format,
+        DEFAULT_IMAGE_MODEL, check_promptless_image, counted_reference_seconds, fit_duration,
+        identity_line, mime_format, path_for_format, sniffed_format,
     };
 
     fn model(mut value: serde_json::Value) -> Model {
@@ -2056,7 +2073,7 @@ mod encore_gap_tests {
         let enhancer = model(json!({
             "id": "topaz-image-standard", "modality": "image", "image_enhance": true
         }));
-        let generator = model(json!({"id": "flux-pro", "modality": "image"}));
+        let generator = model(json!({"id": DEFAULT_IMAGE_MODEL, "modality": "image"}));
 
         assert!(check_promptless_image("remove-background", Some(&cutout), true).is_ok());
         assert!(check_promptless_image("topaz-image-standard", Some(&enhancer), true).is_ok());
@@ -2064,11 +2081,11 @@ mod encore_gap_tests {
             .unwrap_err()
             .to_string();
         assert!(needs_input.contains("--input"), "{needs_input}");
-        let needs_prompt = check_promptless_image("flux-pro", Some(&generator), true)
+        let needs_prompt = check_promptless_image(DEFAULT_IMAGE_MODEL, Some(&generator), true)
             .unwrap_err()
             .to_string();
         assert!(
-            needs_prompt.contains("--prompt is required for flux-pro"),
+            needs_prompt.contains("--prompt is required for flux-3-image"),
             "{needs_prompt}"
         );
         // An unreadable catalog cannot vouch for the model.
