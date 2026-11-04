@@ -15144,6 +15144,13 @@ components:
         pixels outside the boxes usually stay unchanged. The table must be the
         last thing in the prompt. `seed` reaches the provider on
         `flux-3-image-klein` only.
+        The older FLUX image generators (`flux-2-pro`, `flux-2-max`,
+        `flux-2-flex`, `flux-2-klein`, `flux-pro`, `flux-ultra` and
+        `flux-schnell`) are no longer listed on `GET /models` (since
+        2026-11-03; FLUX 3 Image and FLUX 3 Image Klein supersede them), but
+        they are not retired: a request that names one still runs on that
+        model at its own price, and the job reports it. `flux-kontext-pro`,
+        `flux-kontext-max` and `flux-expand` stay listed.
         `grok-imagine-image-2.0` is the newest Grok Imagine image model, same
         1k/2k tiers and aspect ratios as `grok-imagine-image`. The tiers are
         not priced alike across the Grok image models: xAI charges one rate at
