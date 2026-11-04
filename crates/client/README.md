@@ -44,7 +44,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let result = nolgia_client::subscribe(
         &nolgia,
         "/generate/image",
-        nolgia_client::json!({"model": "flux-pro", "prompt": "a paper-cut mountain range at dawn"}),
+        nolgia_client::json!({"model": "flux-3-image", "prompt": "a paper-cut mountain range at dawn"}),
         Default::default(),
     )
     .await?;

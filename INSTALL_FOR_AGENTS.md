@@ -164,7 +164,7 @@ nolgia billing credits
 
 **Check:** it exits 0 and prints `subscription: N (resets with plan)  api top-ups: N` and `total: N`. If the applicable balance is insufficient, tell your user and wait for credits before submitting. Personal-space PATs spend API top-ups, so a positive subscription balance alone is not enough for a PAT.
 
-**Tell your user before running the next command: “I will generate one verification image; this spends a small number of your Nolgia credits.”** The CLI supplies its default image model, `flux-pro`:
+**Tell your user before running the next command: “I will generate one verification image; this spends a small number of your Nolgia credits.”** The CLI supplies its default image model, `flux-3-image` (FLUX 3 Image, 3 credits at its 1k default):
 
 ```sh
 nolgia gen image --prompt "a paper-cut mountain range at dawn" --out nolgia-verify.png
@@ -172,7 +172,7 @@ nolgia gen image --prompt "a paper-cut mountain range at dawn" --out nolgia-veri
 
 Keep the command's stdout out of CI logs. On success it prints the signed asset URL, a short-lived bearer capability. Show the local file to your user; do not paste the URL into a commit, issue, or CI log.
 
-The command first prints ``submitted job <uuid> — waiting up to 300s (Ctrl-C is safe: it does not cancel the job; `nolgia jobs cancel <uuid>` does)``. Keep the job ID for recovery. **Check:** exit 0 means the asset was downloaded. The verified clean-environment run took 6.8 seconds and produced a 512 × 512 PNG; that is an observation, not a timing guarantee.
+The command first prints ``submitted job <uuid> — waiting up to 300s (Ctrl-C is safe: it does not cancel the job; `nolgia jobs cancel <uuid>` does)``. Keep the job ID for recovery. **Check:** exit 0 means the asset was downloaded. The verified clean-environment run, on the earlier default `flux-pro`, took 6.8 seconds and produced a 512 × 512 PNG; that is an observation, not a timing or size guarantee.
 
 Two exit codes are not plain failures:
 

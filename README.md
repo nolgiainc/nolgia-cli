@@ -424,7 +424,7 @@ public routes also work without a token. JSON responses are printed automaticall
 ```bash
 nolgia api POST /jobs/<id>/sse-ticket --field ticket
 nolgia api GET /me --field email
-nolgia api POST /generate/image --body '{"model":"flux-pro","prompt":"..."}' --field id
+nolgia api POST /generate/image --body '{"model":"flux-3-image","prompt":"..."}' --field id
 nolgia api GET /pricing/models --field 'models[0].id'
 ```
 
