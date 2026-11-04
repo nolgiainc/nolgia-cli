@@ -350,6 +350,17 @@ pub struct AudioArgs {
     /// Voice id for TTS models (see `nolgia voices list --model <model>`)
     #[arg(long)]
     pub voice: Option<String>,
+    /// How steady the read is, 0 to 1, on models whose `audio.stability`
+    /// is true in `nolgia models get <model> --json` (the ElevenLabs
+    /// voices). Lower is more expressive and varied, higher steadier; omit
+    /// it to keep the voice's own setting.
+    #[arg(long, value_name = "0-1")]
+    pub stability: Option<f64>,
+    /// Repeat a take: the same seed, text, voice and settings give the same
+    /// read, on models whose `audio.seed` is true (the API refuses it
+    /// elsewhere). Keep it and change one word to hear only that change.
+    #[arg(long)]
+    pub seed: Option<i64>,
     #[arg(long, default_value = "mp3")]
     pub format: AudioFormat,
     /// File the generated asset into this project (`nolgia projects list`
@@ -1111,6 +1122,8 @@ async fn audio(args: AudioArgs, ctx: &CommandContext) -> Result<()> {
         .model(args.model)
         .prompt(args.prompt)
         .voice(voice)
+        .stability(args.stability)
+        .seed(args.seed)
         .format(args.format)
         .project_id(args.project_id)
         .try_into()
