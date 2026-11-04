@@ -16398,7 +16398,7 @@ components:
           format: uuid
           nullable: true
           description: >-
-            One of your characters. With no voice, the request speaks with the character's catalog voice (its voice_id, which must be in THIS request model's audio.voices); an explicit voice wins. A character with no voice, a clip voice (text to speech cannot speak a clip, and a character cannot store a cloned voice yet: pass one of your custom voices from GET /voices as `voice`), or a voice this model does not publish is a 400. An unknown or foreign id is a 400.
+            One of your characters. With no voice, the request speaks with the character's own voice: a catalog voice (its voice_id, which must be in THIS request model's audio.voices) or a custom voice (one you cloned or designed, on a model whose audio.custom_voices is true); an explicit voice wins. A character with no voice, a clip voice (text to speech cannot speak a clip), a custom voice that is no longer ready, or a voice this model cannot speak is a 400. An unknown or foreign id is a 400.
         duration_seconds:
           type: integer
           nullable: true
@@ -16781,7 +16781,7 @@ components:
           type: boolean
           nullable: true
           description: >-
-            Attaches the lead character's (character_id, or the first of character_ids) voice clip as a reference audio track (audio_asset_ids, emitted after your own audio tracks and audio_urls, taking the next @Audio slot) and adds a voice line to the prompt. Only on models with references.audio_refs_max > 0. Refused with a 400 when the model cannot take it, when there is no room, when the clip is longer than references.audio_refs_max_seconds, when the character has no clip voice, or without a character. Never applied unless set: it can change the output and the cost (a model billed on the voice track's length bills the clip's length).
+            The lead character's (character_id, or the first of character_ids) voice as a reference audio track: a clip voice's clip, or a catalog or custom voice's sample (audio_asset_ids, emitted after your own audio tracks and audio_urls, taking the next @Audio slot), plus a voice line in the prompt. ON BY DEFAULT since 2026-11-03 (omitted): a character with a voice speaks with it on a model that takes reference audio (references.audio_refs_max > 0, seedance-2.5), when the clip generates audio, you attached no reference audio of your own, the track fits, and the model's length does not follow the voice track (the lip sync lanes take it only when asked). When the default cannot apply, the clip renders without it and the job's warnings say why. `true` asks for it and is a 400 naming the cause when it cannot ride (no room, a track over references.audio_refs_max_seconds, no voice or no sample, no character). `false` never attaches it. Reference audio adds nothing to a Seedance 2.5 price; on a model billed on the voice track's length the clip's length is billed, which is why those take it only when asked.
         character_ids:
           type: array
           nullable: true
@@ -17884,13 +17884,15 @@ components:
           format: date-time
     CharacterVoiceKind:
       type: string
-      enum: [catalog, clip]
-      x-enum-varnames: [CharacterVoiceKindCatalog, CharacterVoiceKindClip]
+      enum: [catalog, clip, custom]
+      x-enum-varnames: [CharacterVoiceKindCatalog, CharacterVoiceKindClip, CharacterVoiceKindCustom]
       description: |
         `catalog`: a voice from a text to speech model's published voice list
         (`audio.voices` on `GET /models`). `clip`: one of your own audio assets,
         3 to 30 seconds, used as a reference audio track on video models that
-        take reference audio.
+        take reference audio. `custom`: one of your own custom voices
+        (`GET /voices`: a voice you cloned from your recordings, with the
+        speaker consent the clone recorded, or one you designed).
     CharacterVoiceInput:
       type: object
       additionalProperties: false
@@ -17904,6 +17906,17 @@ components:
         is not uploading and has a recorded duration of 3 to 30 seconds
         (inclusive). `tts_model` and `voice_id` must be absent, and
         `speaker_consent` must be true; the consent time is stored in UTC.
+        A custom voice requires `custom_voice_id`, one of your ready custom
+        voices from `GET /voices` (its consent was recorded when it was
+        cloned, so `speaker_consent` is not asked again); `tts_model` is
+        optional (a model whose `audio.custom_voices` is true, default
+        `elevenlabs-tts-v3`) and `voice_id` must be absent.
+        A catalog or custom voice may carry `sample_asset_id`: a 3 to 30
+        second clip of this exact voice made by `POST /generate/audio`
+        (NOLGIA's own render with this voice, checked against the job that
+        made it; an upload is refused). Video models that take reference
+        audio (seedance-2.5) take a voice as a clip, so the sample is what
+        lets a catalog or custom voice ride a video.
         Optional `language` is trimmed and, when non-empty, must match
         `^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8}){0,3}$`, such as en or en-US.
       properties:
@@ -17924,6 +17937,17 @@ components:
           format: uuid
           nullable: true
           description: Clip only, one of your audio assets, 3 to 30 seconds.
+        custom_voice_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Custom only, the `id` of one of your ready custom voices on `GET /voices`.
+        sample_asset_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: >-
+            Catalog or custom only: a 3 to 30 second clip of this voice made by `POST /generate/audio` with this exact voice. Video models that take reference audio ride it as the character's voice.
         language:
           type: string
           nullable: true
@@ -17938,10 +17962,12 @@ components:
       additionalProperties: false
       required: [kind]
       description: |
-        The character's stored catalog or clip voice. Catalog voices include
-        the published voice label when available. Clip voices include speaker
-        consent and its timestamp, and a freshly signed clip asset when the
-        asset still exists. Deleting the asset does not remove the stored voice.
+        The character's stored catalog, clip or custom voice. Catalog voices
+        include the published voice label when available. Clip voices include
+        speaker consent and its timestamp, and a freshly signed clip asset when
+        the asset still exists. Custom voices include the custom voice's name.
+        A catalog or custom voice with a sample includes it, freshly signed.
+        Deleting an asset does not remove the stored voice.
       properties:
         kind:
           $ref: '#/components/schemas/CharacterVoiceKind'
@@ -17984,6 +18010,25 @@ components:
           $ref: '#/components/schemas/Asset'
           readOnly: true
           description: The voice clip with a fresh signed URL (read only); omitted when the clip asset was deleted.
+        custom_voice_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Custom only, the custom voice's `id` on `GET /voices`.
+        custom_voice_name:
+          type: string
+          nullable: true
+          readOnly: true
+          description: The custom voice's name (read only); omitted when the voice was deleted.
+        sample_asset_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Catalog or custom only, the clip of this voice that video models ride.
+        sample_asset:
+          $ref: '#/components/schemas/Asset'
+          readOnly: true
+          description: The voice sample with a fresh signed URL (read only); omitted when the asset was deleted.
     CharacterPreferredModels:
       type: object
       additionalProperties: false
