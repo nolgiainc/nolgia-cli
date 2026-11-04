@@ -1332,6 +1332,41 @@ async fn gen_audio_prints_asset_url() {
     run_ok(&api, &["gen", "audio", "--prompt", "x"]).stdout(predicate::str::contains("video.mp4"));
 }
 
+/// --stability and --seed reach POST /generate/audio as the API's fields
+/// (nolgia-api #1427, #1442); omitted, neither is sent.
+#[tokio::test]
+async fn gen_audio_sends_stability_and_seed() {
+    let api = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/generate/audio"))
+        .and(body_partial_json(json!({
+            "model": "elevenlabs-tts-multilingual-v2",
+            "stability": 0.35,
+            "seed": 1234,
+        })))
+        .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
+        .expect(1)
+        .mount(&api)
+        .await;
+    run_ok(
+        &api,
+        &[
+            "gen",
+            "audio",
+            "--model",
+            "elevenlabs-tts-multilingual-v2",
+            "--prompt",
+            "We open at six.",
+            "--stability",
+            "0.35",
+            "--seed",
+            "1234",
+            "--no-wait",
+        ],
+    )
+    .stdout(predicate::str::contains(JOB_ID));
+}
+
 #[test]
 fn video_help_lists_quality_and_reference_flags() {
     cmd()
