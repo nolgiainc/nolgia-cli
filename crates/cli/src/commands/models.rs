@@ -146,7 +146,10 @@ fn modality_capability_line(model: &Model) -> String {
             parts.push("untextured".to_string());
         }
         if three_d.pbr {
-            parts.push("PBR".to_string());
+            parts.push(match three_d.pbr_credits {
+                Some(credits) => format!("PBR +{credits}, on by default"),
+                None => "PBR, on by default".to_string(),
+            });
         }
         return parts.join("  ");
     }
@@ -751,39 +754,91 @@ pub async fn precheck_image_expand(ctx: &CommandContext, model_id: &str) -> Resu
     Ok(())
 }
 
+/// The server's quote (`POST /jobs/cost`) for a `gen 3d` request, without
+/// uploading or submitting. Asset UUIDs and `--image-url` are quoted as they
+/// will be sent. A local file is not uploaded for a quote: the front view is
+/// quoted on a stand-in URL (the price does not depend on the picture) and
+/// extra local views add the catalog's one-off multi-view charge.
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn quote_three_d(
     ctx: &CommandContext,
     model_id: &str,
+    model: Option<nolgia_client::types::Generate3DModel>,
+    draft: bool,
+    inputs: &[String],
+    image_url: Option<&str>,
     untextured: bool,
-    pbr: bool,
-    multi_view: bool,
+    pbr: Option<bool>,
 ) -> Result<String> {
-    let models = fetch(ctx).await?;
-    let model = models
-        .iter()
-        .find(|m| m.id == model_id)
-        .context("3D model missing from catalog")?;
-    let cost = model.cost.as_ref().context("3D pricing pending")?;
-    let capabilities = model
-        .three_d
-        .as_ref()
-        .context("3D capabilities missing from catalog")?;
-    let mut credits = if untextured {
-        capabilities
-            .untextured_credits
-            .context("untextured pricing unavailable")?
-    } else {
-        i64::try_from(cost.credits.get()).context("3D price is too large")?
+    use nolgia_client::types::{
+        Generate3DRequest, Generate3DRequestQuality, JobCostKind, JobCostRequest,
     };
-    if pbr {
-        credits += capabilities
-            .pbr_credits
-            .context("PBR pricing unavailable")?;
-    }
-    if multi_view {
-        credits += capabilities
-            .multi_view_credits
+    let ids: Option<Vec<uuid::Uuid>> = inputs
+        .iter()
+        .map(|input| {
+            (!std::path::Path::new(input).exists())
+                .then(|| uuid::Uuid::parse_str(input).ok())
+                .flatten()
+        })
+        .collect();
+    let local_views = match (&ids, image_url) {
+        (Some(ids), None) if !ids.is_empty() => 0,
+        (_, Some(_)) => 0,
+        _ => inputs.len(),
+    };
+    let (image_asset_ids, image_url) = match (ids, image_url) {
+        (Some(ids), None) if !ids.is_empty() => (ids, None),
+        (_, Some(url)) => (Vec::new(), Some(url.to_string())),
+        _ => (
+            Vec::new(),
+            Some("https://quote.nolgia.invalid/front.png".to_string()),
+        ),
+    };
+    let request = Generate3DRequest {
+        image_asset_ids,
+        image_url,
+        model,
+        quality: draft.then_some(Generate3DRequestQuality::Draft),
+        texture: untextured.then_some(false),
+        pbr,
+        ..Default::default()
+    };
+    let quote = ctx
+        .client()
+        .quote_job_cost()
+        .body(JobCostRequest {
+            kind: JobCostKind::X3d,
+            three_d: Some(request),
+            audio: None,
+            image: None,
+            remove_background_video: None,
+            restore_video: None,
+            set: None,
+            video: None,
+        })
+        .send()
+        .await
+        .map_err(|err| anyhow::anyhow!("{err}"))
+        .context("quoting the 3D request")?
+        .into_inner();
+    let mut credits = quote.credits;
+    let mut note = String::new();
+    if local_views > 1 {
+        let models = fetch(ctx).await?;
+        let extra = models
+            .iter()
+            .find(|m| m.id == model_id)
+            .and_then(|m| m.three_d.as_ref())
+            .and_then(|caps| caps.multi_view_credits)
             .context("multi-view pricing unavailable")?;
+        credits += extra;
+        note = ", extra views from the catalog".to_string();
     }
-    Ok(format!("{credits} credits ({model_id}, per_generation)"))
+    let materials = match pbr {
+        Some(true) => ", PBR materials",
+        _ => "",
+    };
+    Ok(format!(
+        "{credits} credits ({model_id}{materials}, per_generation, server quote{note})"
+    ))
 }

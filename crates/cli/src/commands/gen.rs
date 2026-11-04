@@ -1861,7 +1861,7 @@ mod tests {
 
 #[derive(Args, Debug)]
 #[command(
-    after_help = "Turn photos into a GLB. Hunyuan3D costs 21 credits textured or 13 untextured, plus 9 for PBR and 9 once for extra views. Draft (trellis) costs 2 credits. Agents: estimate with --cost-only first and confirm with the user before submitting batches over ~2000 credits."
+    after_help = "Turn photos into a GLB. Hunyuan3D adds PBR materials by default: about 30 credits textured (21 with --no-pbr) or 13 untextured, plus 9 once for extra views. Draft (trellis) costs 2 credits. --cost-only asks the server for the exact price. Agents: estimate with --cost-only first and confirm with the user before submitting batches over ~2000 credits."
 )]
 pub struct ThreeDArgs {
     /// Image file or asset UUID; repeat in front, back, left, right order (1 to 4)
@@ -1884,9 +1884,12 @@ pub struct ThreeDArgs {
     /// Generate an untextured white model (hunyuan3d-v3 only, 13 credits)
     #[arg(long)]
     pub no_texture: bool,
-    /// Add PBR materials (hunyuan3d-v3 only, +9 credits)
-    #[arg(long, conflicts_with = "no_texture")]
+    /// PBR materials (hunyuan3d-v3, textured, +9 credits): on by default; the flag says so explicitly
+    #[arg(long, conflicts_with_all = ["no_texture", "no_pbr"])]
     pub pbr: bool,
+    /// Leave PBR materials out: the plain textured model (hunyuan3d-v3, 21 credits)
+    #[arg(long)]
+    pub no_pbr: bool,
     #[arg(long)]
     pub project_id: Option<uuid::Uuid>,
     /// Tag the generated asset; repeat for multiple tags (up to 10)
@@ -1899,7 +1902,7 @@ pub struct ThreeDArgs {
     pub no_wait: bool,
     #[arg(long, default_value_t = 300)]
     pub timeout: u64,
-    /// Print the live catalog credit estimate without uploading or submitting
+    /// Print the server's quote for this request without uploading or submitting
     #[arg(long)]
     pub cost_only: bool,
 }
@@ -1935,13 +1938,20 @@ async fn three_d(args: ThreeDArgs, ctx: &CommandContext) -> Result<()> {
         .collect::<Result<Vec<_>, _>>()
         .context("invalid --tag")?;
     anyhow::ensure!(tags.len() <= 10, "--tag: at most 10 tags per request");
+    // PBR materials are the default on a textured hunyuan3d-v3 model (the owner's pick,
+    // 2026-11-04; nolgia-api #1460). The CLI says pbr either way there, so the request
+    // is the same on a server from before or after that default.
+    let pbr = (model != Generate3DModel::Trellis && !args.no_texture).then_some(!args.no_pbr);
     if args.cost_only {
         match super::models::quote_three_d(
             ctx,
             &model.to_string(),
+            args.model,
+            args.draft,
+            &args.input,
+            args.image_url.as_deref(),
             args.no_texture,
-            args.pbr,
-            args.input.len() > 1,
+            pbr,
         )
         .await
         {
@@ -1962,7 +1972,7 @@ async fn three_d(args: ThreeDArgs, ctx: &CommandContext) -> Result<()> {
         model: args.model,
         quality: args.draft.then_some(Generate3DRequestQuality::Draft),
         texture: args.no_texture.then_some(false),
-        pbr: args.pbr.then_some(true),
+        pbr,
         project_id: args.project_id,
         tags,
         ..Default::default()
