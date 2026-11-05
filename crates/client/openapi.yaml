@@ -13919,7 +13919,7 @@ components:
         default:
           type: string
           description: >-
-            The value applied when `render_quality` is omitted. Always `auto` today, and `auto` sends nothing to the provider at all — it is the model's own choice, and the state every published base price was measured against.
+            The value applied when `render_quality` is omitted. Always `auto` today. On every model but GPT Image 2.6, `auto` sends nothing to the provider at all — it is the model's own choice, and the state every published base price was measured against. On GPT Image 2.6 Sunburst and Flare, `auto` renders at `high`, the value the base price covers: left to its own choice, 2.6 spent up to 3.3 times `high`'s output in NOLGIA's measurements.
           examples: ['auto']
         options:
           type: array
@@ -16301,10 +16301,11 @@ components:
             place. They compose — `quality: 4k` with `render_quality: max` is
             a legitimate request and pays for both.
 
-            `auto` (the default) is the model's own choice and costs the base
-            rate, exactly as an omitted field always has. `low`, `medium` and
-            `high` spend LESS than auto and are charged the same, so they buy
-            speed rather than savings. `xhigh` and `max` spend substantially
+            `auto` (the default) costs the base rate, exactly as an omitted
+            field always has. On most models it is the model's own choice; on
+            GPT Image 2.6 it renders at `high`, the value the base price
+            covers. `low`, `medium` and `high` are charged the same as auto,
+            so they buy speed rather than savings. `xhigh` and `max` spend substantially
             more and add credits — see `image.render_quality.options` for the
             exact figure per model, and read it there rather than assuming,
             because it is per model.
