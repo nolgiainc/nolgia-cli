@@ -14981,8 +14981,9 @@ components:
             drawn on a see-through PNG the size of the first reference image
             say where to change it, and the prompt says what.
 
-            Answered for the caller: while marked edits are being proven it
-            is true for NOLGIA staff only. A `markup_asset_id` sent to a model
+            True on GPT Image 2.5 and 2.6. Answered for the caller: a model
+            whose marked edits are still being proven can read true for NOLGIA
+            staff before everyone else. A `markup_asset_id` sent to a model
             answering `false` is a 400 before any credit hold, never ignored,
             so offer the marking control only where this is true. A marked
             edit costs what the same model's ordinary edit costs.
