@@ -13713,10 +13713,15 @@ components:
           $ref: '#/components/schemas/Modality'
         starts_from:
           type: string
-          enum: [prompt, clip]
-          x-enum-varnames: [ModelJobStartsFromPrompt, ModelJobStartsFromClip]
+          enum: [prompt, clip, photo]
+          x-enum-varnames: [ModelJobStartsFromPrompt, ModelJobStartsFromClip, ModelJobStartsFromPhoto]
           description: >-
-            `prompt`: made from words and any pictures the customer adds. `clip`: remakes the customer's own video clip, sent as the reference video with the pick's `video_task`.
+            `prompt`: made from words and any pictures the customer adds. `clip`: remakes the customer's own video clip, sent as the reference video with the pick's `video_task` (a model that exists to edit footage, such as `runway-aleph-2`, takes none). `photo`: made from the customer's own picture of the subject, such as their product: the start frame of a video pick, the reference of an image pick, or what the job's `preset` asks for. A client that does not know a value should leave the job out.
+        preset:
+          type: string
+          description: >-
+            The slug of the live preset (`GET /presets/{slug}`) whose own form runs this job's pick and asks for what the job needs, such as the product photo and the line to say. Absent when a composer runs the pick as it is.
+          examples: ['ugc-hook']
         picks:
           type: array
           description: >-
