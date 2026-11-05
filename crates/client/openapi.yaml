@@ -13633,6 +13633,12 @@ components:
             Priced utilities that are not generation models (today: transcription), with the request that runs each. The same list as `GET /pricing/models`.
           items:
             $ref: '#/components/schemas/ServicePrice'
+        jobs:
+          type: array
+          description: >-
+            The model NOLGIA's own blind tests picked for each job a customer names (a photo of people, a thumbnail, a swap of a person in a clip), per plan band, with the settings the winning take used and a one-line reason. Only decided jobs are listed. The same table as `GET /pricing/models`, limited to models this list publishes.
+          items:
+            $ref: '#/components/schemas/ModelJob'
     ModelPricingList:
       type: object
       additionalProperties: false
@@ -13651,6 +13657,81 @@ components:
             Priced utilities that are not generation models (today: transcription), with the request that runs each.
           items:
             $ref: '#/components/schemas/ServicePrice'
+        jobs:
+          type: array
+          description: >-
+            The model NOLGIA's own blind tests picked for each job a customer names, per plan band (see `ModelJob`). The same table as `GET /models`.
+          items:
+            $ref: '#/components/schemas/ModelJob'
+    ModelJob:
+      type: object
+      additionalProperties: false
+      required: [id, label, modality, starts_from, picks]
+      description: >-
+        One job a customer names when they say what they are making, and the model NOLGIA picked for it in its own blind tests (the owner judged every take without knowing the model), per plan band. Only decided jobs are listed: a job the tests left open is not, and keeps the usual defaults with no recommendation. A pick is a recommendation, never a rule: the customer can always send another model.
+      properties:
+        id:
+          type: string
+          description: Stable identifier of the job.
+          examples: ['people-photo']
+        label:
+          type: string
+          description: The job in a customer's words, in English.
+          examples: ['A photo of people']
+        modality:
+          $ref: '#/components/schemas/Modality'
+        starts_from:
+          type: string
+          enum: [prompt, clip]
+          x-enum-varnames: [ModelJobStartsFromPrompt, ModelJobStartsFromClip]
+          description: >-
+            `prompt`: made from words and any pictures the customer adds. `clip`: remakes the customer's own video clip, sent as the reference video with the pick's `video_task`.
+        picks:
+          type: array
+          description: >-
+            One pick per plan band at most. A band with no decided pick is left out (a cinematic scene has a `pro` pick only).
+          items:
+            $ref: '#/components/schemas/ModelJobPick'
+    ModelJobPick:
+      type: object
+      additionalProperties: false
+      required: [bands, model, reason]
+      description: >-
+        The model a plan band runs for a job, with the settings the winning take was made with. A setting left out means the model's own default. Recommend a pick only to an account whose plan runs the model (its `min_tier` and `requires_plan` in the model list); credits are the model's own, quoted as for any request.
+      properties:
+        bands:
+          type: array
+          description: >-
+            `starter`: the free plan and Starter. `pro`: Pro and above.
+          items:
+            type: string
+            enum: [starter, pro]
+            x-enum-varnames: [ModelJobPickBandsStarter, ModelJobPickBandsPro]
+        model:
+          type: string
+          description: The model id to send.
+          examples: ['seedream-v5-pro']
+        quality:
+          type: string
+          description: The `quality` tier to send.
+          examples: ['2k']
+        aspect_ratio:
+          type: string
+          description: The `aspect_ratio` to send, where the job has one shape.
+          examples: ['16:9']
+        video_task:
+          type: string
+          enum: [reference, edit, extend]
+          x-enum-varnames: [ModelJobPickVideoTaskReference, ModelJobPickVideoTaskEdit, ModelJobPickVideoTaskExtend]
+          description: The `video_task` to send with the customer's clip.
+        aura:
+          type: boolean
+          description: The `aura` value to send on an image request.
+        reason:
+          type: string
+          description: >-
+            Where the pick came from, in one true line a client can show beside it.
+          examples: ["Picked in NOLGIA's blind people-photo tests, Nov 2026"]
     ServicePrice:
       type: object
       additionalProperties: false
