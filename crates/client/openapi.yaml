@@ -14974,6 +14974,22 @@ components:
             Absent on responses from an API build older than this field: treat
             as false (hide the control).
           example: true
+        markup:
+          type: boolean
+          description: |
+            Whether this model takes a markup layer (`markup_asset_id`): marks
+            drawn on a see-through PNG the size of the first reference image
+            say where to change it, and the prompt says what.
+
+            Answered for the caller: while marked edits are being proven it
+            is true for NOLGIA staff only. A `markup_asset_id` sent to a model
+            answering `false` is a 400 before any credit hold, never ignored,
+            so offer the marking control only where this is true. A marked
+            edit costs what the same model's ordinary edit costs.
+
+            Absent on responses from an API build older than this field: treat
+            as false (hide the control).
+          example: false
         aura_compatible:
           type: boolean
           description: |
@@ -16361,6 +16377,39 @@ components:
 
             A masked edit costs exactly what the same model's ordinary generation costs — a mask changes no price.
           examples: ['9a3e1a1a-6c1e-4a4f-9f3e-2d4b6c8e0a11']
+        markup_asset_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: |
+            Mark WHERE to change the picture. The id of one of your own image
+            assets holding a MARKUP layer: a PNG with a see-through
+            background, the same pixel size as the first reference image as
+            a viewer shows it (after its orientation), with your marks drawn
+            on it (a circle, an arrow, a scribble over the thing to change).
+            The prompt says WHAT to change. The markup marks the FIRST
+            reference image; any further references are used as references.
+
+            NOLGIA asks for the edit the way OpenAI's guide does, so write
+            only the change ("make the mug cobalt blue"): the prompt is sent
+            as `Edit only what is inside the marks drawn on the main image:
+            <your prompt> Keep everything outside the marks exactly as it is,
+            and remove every mark from the finished picture.` The job keeps
+            your own words as its prompt.
+
+            Accepted only on models publishing `image.markup: true` on `GET
+            /models`, alongside at least one reference image, and never with
+            `mask_asset_id`. The layer takes one of the model's
+            `reference_images_max` slots. A markup on any other model, with no
+            image, beside a mask, or on a non-PNG asset is a 400 before any
+            credit hold. A layer that is over 8 MB, over 16,777,216 pixels,
+            has no see-through pixels, has no marks, or is not the first
+            image's size fails the job with that explanation and a full
+            refund; so does a first image over 16,777,216 pixels.
+
+            A marked edit costs what the same model's ordinary edit costs;
+            the markup adds no fee.
+          examples: ['4c1f3a2e-8b6d-4e0a-9a2f-6d1e3b5c7a90']
         keep_subject:
           type: string
           nullable: true
@@ -20149,6 +20198,11 @@ components:
           format: uuid
           nullable: true
           description: Required for an available inpaint scope (for `background`, the person's cut-out from `remove-background`, unless `background_asset_id` is given); also forwarded for unscoped steps. Ignored by edit scopes, which never submit a mask.
+        markup_asset_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: An unscoped step only. A markup layer over the session's current picture (see `markup_asset_id` on POST /generate/image), forwarded with the step's prompt. Refused on a scoped step and beside `mask_asset_id`.
         keep_subject:
           type: string
           nullable: true
