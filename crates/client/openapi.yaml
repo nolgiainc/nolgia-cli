@@ -11531,7 +11531,15 @@ paths:
         the labelled slots found in the baked prompt (`THE MARK`, `THE STYLE`,
         ...) and a credit estimate for ONE run at the default tier, priced by
         the same pricer the generate endpoints reserve with (a studio intent
-        quotes the flat agent-turn rate; its generations bill separately).
+        quotes the flat agent-turn rate; its generations bill separately). A
+        `motion_render` preset with a `motion` submit answers its element and
+        defaults (`target.motion`), no model limits, and an estimate of 0
+        credits (`basis: motion_render`) with `estimate_seconds`, no
+        `ceiling` or `typical` (the form starts the render itself, with no
+        Agent turn), and `agent_turn`: the card's other route, the same
+        answers sent to NOLGIA Agent as one turn on the caller's own brain.
+        The card does not show it; the Agent route's brief carries it as its
+        `credit_ceiling`.
 
         Signed in only (JWT or PAT). `404` when the preset does not exist, is
         private and the caller is not an admin, or has no intake to resolve
@@ -11565,6 +11573,24 @@ paths:
                     options: [{label: 'Wordmark', description: 'The name set in type, nothing else.'}]
                     prompt_slots: ['THE BRAND', 'THE STYLE']
                     estimate: {credits: 22, model: 'gpt-image-2.5-flare', basis: 'one_generation', quality: 'native'}
+                motionPreset:
+                  summary: A moving background in the brand's colours, started from the form (0 credits)
+                  value:
+                    slug: 'motion-background'
+                    intake_from_parent: false
+                    intake:
+                      version: 1
+                      lucky: {enabled: false, label: 'Just make one'}
+                      steps:
+                        - {id: 'accent', kind: 'text', label: 'Your main brand colour', required: true, placeholder: '#FF6A1A', max_chars: 7, binds_to: 'palette.accent'}
+                        - {id: 'accent2', kind: 'text', label: 'A second colour', help: 'Optional. Left out, it is made from the main colour.', required: false, placeholder: '#1A4BFF', max_chars: 7, binds_to: 'palette.accent2'}
+                        - {id: 'look', kind: 'choice', label: 'Pick a look', required: true, multiple: false, default: 'aurora', options: [{value: 'aurora', label: 'Aurora'}, {value: 'mesh', label: 'Cobalt mesh'}, {value: 'silk', label: 'Lit silk'}], binds_to: 'param:look'}
+                      submit: {kind: 'motion'}
+                    target: {kind: 'motion_render', endpoint: 'POST /motion/renders', motion: {element: 'background', aspect: '16:9'}}
+                    model: null
+                    options: []
+                    prompt_slots: []
+                    estimate: {credits: 0, model: 'motion-render', basis: 'motion_render', estimate_seconds: 240, agent_turn: {model: 'deepseek-v4-flash', rate: 10, credits: 10}}
         '401':
           $ref: '#/components/responses/ProblemResponse'
         '404':
@@ -11586,7 +11612,12 @@ paths:
         scenes), and an `agent` preset with a `submit.run` plan is
         priced as a whole run (`basis: agent_run`) on the caller's own agent
         brain, so `ceiling` is the "Up to N" to show and to send as
-        `credit_ceiling` with the brief.
+        `credit_ceiling` with the brief. A `motion` submit answers 0 credits
+        (`basis: motion_render`) and `estimate_seconds` for the picks (a
+        background's look, the formats), with no `ceiling` or `typical` (the
+        render itself sends no `credit_ceiling`) and `agent_turn`, the Agent
+        route's one turn on the caller's brain, which the card does not show
+        and the Agent route's brief carries as its `credit_ceiling`.
 
         Nothing is submitted, reserved or charged. `404` exactly when the
         intake context would 404; `400` when a param is not one the intake
@@ -28566,10 +28597,10 @@ components:
       description: Primary media type the preset produces.
     PresetTargetKind:
       type: string
-      enum: [create_image, create_video, create_audio, studio_intent, set, desktop_app]
-      x-enum-varnames: [PresetTargetKindCreateImage, PresetTargetKindCreateVideo, PresetTargetKindCreateAudio, PresetTargetKindStudioIntent, PresetTargetKindSet, PresetTargetKindDesktopApp]
+      enum: [create_image, create_video, create_audio, studio_intent, set, desktop_app, motion_render]
+      x-enum-varnames: [PresetTargetKindCreateImage, PresetTargetKindCreateVideo, PresetTargetKindCreateAudio, PresetTargetKindStudioIntent, PresetTargetKindSet, PresetTargetKindDesktopApp, PresetTargetKindMotionRender]
       description: >-
-        How a preset card links out. `create_*` deep-links into a one-shot creation endpoint; `studio_intent` hands off to the Studio agent lane; `set` submits labelled image Outputs through POST /generate/set; `desktop_app` is a Film assistant preset whose work happens in a desktop app on the person's own computer (Blender, After Effects, Premiere Pro, Illustrator, Photoshop, DaVinci Resolve Studio or TouchDesigner): NOLGIA generates nothing and charges nothing when one runs, it hands the agent the preset's `instructions`, and the agent carries them out in the app through the NOLGIA plugin (the `nolgia_app_*` MCP tools). Such a preset has no intake and no credit estimate of its own; NOLGIA generation used inside the workflow is priced as usual.
+        How a preset card links out. `create_*` deep-links into a one-shot creation endpoint; `studio_intent` hands off to the Studio agent lane; `set` submits labelled image Outputs through POST /generate/set; `desktop_app` is a Film assistant preset whose work happens in a desktop app on the person's own computer (Blender, After Effects, Premiere Pro, Illustrator, Photoshop, DaVinci Resolve Studio or TouchDesigner): NOLGIA generates nothing and charges nothing when one runs, it hands the agent the preset's `instructions`, and the agent carries them out in the app through the NOLGIA plugin (the `nolgia_app_*` MCP tools). Such a preset has no intake and no credit estimate of its own; NOLGIA generation used inside the workflow is priced as usual. `motion_render` is a motion render preset (a logo sting, a moving background, a glass lower third or a product turntable): its intake's `motion` submit quotes and starts `POST /motion/renders` from the person's answers directly, with no NOLGIA Agent turn, and the render costs 0 credits. Its slug is the element's own preset (`motion-logo-sting`, `motion-background`, `motion-lower-third`, `motion-turntable`), the one whose visibility opens the element's `/motion` routes.
     PresetPageCategory:
       type: string
       enum: ['', 'video', 'image', 'assets', 'film-assistant']
@@ -28603,7 +28634,7 @@ components:
           $ref: '#/components/schemas/PresetTargetKind'
         params:
           type: object
-          description: 'Kind-specific link parameters. For `create_image`/`create_video`/`create_audio`: `{"prompt": "...", "model": "..."}` (a starter prompt the user edits before submitting plus a recommended model id). For `studio_intent`: `{"intent": "..."}` (the Studio lane consumes it as `?intent=`). For `set`: `{"model": "<image model id>", "kind": "pack"|"variants", "axis"?: "...", "members": [{"label": "...", "prompt": "..."}] (2 to 8), "shared"?: {aspect_ratio, quality, render_quality, negative_prompt}}`. Any `create_*` target may also carry `style_key`: `{"name": "...", "prompt_fragment": "..."}`, the default style the agent saves once per customer as a saved style (`POST /styles`, with the run''s style key image as `swatch_asset_id`) and reuses through `style_id` on every clip of the run. `name` is 1 to 80 characters, `prompt_fragment` up to 1000. For `desktop_app`: `{"app": "blender"|"after_effects"|"premiere"|"illustrator"|"photoshop"|"resolve"|"touchdesigner", "min_app_version"?: "4.2", "beta"?: false}`, the app the workflow runs in (the same list as the NOLGIA Bridge''s apps), the oldest app version it supports and whether it is marked beta; no other key is accepted, and the stored params always carry `beta`.'
+          description: 'Kind-specific link parameters. For `create_image`/`create_video`/`create_audio`: `{"prompt": "...", "model": "..."}` (a starter prompt the user edits before submitting plus a recommended model id). For `studio_intent`: `{"intent": "..."}` (the Studio lane consumes it as `?intent=`). For `set`: `{"model": "<image model id>", "kind": "pack"|"variants", "axis"?: "...", "members": [{"label": "...", "prompt": "..."}] (2 to 8), "shared"?: {aspect_ratio, quality, render_quality, negative_prompt}}`. Any `create_*` target may also carry `style_key`: `{"name": "...", "prompt_fragment": "..."}`, the default style the agent saves once per customer as a saved style (`POST /styles`, with the run''s style key image as `swatch_asset_id`) and reuses through `style_id` on every clip of the run. `name` is 1 to 80 characters, `prompt_fragment` up to 1000. For `desktop_app`: `{"app": "blender"|"after_effects"|"premiere"|"illustrator"|"photoshop"|"resolve"|"touchdesigner", "min_app_version"?: "4.2", "beta"?: false}`, the app the workflow runs in (the same list as the NOLGIA Bridge''s apps), the oldest app version it supports and whether it is marked beta; no other key is accepted, and the stored params always carry `beta`. For `motion_render`: `{"element": "sting"|"background"|"lower_third"|"turntable", "look"?: "...", "aspect"?: "16:9"|"9:16"|"1:1"|"4:5", "formats"?: ["mp4"|"prores"|"png"], "transparent"?: true}`, the element and the defaults its form starts from, checked like `POST /motion/quote` checks a form (a background''s look is one of silk, coral_silk, mesh, chrome, aurora, ember, light_leak; a lower third''s is lower or card; a sting and a turntable take none; a background is never transparent and an MP4 never is); no other key is accepted. A lower third comes in 16:9 or 9:16, and its `transparent` follows the clip: a transparent file without one, a normal video over one, so its target cannot set `transparent: false`.'
     Preset:
       type: object
       additionalProperties: false
@@ -28887,10 +28918,10 @@ components:
             `true` when the `intake` served for this child is its PARENT's (the child has none of its own and inherits at read time); `false` when the child carries its own flow, or no flow resolves. Always emitted by the server for a child; optional in the schema so existing client fixtures stay valid.
     PresetIntakeAssetBinding:
       type: string
-      enum: [reference_asset_ids, face_reference_asset_id, video_asset_ids, audio_asset_ids, mask_asset_id, image_url, end_image_asset_id, element_ids, attach]
-      x-enum-varnames: [PresetIntakeAssetBindingReferenceAssetIds, PresetIntakeAssetBindingFaceReferenceAssetId, PresetIntakeAssetBindingVideoAssetIds, PresetIntakeAssetBindingAudioAssetIds, PresetIntakeAssetBindingMaskAssetId, PresetIntakeAssetBindingImageUrl, PresetIntakeAssetBindingEndImageAssetId, PresetIntakeAssetBindingElementIds, PresetIntakeAssetBindingAttach]
+      enum: [reference_asset_ids, face_reference_asset_id, video_asset_ids, audio_asset_ids, mask_asset_id, image_url, end_image_asset_id, element_ids, logo_asset_id, wordmark_asset_id, model_asset_id, clip_asset_id, attach]
+      x-enum-varnames: [PresetIntakeAssetBindingReferenceAssetIds, PresetIntakeAssetBindingFaceReferenceAssetId, PresetIntakeAssetBindingVideoAssetIds, PresetIntakeAssetBindingAudioAssetIds, PresetIntakeAssetBindingMaskAssetId, PresetIntakeAssetBindingImageUrl, PresetIntakeAssetBindingEndImageAssetId, PresetIntakeAssetBindingElementIds, PresetIntakeAssetBindingLogoAssetId, PresetIntakeAssetBindingWordmarkAssetId, PresetIntakeAssetBindingModelAssetId, PresetIntakeAssetBindingClipAssetId, PresetIntakeAssetBindingAttach]
       description: >-
-        Where an ASSET step's picks go. Every value but `attach` is a field of the preset's target endpoint and is legal only where that endpoint has it AND the target model supports it (`GET /models`): `reference_asset_ids`, `face_reference_asset_id` (needs `image.aura_compatible`), `mask_asset_id` (needs `image.inpaint_mask`) and `image_url` on `create_image`; `image_url` (start frame), `end_image_asset_id` (`references.end_frame`), `video_asset_ids` (`references.video_refs_max` > 0), `audio_asset_ids` (`references.audio_refs_max` > 0) and `element_ids` (`references.element_refs_max` > 0) on `create_video`; `element_ids` also on `create_image` within `image.reference_images_max`. `attach` means "attached to the agent brief, not a generation field": it is always legal, and it is the ONLY legal asset binding on a `studio_intent` target.
+        Where an ASSET step's picks go. Every value but `attach` is a field of the preset's target endpoint and is legal only where that endpoint has it AND the target model supports it (`GET /models`): `reference_asset_ids`, `face_reference_asset_id` (needs `image.aura_compatible`), `mask_asset_id` (needs `image.inpaint_mask`) and `image_url` on `create_image`; `image_url` (start frame), `end_image_asset_id` (`references.end_frame`), `video_asset_ids` (`references.video_refs_max` > 0), `audio_asset_ids` (`references.audio_refs_max` > 0) and `element_ids` (`references.element_refs_max` > 0) on `create_video`; `element_ids` also on `create_image` within `image.reference_images_max`. On a `motion_render` target the fields are the motion render form's, one file each, and only for the element that uses them: `logo_asset_id` and `wordmark_asset_id` (images) on a sting, `model_asset_id` (a `3d` asset, a .glb) on a turntable and `clip_asset_id` (a video) on a lower third. `attach` means "attached to the agent brief, not a generation field": it is always legal, and it is the ONLY legal asset binding on a `studio_intent` target.
     PresetIntakeLucky:
       type: object
       additionalProperties: false
@@ -28910,12 +28941,12 @@ components:
       additionalProperties: false
       required: [kind]
       description: >-
-        How the collected inputs run. `generate` calls the target endpoint directly with the bound fields (legal on `create_*` targets only); `agent` opens a guardrailed session with a structured brief and is REQUIRED for `studio_intent` targets.
+        How the collected inputs run. `generate` calls the target endpoint directly with the bound fields (legal on `create_*` targets only); `agent` opens a guardrailed session with a structured brief and is REQUIRED for `studio_intent` targets; `motion` (legal on `motion_render` targets only) builds the motion render form from the target's defaults and the answers, quotes it with `POST /motion/quote` and starts it with `POST /motion/renders` and `agreed_credits` 0: no NOLGIA Agent turn, and the render is free. A `motion` intake must ask for what the element cannot render without: a required text step bound to `palette.accent`, and a required step for the sting's logo (`logo_asset_id`), the turntable's model (`model_asset_id`) or the lower third's title (`copy.title`). A moving background may leave its colours out (it then draws in its look's approved colours), so its `palette.accent` step may be optional or absent. The palette is sent only with its accent, so any other `palette.*` step needs a `palette.accent` step beside it. The same answers can still go to the NOLGIA Agent as a brief.
       properties:
         kind:
           type: string
-          enum: [generate, agent]
-          x-enum-varnames: [PresetIntakeSubmitKindGenerate, PresetIntakeSubmitKindAgent]
+          enum: [generate, agent, motion]
+          x-enum-varnames: [PresetIntakeSubmitKindGenerate, PresetIntakeSubmitKindAgent, PresetIntakeSubmitKindMotion]
         note:
           type: string
           maxLength: 400
@@ -29133,9 +29164,9 @@ components:
           type: boolean
         modality:
           type: string
-          enum: [image, video, audio, any]
-          x-enum-varnames: [PresetIntakeAssetModalityImage, PresetIntakeAssetModalityVideo, PresetIntakeAssetModalityAudio, PresetIntakeAssetModalityAny]
-          description: What the library filter shows and the drop zone accepts. Must agree with the binding (`video_asset_ids` takes video, `audio_asset_ids` audio, every other field image; `any` is accepted everywhere).
+          enum: [image, video, audio, 3d, any]
+          x-enum-varnames: [PresetIntakeAssetModalityImage, PresetIntakeAssetModalityVideo, PresetIntakeAssetModalityAudio, PresetIntakeAssetModality3d, PresetIntakeAssetModalityAny]
+          description: What the library filter shows and the drop zone accepts. Must agree with the binding (`video_asset_ids` and `clip_asset_id` take video, `audio_asset_ids` audio, `model_asset_id` a 3D model (`3d`, a .glb), every other field image; `any` is accepted everywhere).
         role:
           type: string
           enum: [logo, product, reference, footage, audio, face, style, photo, data]
@@ -29149,7 +29180,7 @@ components:
           type: integer
           minimum: 1
           maximum: 12
-          description: Most picks accepted. Defaults to 1. Bindings that take one value (`face_reference_asset_id`, `mask_asset_id`, `image_url`, `end_image_asset_id`) require 1.
+          description: Most picks accepted. Defaults to 1. Bindings that take one value (`face_reference_asset_id`, `mask_asset_id`, `image_url`, `end_image_asset_id` and the motion render files `logo_asset_id`, `wordmark_asset_id`, `model_asset_id`, `clip_asset_id`) require 1.
         accept:
           type: array
           minItems: 1
@@ -29223,7 +29254,7 @@ components:
       additionalProperties: false
       required: [id, kind, label, required, binds_to]
       description: >-
-        Free text. `binds_to` is `prompt_slot:<NAME>` (fills the labelled slot `<NAME>:` of the baked prompt; the slot must exist), `prompt` (replaces the whole prompt; `create_*` targets only), `brief` (the agent's first message; needs `submit.kind: agent`) or `attach`.
+        Free text. `binds_to` is `prompt_slot:<NAME>` (fills the labelled slot `<NAME>:` of the baked prompt; the slot must exist), `prompt` (replaces the whole prompt; `create_*` targets only), `brief` (the agent's first message; needs `submit.kind: agent`) or `attach`. On a `motion_render` target it can also fill the motion render form: `brand_name` (40 characters), a lower third's `copy.title` (48), `copy.kicker` (32) and `copy.body` (110), and a colour, `palette.accent` (the main brand colour, required by every element), `palette.accent2`, `palette.deep`, `palette.light` or `palette.ground`, each a hex code like `#FF6A1A` (7 characters; the app shows a colour picker). A `max_chars` above the field's limit is refused and an omitted one is the limit. A colour the person leaves out is derived from the accent. These are the field names `POST /motion/quote` names in its problems, so a problem's `field` is the step's `binds_to`.
       properties:
         id:
           type: string
@@ -29251,14 +29282,14 @@ components:
           description: Defaults to 2000.
         binds_to:
           type: string
-          pattern: "^(prompt_slot:[A-Z][A-Z0-9']*( [A-Z][A-Z0-9']*){0,4}|prompt|brief|attach)$"
-          examples: ['prompt_slot:THE MARK', 'brief']
+          pattern: "^(prompt_slot:[A-Z][A-Z0-9']*( [A-Z][A-Z0-9']*){0,4}|prompt|brief|attach|brand_name|copy\\.(title|kicker|body)|palette\\.(accent|accent2|deep|light|ground))$"
+          examples: ['prompt_slot:THE MARK', 'brief', 'palette.accent']
     PresetIntakeChoiceStep:
       type: object
       additionalProperties: false
       required: [id, kind, label, required, options, binds_to]
       description: >-
-        Chips or cards. `binds_to` is `option:<key>` (the pick selects one of the CARD's option chips; `<key>` must match a card option by label or by its slug), `prompt_slot:<NAME>` (the pick's value fills a labelled slot of the baked prompt), `param:<field>` (the pick sets a request parameter of the target endpoint such as `aspect_ratio`, `duration_seconds` or `quality`; `create_*` targets only, and `multiple` must be false) or `attach`.
+        Chips or cards. `binds_to` is `option:<key>` (the pick selects one of the CARD's option chips; `<key>` must match a card option by label or by its slug), `prompt_slot:<NAME>` (the pick's value fills a labelled slot of the baked prompt), `param:<field>` (the pick sets a request parameter of the target endpoint such as `aspect_ratio`, `duration_seconds` or `quality`; `create_*` targets only, and `multiple` must be false) or `attach`. On a `motion_render` target `param:` sets the motion render form instead: `param:look` (the element's looks), `param:aspect` (16:9, 9:16, 1:1, 4:5), `param:formats` (mp4, prores, png; the one `param:` step that may be `multiple`) or `param:transparent` (`true` or `false`; not on a lower third, whose transparent follows the clip); every option value must be one the form takes, and a pick overrides the target's default.
       properties:
         id:
           type: string
@@ -29378,7 +29409,9 @@ components:
         card option, `param:<field>` needs a parameter of the endpoint;
         `attach` is always legal); asset maxima summed within the model's
         reference limits; `submit.kind` `agent` for `studio_intent` targets,
-        where every asset binding must be `attach`. Customer copy (labels,
+        where every asset binding must be `attach`; on a `motion_render`
+        target, the motion render form's fields only, each bound once, for
+        the element that uses them (see `PresetIntakeSubmit`). Customer copy (labels,
         help, placeholders, options, the lucky label, the note) follows the
         no-em-dash rule like the card copy.
       properties:
@@ -29418,8 +29451,36 @@ components:
           description: The studio intent (`target.params.intent`) for a `studio_intent` target.
         endpoint:
           type: string
-          description: The generate endpoint a `generate` submit calls, for display and routing.
+          description: The generate endpoint a `generate` submit calls, for display and routing (`POST /motion/renders` for a `motion_render` target).
           examples: ['POST /generate/image']
+        motion:
+          $ref: '#/components/schemas/PresetIntakeMotionTarget'
+    PresetIntakeMotionTarget:
+      type: object
+      additionalProperties: false
+      required: [element]
+      description: >-
+        A `motion_render` target's element and the defaults its form starts from (`target.params`). The app builds the `POST /motion/quote` form from these, then lays the answers over them: a step's `binds_to` is the form field it fills, and a `param:` choice overrides the default of the same name. A field left out here is the form's own default (16:9, the `lower` layout, an MP4 or ProRes 4444 when transparent). A lower third's `transparent` follows the clip: the form is transparent when the person gives no clip, and a normal video over one.
+      properties:
+        element:
+          type: string
+          enum: [sting, background, lower_third, turntable]
+          x-enum-varnames: [PresetIntakeMotionElementSting, PresetIntakeMotionElementBackground, PresetIntakeMotionElementLowerThird, PresetIntakeMotionElementTurntable]
+        look:
+          type: string
+          description: A background's look or a lower third's layout.
+          examples: ['aurora']
+        aspect:
+          type: string
+          examples: ['16:9']
+        formats:
+          type: array
+          items:
+            type: string
+            enum: [mp4, prores, png]
+            x-enum-varnames: [PresetIntakeMotionFormatMp4, PresetIntakeMotionFormatProres, PresetIntakeMotionFormatPng]
+        transparent:
+          type: boolean
     PresetIntakeModelLimits:
       type: object
       additionalProperties: false
@@ -29495,13 +29556,17 @@ components:
           description: The model (or `agent-turn`) the estimate is priced on.
         basis:
           type: string
-          enum: [one_generation, agent_turn, set_run, agent_run]
-          x-enum-varnames: [PresetIntakeEstimateBasisOneGeneration, PresetIntakeEstimateBasisAgentTurn, PresetIntakeEstimateBasisSetRun, PresetIntakeEstimateBasisAgentRun]
+          enum: [one_generation, agent_turn, set_run, agent_run, motion_render]
+          x-enum-varnames: [PresetIntakeEstimateBasisOneGeneration, PresetIntakeEstimateBasisAgentTurn, PresetIntakeEstimateBasisSetRun, PresetIntakeEstimateBasisAgentRun, PresetIntakeEstimateBasisMotionRender]
           description: >-
-            `agent_run` prices a whole guided agent run from the preset's `submit.run` plan: `typical` is what such a run usually charges (the review card's "About N"), `credits` equals `ceiling`, the run's enforced limit, and `generations` plus `agent_turn` break both down.
+            `agent_run` prices a whole guided agent run from the preset's `submit.run` plan: `typical` is what such a run usually charges (the review card's "About N"), `credits` equals `ceiling`, the run's enforced limit, and `generations` plus `agent_turn` break both down. `motion_render` prices a `motion` submit: the render is free, so `credits` is 0 (`model` is `motion-render`), `estimate_seconds` is about how long it takes, and there is no `ceiling` or `typical`: the form starts the render itself, with no Agent turn. `agent_turn` is the card's other route, the same answers sent to NOLGIA Agent (one turn on the caller's own brain; the render inside it is still free): the card does not show it, and the Agent route's brief carries it as its `credit_ceiling`.
         duration_seconds:
           type: integer
           description: The clip length the estimate assumes (video targets).
+        estimate_seconds:
+          type: integer
+          description: >-
+            `motion_render` targets only: about how long the render takes, in seconds, for the target's defaults and the answers given (the figure `POST /motion/quote` answers; a lower third over a clip takes longer, which the quote shows once the clip is picked).
         quality:
           type: string
           description: The quality tier the estimate assumes, when the model has one.
@@ -29541,7 +29606,7 @@ components:
           type: object
           additionalProperties: true
           description: >-
-            The customer's `param:<field>` answers, field to value (for example `{"duration_seconds": 8}`). Fields the intake does not bind with `param:` are refused with `400`.
+            The customer's `param:<field>` answers, field to value (for example `{"duration_seconds": 8}`; a motion render's multiple-choice `formats` takes a list, `{"formats": ["mp4", "prores"]}`). Fields the intake does not bind with `param:` are refused with `400`.
         answers:
           type: object
           additionalProperties:
@@ -29605,7 +29670,7 @@ components:
           allOf:
             - $ref: '#/components/schemas/PresetIntakeModelLimits'
           nullable: true
-          description: The target model's limits; null for a `studio_intent` target or a model the registry does not know.
+          description: The target model's limits; null for a `studio_intent` or `motion_render` target or a model the registry does not know.
         options:
           type: array
           items:
@@ -29615,7 +29680,7 @@ components:
           type: array
           items:
             type: string
-          description: The labelled slots found in the baked prompt, in order of first appearance (`THE MARK`, `THE STYLE`); empty for a `studio_intent`.
+          description: The labelled slots found in the baked prompt, in order of first appearance (`THE MARK`, `THE STYLE`); empty for a `studio_intent` or `motion_render`.
           examples: [['THE MARK', 'THE STYLE']]
         estimate:
           allOf:
