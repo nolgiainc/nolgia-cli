@@ -20,6 +20,13 @@ the matching GitHub release.
     `flux-expand`.
   - The README, `INSTALL_FOR_AGENTS.md`, the client crate's examples and
     the bundled `nolgia-platform` skill name the new default.
+- **`gen image` help names GPT Image 2.6.** OpenAI's GPT Image 2.6
+  Sunburst and Flare (`gpt-image-2.6-sunburst`, `gpt-image-2.6-flare`)
+  joined the catalog on 2026-11-04 (nolgia-api #1471). `--render-quality`
+  now says `xhigh` and `max` exist on GPT Image 2.5 and 2.6, and `--mask`
+  says it works on GPT Image 2.5 and GPT Image 2 but not on 2.6 yet. No
+  default changes: `gen image` with no `--model` still asks for
+  `flux-3-image`.
 
 ## v0.3.3
 

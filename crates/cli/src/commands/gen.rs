@@ -66,9 +66,11 @@ pub struct ImageArgs {
     /// Takes a local file (uploaded to /assets) or an asset UUID.
     ///
     /// Only on models whose catalog entry publishes `inpaint mask`
-    /// (`nolgia models get <model>`) — the GPT Image family — and only
-    /// alongside exactly one --input. A masked edit costs exactly what the
-    /// same model's ordinary generation costs; a mask changes no price.
+    /// (`nolgia models get <model>`): GPT Image 2.5 and GPT Image 2, not
+    /// GPT Image 2.6 yet (its `inpaint mask` is false until a masked edit is
+    /// measured). Only alongside exactly one --input. A masked edit costs
+    /// exactly what the same model's ordinary generation costs; a mask
+    /// changes no price.
     #[arg(long, value_name = "PATH_OR_UUID", requires = "input")]
     pub mask: Option<String>,
     /// How much detail the model spends DRAWING the image, on models that
@@ -82,11 +84,11 @@ pub struct ImageArgs {
     /// They compose, and a request may carry both.
     ///
     /// `auto` (the default) is the model's own choice at the base rate.
-    /// `low`/`medium`/`high` spend LESS and cost the same, so they buy speed,
-    /// not savings. `xhigh` and `max` spend substantially more and ADD credits
+    /// `low`/`medium`/`high` cost the same as `auto`, so they are never a
+    /// saving. `xhigh` and `max` spend substantially more and ADD credits
     /// PER IMAGE — the exact figure is in `nolgia models get <model>`, and the
     /// CLI prints it before submitting. They exist only on the GPT Image 2.5
-    /// models.
+    /// and 2.6 models.
     #[arg(long, value_name = "VALUE")]
     pub render_quality: Option<String>,
     #[arg(long)]
