@@ -16225,9 +16225,10 @@ components:
             exact figure per model, and read it there rather than assuming,
             because it is per model.
 
-            `xhigh` and `max` exist only on the GPT Image 2.5 models. Sending
-            a value a model does not publish is a 400 naming what it accepts,
-            before any credit hold — never a silent downgrade.
+            `xhigh` and `max` exist only on the GPT Image 2.5 and 2.6
+            models. Sending a value a model does not publish is a 400 naming
+            what it accepts, before any credit hold — never a silent
+            downgrade.
           examples: ['xhigh']
         mask_asset_id:
           type: string
