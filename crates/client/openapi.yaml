@@ -15247,16 +15247,19 @@ components:
 
         `auto` asks NOLGIA to pick, on `POST /generate/image` and
         `POST /jobs/cost`. It is not a model: the job, its asset and the quote
-        report the model it picked. A photo of people written from text alone
-        goes to `seedream-v5-pro` at `2k`, with `aura` off unless you set it
-        (the most real-looking people in NOLGIA's blind test, 2026-11-04).
+        report the model it picked. A picture whose words must read (words in
+        quotes, or a poster, a thumbnail, a menu, a headline, lettering or text
+        the prompt does not rule out) goes to `gpt-image-2.5-sunburst`, with
+        any reference, mask or setting, at the same credits as Flare (NOLGIA's
+        blind text-image test, 2026-11-05). A photo of people written from text
+        alone goes to `seedream-v5-pro` at `2k`, with `aura` off unless you set
+        it (the most real-looking people in NOLGIA's blind test, 2026-11-04).
         Everything else goes to `gpt-image-2.5-flare`, as today: a person
         holding a product or a beauty item (a `product_id`, or the product in
-        the prompt), words in quotes, a poster or a label, any reference, mask,
-        character or other saved image, a prompt with no person, and any
-        `aspect_ratio`, `quality` or `render_quality` that `seedream-v5-pro`
-        does not offer. The job carries a note naming the pick. Name a model to
-        choose it yourself.
+        the prompt), a label, any reference, mask, character or other saved
+        image, a prompt with no person, and any `aspect_ratio`, `quality` or
+        `render_quality` that `seedream-v5-pro` does not offer. The job carries
+        a note naming the pick. Name a model to choose it yourself.
       enum:
         - auto
         - gpt-image-2.5-sunburst
