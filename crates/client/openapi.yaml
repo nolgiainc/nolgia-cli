@@ -15118,7 +15118,16 @@ components:
         `GET /models`: a request that names either is served by
         `gpt-image-2.5-flare` at Flare's own price, and the job and its asset
         report `gpt-image-2.5-flare`. Generations made on them before
-        2026-10-20 keep their own id. `nano-banana-pro`
+        2026-10-20 keep their own id.
+        `gpt-image-2.6-sunburst` (detailed visual work) and
+        `gpt-image-2.6-flare` (fast iteration) are OpenAI's GPT Image 2.6
+        pair (2026-11-04): the same twelve aspect ratios, `native`/`2k`/`4k`
+        tiers, `render_quality` values and up to 4 reference images as 2.5,
+        but not yet the inpaint mask (`inpaint_mask` false until a masked
+        edit is measured). They spend more output tokens than 2.5 at the
+        same setting, so they cost more credits: read them from
+        `GET /models`. No default uses them yet: `auto` still picks 2.5.
+        `nano-banana-pro`
         (Gemini 3 Pro Image) is the flagship Gemini image model and
         `nano-banana-2-lite` (Gemini 3.1 Flash Lite Image) the budget tier,
         both with the ten Gemini aspect ratios and reference-image editing.
@@ -15252,6 +15261,8 @@ components:
         - auto
         - gpt-image-2.5-sunburst
         - gpt-image-2.5-flare
+        - gpt-image-2.6-sunburst
+        - gpt-image-2.6-flare
         - gpt-image-2
         - gpt-image-1.5
         - reve-2.1
