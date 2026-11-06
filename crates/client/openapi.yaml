@@ -8027,6 +8027,15 @@ paths:
         clip's poster frame (`backdrop_detected`); quote the matte itself with
         `POST /jobs/cost`.
 
+        A green or blue screen takes `matte_asset_id` too: the screen is
+        keyed inside the person's AI matte, so only the person stays (the
+        light stands, walls and floor past a screen that does not fill the
+        frame go with the screen) while their edge and hair are the screen's
+        own key; and a clip with no screen to key is keyed from the matte
+        alone, its `warnings` saying so. A screen too dim, flat or off-hue for
+        the plain read (an under-lit screen, an ungraded log picture) is read
+        from its own colour.
+
         `background_from_clip: true` says the background video was generated
         from this very clip (a New world made from it): it is laid frame for
         frame (stretched to the clip's length when the model returned a few
@@ -8047,19 +8056,23 @@ paths:
         true` (no background), generate the world from that, then render
         over it with `subject_filled: true`.
 
-        The person is never changed (with `subject` `match`, only graded).
-        Wherever the matte is solid, the result
-        carries the clip's own samples, copied, not recomputed; only the edge
-        band (hair, motion blur, a few pixels inside the outline) is unmixed
-        from the screen colour, held free of green spill and blended with the
-        background. Nothing is generated and nothing is re-rendered by a
-        model. Everything that makes the shot sit together happens to the
-        background: it is cover-fitted to the clip's frame, moved onto the
-        footage's light when `match` is true (the same black level, the same
-        brightness of lit surfaces and the same colour of light, read from
-        the person's own pixels), softened like a lens focused on the person
-        (`blur`), given the footage's grain, and mirrored when `flip` is true
-        (which moves its light to the other side). The result comes with the
+        The person is never regenerated (with `match`, or `subject` `match`,
+        only graded). Wherever the matte is solid, the result
+        carries the clip's own samples, copied, not recomputed (with `match`,
+        with one grade on them, the same for every pixel of the person); only
+        the edge band (hair, motion blur, a few pixels inside the outline) is
+        unmixed from the screen colour, held free of green spill and blended
+        with the background. Nothing is generated and nothing is re-rendered
+        by a model. The background keeps its own look: it is cover-fitted to
+        the clip's frame, softened like a lens focused on the person (`blur`),
+        given the footage's grain, and mirrored when `flip` is true (which
+        moves its light to the other side). With `match` true the person is
+        put in its light instead, the way a compositor grades a plate into a
+        shot: their brightness, black level and colour of light (on the
+        amber-blue axis only, so a green or teal place never turns skin green)
+        move toward the place's, with a little of its light wrapped into their
+        edge, and a change of the studio's light during the shot (a flicker, a
+        cloud) is followed by the place. The result comes with the
         matte it was composited with, published as its own grey MP4 (white =
         the person) and named on the result as `matte_layer_asset_id`, so an
         editor can composite the person again in After Effects, Premiere or
@@ -8067,8 +8080,11 @@ paths:
         picture instead, make a relit copy of it first (an image edit, priced
         as usual) and pass that.
 
-        The clip must show the chosen screen (the render fails, saying so and
-        naming the backdrop it does see, when none is found). Clips up to 120 seconds at 1080p and 30 frames a
+        Without `matte_asset_id` the clip must show the chosen screen (the
+        render fails, saying so, naming the backdrop it does see and how to
+        key it from an AI matte instead, when none is found; the failure's
+        `error` starts "no green screen was found" or "no blue screen was
+        found"). Clips up to 120 seconds at 1080p and 30 frames a
         second, longer for smaller or slower clips (270 seconds at 720p, never
         more than 300), shorter for larger or faster ones (30 seconds at 4K):
         `max_seconds` in the quote is the clip's own. A render over a world
@@ -8135,6 +8151,12 @@ paths:
           description: The backdrop to quote for (`max_seconds` and `eligible` follow it); the detected one, else green, when omitted.
           schema:
             $ref: '#/components/schemas/GreenScreenBackdrop'
+        - name: cut_out
+          in: query
+          required: false
+          description: Quote a green or blue screen keyed with the person's AI matte as well (`matte_asset_id`), which takes the AI matte's shorter clips (`max_seconds` and `eligible` follow it). A `white` or `other` backdrop always is.
+          schema:
+            type: boolean
       responses:
         '200':
           description: The quote.
@@ -21661,7 +21683,7 @@ components:
     GreenScreenBackdrop:
       type: string
       enum: [green, blue, white, other]
-      description: What the person was filmed against. `green` and `blue` screens are keyed by their colour; `white` (a white or light grey cyc) and `other` are keyed from an AI matte of the person (`matte_asset_id`).
+      description: What the person was filmed against. `green` and `blue` screens are keyed by their colour (with `matte_asset_id`, inside the person's AI matte); `white` (a white or light grey cyc) and `other` are keyed from an AI matte of the person (`matte_asset_id`).
     CreateGreenScreenRenderRequest:
       type: object
       additionalProperties: false
@@ -21674,11 +21696,11 @@ components:
         backdrop:
           allOf:
             - $ref: '#/components/schemas/GreenScreenBackdrop'
-          description: What the person was filmed against (green when omitted). `white` and `other` need `matte_asset_id`.
+          description: What the person was filmed against (green when omitted). `white` and `other` need `matte_asset_id`; `green` and `blue` take it to keep only the person.
         matte_asset_id:
           type: string
           format: uuid
-          description: For a `white` or `other` backdrop, the AI matte of the person in this clip, a ready video in your library made by `POST /remove-background/video` with the clip as `source_asset_id` (a transparent WebM; a video whose brightness is the person also works). It must cover the clip's whole length.
+          description: The AI matte of the person in this clip, a ready video in your library made by `POST /remove-background/video` with the clip as `source_asset_id` (a transparent WebM; a video whose brightness is the person also works). It must cover the clip's whole length. Needed for a `white` or `other` backdrop. With a `green` or `blue` screen the screen is keyed inside it, so everything but the person goes (the set past the screen's edges too), and a clip with no screen is keyed from it alone; clips up to the AI matte's length limit (half a screen key's, never more than 60 seconds; `max_seconds` with `cut_out` in the quote).
         follow_camera:
           type: boolean
           description: Match the camera move (true when omitted). The plate's camera move (pan, tilt, roll, zoom) is read from the backdrop around the person (tracking marks, seams, floor texture) and the background moves with it, enlarged so no edge shows, with motion blur on fast moves. A locked-off shot is detected and its background stays still; a move that cannot be read well keeps the background still and the result says why. Never applied to a `background_from_clip` background, which already moves with the camera.
@@ -21688,28 +21710,28 @@ components:
         subject:
           type: string
           enum: [exact, match]
-          description: How you go back over a world made from your clip (`exact` when omitted). `exact` is your own pixels, untouched. `match` adjusts only the brightness and colour of your own footage to the scene (exposure, colour, a rim of the scene's light at your edges and a shadow on the ground); nothing of you is generated. Only with `background_from_clip` and a `white` or `other` backdrop with `matte_asset_id` (`exact` is accepted and ignored otherwise). Either way, the world's own copy of you is taken out from under you and around you and filled with the scene as other frames of the world show it.
+          description: How you go back over a world made from your clip (`exact` when omitted). `exact` is your own pixels, untouched. `match` adjusts only the brightness and colour of your own footage to the scene (exposure, colour, a rim of the scene's light at your edges and a shadow on the ground); nothing of you is generated. Only with `background_from_clip` and `matte_asset_id` (`exact` is accepted and ignored otherwise); a `green` or `blue` backdrop is then keyed from the matte like `other`. Either way, the world's own copy of you is taken out from under you and around you and filled with the scene as other frames of the world show it.
         match_level:
           type: string
           enum: [subtle, medium, strong]
           description: How far `subject` `match` goes toward the scene (`medium` when omitted). Only with `subject` `match`; `medium` is accepted and ignored otherwise. Your face never goes darker than the level allows, so it stays readable in a dark scene.
         subject_filled:
           type: boolean
-          description: (false when omitted) The world was generated from your clip with you filled flat grey (see `fill_subject`), so the video model never sees or redraws you (and a route that refuses real faces can take it, as Seedance's fall-over routes do; its primary route takes an ordinary real person). The model's grey figure is then taken out of the world with you, and `match` sets your brightness from the scene around you. Only with `background_from_clip` and a `white` or `other` backdrop with `matte_asset_id`.
+          description: (false when omitted) The world was generated from your clip with you filled flat grey (see `fill_subject`), so the video model never sees or redraws you (and a route that refuses real faces can take it, as Seedance's fall-over routes do; its primary route takes an ordinary real person). The model's grey figure is then taken out of the world with you, and `match` sets your brightness from the scene around you. Only with `background_from_clip` and `matte_asset_id`.
         world_cleaned:
           type: boolean
           description: (false when omitted) The world made from your clip already has the video model's copy of you removed (for example by a Remove edit on it). It is used as delivered; the render does not fill the world under and around you itself. `match` still grades you and lays your shadow. Only with `background_from_clip`.
         fill_subject:
           type: boolean
-          description: (false when omitted) Make no composite. The result is your clip with you filled flat grey, cut out with `matte_asset_id`, at your clip's size, frame rate, length and sound. Use it to make a world from your clip with a video model that must not see or redraw you (or a route that refuses real faces), then put yourself back over that world with `background_from_clip` and `subject_filled`. Needs a `white` or `other` backdrop and `matte_asset_id`, and takes no `background_asset_id`; `match`, `blur` and `flip` are ignored.
+          description: (false when omitted) Make no composite. The result is your clip with you filled flat grey, cut out with `matte_asset_id`, at your clip's size, frame rate, length and sound. Use it to make a world from your clip with a video model that must not see or redraw you (or a route that refuses real faces), then put yourself back over that world with `background_from_clip` and `subject_filled`. Needs `matte_asset_id`, and takes no `background_asset_id`; `match`, `blur` and `flip` are ignored.
         background_asset_id:
           type: string
           format: uuid
           description: The new background, a ready image or video in your library. A video plays from its start, looped when shorter than the clip. Required unless `fill_subject` is true.
         match:
           type: boolean
-          default: true
-          description: Move the background onto the footage's light (black level, brightness of lit surfaces, colour of light). The person is never changed either way.
+          default: false
+          description: Put the person in the background's light (off by default, so they stay exactly as filmed). Their own pixels are graded toward the place's brightness, black level and colour of light (amber-blue only), with a little of its light wrapped into their edge; the background keeps its own look, and nothing of the person is generated. Ignored for keep me (`background_from_clip` with `matte_asset_id`), where `subject` sets the person's grade.
         blur:
           type: string
           enum: [none, little, more]
@@ -21768,14 +21790,18 @@ components:
         max_seconds:
           type: number
           format: double
-          description: The longest clip of this size the render takes for the quoted backdrop (for a screen 120 seconds at 1080p and 30 frames a second, 270 at 720p, 30 at 4K, never more than 300; for an AI matte two thirds of that, never more than 60).
+          description: The longest clip of this size the render takes for the quoted backdrop (for a screen 120 seconds at 1080p and 30 frames a second, 270 at 720p, 30 at 4K, never more than 300; for a `white` or `other` backdrop, keyed from an AI matte, two thirds of that, never more than 60; for a screen with `cut_out`, half of it, never more than 60).
         backdrop:
           $ref: '#/components/schemas/GreenScreenBackdrop'
         backdrop_detected:
           type: string
           nullable: true
           enum: [green, blue, white, other]
-          description: The backdrop the clip's poster frame shows around the person, read from its border; null when the clip has no poster to read.
+          description: The backdrop the clip shows around the person, read from the border of its poster frame (or of a frame read from the clip itself while it has no poster); a screen too dim, flat or off-hue for the plain read (under-lit, an ungraded log picture) is read from its own colour. Null when no frame could be read.
+        set_around:
+          type: boolean
+          nullable: true
+          description: With a `green` or `blue` `backdrop_detected`, whether the screen leaves the set showing past its edges (light stands, walls, the floor, a dark corner) in a key of the screen alone; keyed with the person's AI matte as well (`matte_asset_id`), only the person stays. Null otherwise.
     CreateFollowPlanRequest:
       type: object
       additionalProperties: false
