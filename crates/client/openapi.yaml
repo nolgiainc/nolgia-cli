@@ -17240,8 +17240,12 @@ components:
             server cannot measure an external clip's geometry, and guessing
             16:9 would both reshape footage that was never 16:9 and misprice
             the job — those engines run over the SOURCE's frames, so the charge
-            tracks the source geometry as well as the output tier. Declared
-            values win over an asset's stored metadata.
+            tracks the source geometry as well as the output tier. An asset's
+            stored size, measured from the file, wins over declared values;
+            when they differ the job's `warnings` say which size was used.
+            A restore that comes back in another shape than its source (a
+            different aspect ratio, or black bars the source does not have)
+            is refunded in full, and its `warnings` say so.
 
             `topaz-*` sources are capped at DCI 4K (4096x2160 pixels); a larger
             master is rejected (400) rather than restored at a rate that does
