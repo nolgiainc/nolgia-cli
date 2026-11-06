@@ -26,7 +26,7 @@ pub enum RenderCommand {
     #[command(
         name = "keep-me",
         alias = "green-screen",
-        long_about = "Keep a person exactly as filmed (POST /renders/green-screen). Free.\n\nOn real footage of a real person the person never goes through a video model:\n  1. cut them out: nolgia gen video --model remove-background-video --input <clip>\n  2. nolgia render keep-me --clip <clip> --backdrop other --matte <cut-out> --fill-subject\n     (the clip with the person filled flat grey: this is what the model sees)\n  3. the effect or new world on the grey clip: nolgia gen video --video-task edit --video-ref <grey clip> ...\n  4. nolgia render keep-me --clip <clip> --backdrop other --matte <cut-out> --background <world>\n     --background-from-clip --subject-filled --subject exact|match\n     (the person back on top from their own pixels; match moves only their brightness and colour)\n\nA clip shot on a green or blue screen needs no cut-out: --backdrop green|blue --background <picture or video>."
+        long_about = "Keep a person exactly as filmed (POST /renders/green-screen). Free.\n\nOn real footage of a real person the person never goes through a video model:\n  1. cut them out: nolgia gen video --model remove-background-video --input <clip>\n  2. nolgia render keep-me --clip <clip> --backdrop other --matte <cut-out> --fill-subject\n     (the clip with the person filled flat grey: this is what the model sees)\n  3. the effect or new world on the grey clip: nolgia gen video --video-task edit --video-ref <grey clip> ...\n  4. nolgia render keep-me --clip <clip> --backdrop other --matte <cut-out> --background <world>\n     --background-from-clip --subject-filled --subject exact|match\n     (the person back on top from their own pixels; match moves only their brightness and colour)\n\nA clip shot on a green or blue screen needs no cut-out: --backdrop green|blue --background <picture or video>.\nAdd --matte <cut-out> to keep only the person: the screen is keyed inside the cut-out, so stands, walls and\nthe floor past the screen go too, and a clip with no screen is keyed from the cut-out alone."
     )]
     KeepMe(KeepMeArgs),
 }
@@ -39,7 +39,7 @@ pub struct KeepMeArgs {
     /// What they were filmed against: green, blue, white or other
     #[arg(long, value_name = "green|blue|white|other")]
     pub backdrop: Option<GreenScreenBackdrop>,
-    /// The person's cut-out of this clip (remove-background-video), needed for white and other
+    /// The person's cut-out of this clip (remove-background-video): needed for white and other; with green or blue, only the person stays
     #[arg(long, value_name = "UUID")]
     pub matte: Option<Uuid>,
     /// Output the clip with the person filled flat grey (step 2); no background
@@ -63,6 +63,10 @@ pub struct KeepMeArgs {
     /// How far match goes: subtle, medium or strong
     #[arg(long, value_name = "subtle|medium|strong")]
     pub match_level: Option<CreateGreenScreenRenderRequestMatchLevel>,
+    /// Over a picture or video background: grade the person toward its light (their own pixels,
+    /// brightness and colour only; the background keeps its look). Off: exactly as filmed
+    #[arg(long = "match")]
+    pub match_light: bool,
     /// Name for the carrier composition
     #[arg(long, value_name = "NAME")]
     pub name: Option<CreateGreenScreenRenderRequestName>,
@@ -147,6 +151,7 @@ pub fn keep_me_request(args: &KeepMeArgs) -> Result<CreateGreenScreenRenderReque
         .world_cleaned(flag(args.world_cleaned))
         .subject(args.subject)
         .match_level(args.match_level)
+        .match_(args.match_light)
         .name(args.name.clone())
         .project_id(args.project)
         .try_into()
@@ -297,6 +302,7 @@ mod tests {
             world_cleaned: false,
             subject: Some(CreateGreenScreenRenderRequestSubject::Match),
             match_level: Some(CreateGreenScreenRenderRequestMatchLevel::Subtle),
+            match_light: false,
             name: None,
             project: None,
             wait: false,
@@ -313,6 +319,12 @@ mod tests {
         assert_eq!(body["background_from_clip"], true);
         assert_eq!(body["subject_filled"], true);
         assert_eq!(body["backdrop"], "other");
+        // exactly as filmed unless --match: never graded by a default
+        assert_eq!(body["match"], false);
+        let mut lit = args();
+        lit.match_light = true;
+        let lit = serde_json::to_value(keep_me_request(&lit).unwrap()).unwrap();
+        assert_eq!(lit["match"], true);
         assert!(
             body.get("fill_subject")
                 .is_none_or(serde_json::Value::is_null)
