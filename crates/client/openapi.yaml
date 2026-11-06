@@ -17693,6 +17693,8 @@ components:
             $ref: '#/components/schemas/AssetCharacterScore'
         shape:
           $ref: '#/components/schemas/AssetShape'
+        label_check:
+          $ref: '#/components/schemas/AssetLabelCheck'
         matte_layer_asset_id:
           type: string
           format: uuid
@@ -17753,6 +17755,25 @@ components:
         redos:
           type: integer
           description: 1 when the render was redone for its shape, else 0.
+    AssetLabelCheck:
+      type: object
+      nullable: true
+      additionalProperties: false
+      required: [mirrored, remakes, note]
+      description: >-
+        The mirrored label check on a product-in-hand video (2026-11-06): Creator hook, Hands-on product ad, Creator review ad, Unboxing reaction, How to tutorial and Social media ad clips made from a product photo. The lettering on the product photo is read, then the lettering on frames of the clip and on the same frames flipped left to right; a clip whose flipped frames match the product's words clearly better has a mirrored label and is made again once on the same job and charge. This says what was delivered. Absent on other videos, on clips whose lettering could not be read either way, on clips checked by the identity gate, and on videos made before the check existed.
+      properties:
+        mirrored:
+          type: boolean
+          description: The product's lettering reads backwards (mirrored) in the delivered clip.
+        remakes:
+          type: integer
+          description: 1 when the clip was made again because its first take read mirrored, else 0.
+        note:
+          type: string
+          nullable: true
+          description: >-
+            A plain note to show beside a clip that still reads mirrored, like "The lettering on the product reads backwards (mirrored) in this clip."; null when it does not.
     AssetCharacterScore:
       type: object
       additionalProperties: false
