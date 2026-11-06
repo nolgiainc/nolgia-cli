@@ -21797,7 +21797,7 @@ components:
           type: string
           nullable: true
           enum: [green, blue, white, other]
-          description: The backdrop the clip shows around the person, read from the border of its poster frame (or of a frame read from the clip itself while it has no poster); a screen too dim, flat or off-hue for the plain read (under-lit, an ungraded log picture) is read from its own colour. Null when no frame could be read.
+          description: The backdrop the clip shows around the person, read from the border of its poster frame (or of a frame read from the clip itself while it has no poster); a screen too dim, flat or off-hue for the plain read (under-lit, an ungraded log picture) is read from its own colour, and a lit screen that fills only the middle of the frame (its border is the set, such as stands, walls or a floor) is named from the frame as a whole, with `set_around` true. Null when no frame could be read.
         set_around:
           type: boolean
           nullable: true
