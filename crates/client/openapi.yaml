@@ -4245,7 +4245,9 @@ paths:
         repository: https://github.com/nolgiainc/nolgia-blender,
         nolgia-adobe for After Effects, Premiere Pro and Illustrator,
         nolgia-photoshop or nolgia-resolve). The plugin's page is
-        `https://nolgia.ai/plugins/<page_slug>`.
+        `https://nolgia.ai/plugins/<page_slug>`. `release_note`, when
+        present, says in one sentence what that plugin version changed; the
+        plugins read this list to tell a person a newer version is out.
 
         A plugin workflow (a preset whose `target.kind` is `desktop_app`)
         can be published only while its app is `available`.
@@ -10638,6 +10640,15 @@ paths:
         Pass `session_id` to restrict the transcript to one chat session;
         without it ALL messages are returned regardless of session (the
         pre-sessions behavior).
+
+        A NOLGIA plugin panel older than its plugin's newest release (by the
+        `<plugin>/<version>` User-Agent it sends; today NOLGIA for Adobe
+        before 0.3.1, which cannot show an update notice of its own) reads one
+        more paragraph on the session's first complete reply after that
+        release: "A newer NOLGIA for Adobe (0.3.1) is out:
+        https://nolgia.ai/plugins/after-effects". `GET
+        /agent/messages/{id}` serves the reply the same way. The stored reply
+        and every other client's read are unchanged.
       parameters:
         - name: session_id
           in: query
@@ -18665,6 +18676,14 @@ components:
           type: string
           description: The shipped plugin release. Empty when not set.
           examples: ['0.1.1']
+        release_note:
+          type: string
+          description: |
+            One plain sentence on what `plugin_version` changed (at most 200
+            characters), which the plugin's update notice shows under "NOLGIA
+            for <app> <version> is out". Omitted when none was written for
+            this version.
+          examples: ['The panel now tells you when a newer version is out.']
         download_url:
           type: string
           description: The plugin's download, an https link to a pinned release. Empty while the plugin has not shipped.
