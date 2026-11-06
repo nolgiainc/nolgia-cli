@@ -5,6 +5,16 @@ the matching GitHub release.
 
 ## Unreleased
 
+- **`render keep-me` on a green or blue screen takes `--matte` too.** With
+  the person's cut-out, the screen is keyed inside it, so only the person
+  stays (stands, walls and the floor past the screen go too), and a clip
+  with no screen is keyed from the cut-out alone instead of failing
+  (nolgia-api, 2026-11-06). The help says so.
+- **`render keep-me --match`** grades the person toward the background's
+  light: their own pixels, brightness and colour only, while the background
+  keeps its own look. It is off unless you pass it, so they stay exactly as
+  filmed. Before, the CLI never sent `match`, and the API moved the
+  background onto the person's light by default.
 - **`gen image` defaults to `flux-3-image`.** With no `--model`, it now
   asks for FLUX 3 Image (3 credits at its 1k default) instead of
   `flux-pro`, because the older FLUX models (`flux-pro`, `flux-ultra`,
