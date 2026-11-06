@@ -29250,6 +29250,10 @@ components:
           description: Which sources the step offers. Defaults to both.
         binds_to:
           $ref: '#/components/schemas/PresetIntakeAssetBinding'
+        markup:
+          type: boolean
+          description: >-
+            When true, the form offers an optional "Mark what to change" control on this step's picture, the same marks as the image page: the customer draws on the picture and the run sends the drawing as `markup_asset_id`, so only the marked part changes. It never makes the step or the marks required. Absent means false, and false is not stored. On write it needs a `create_image` target whose model takes marks (`image.markup` true on GET /models), `submit.kind` `generate`, `modality` `image`, `binds_to` `reference_asset_ids` or `image_url` with `max` 1, and this step first among the image reference steps (marks sit on the first picture). One marks step per intake, no `mask_asset_id`, `face_reference_asset_id` or `character_id` step beside it, and the image reference steps plus the marks layer within `image.reference_images_max`.
     PresetIntakeCharacterStep:
       type: object
       additionalProperties: false
