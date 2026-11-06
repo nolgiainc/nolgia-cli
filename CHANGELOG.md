@@ -3,7 +3,7 @@
 Release notes for the Nolgia CLI. Each `## vX.Y.Z` section becomes the body of
 the matching GitHub release.
 
-## Unreleased
+## v0.3.4
 
 - **`render keep-me` on a green or blue screen takes `--matte` too.** With
   the person's cut-out, the screen is keyed inside it, so only the person
@@ -37,6 +37,40 @@ the matching GitHub release.
   says it works on GPT Image 2.5 and GPT Image 2 but not on 2.6 yet. No
   default changes: `gen image` with no `--model` still asks for
   `flux-3-image`.
+- **`nolgia render keep-me` (alias `green-screen`) keeps a real person
+  exactly as filmed** (`POST /renders/green-screen`, free): `--clip`,
+  `--backdrop green|blue|white|other`, `--matte`, `--fill-subject` (the grey
+  stand-in a model sees), `--background`, `--background-from-clip`,
+  `--subject-filled`, `--world-cleaned`, `--subject exact|match`,
+  `--match-level subtle|medium|strong`, `--name`, `--project`, `--wait`.
+- **`gen video --video-task reference|edit|extend`, `--edit-target` and
+  `--edit-target-change`.** A protected edit delivers the source clip
+  everywhere but the one thing named.
+- **`gen image --reference`** (repeatable, up to 14, after `--input`; each
+  model's own cap is the server's), and `gen video --element` up to 30.
+  `--quality` help says Nano Banana renders 2K and 4K natively.
+- **`gen image` and `gen video --outfit <NAME>`** (with `--character-id`):
+  the saved outfit's photos ride beside the face. `gen video
+  --character-voice on|off`.
+- **`gen audio --stability <0-1>` and `--seed <n>`** for ElevenLabs voices.
+  Omitted, neither is sent.
+- **`gen 3d` asks for PBR materials by default** on a textured
+  `hunyuan3d-v3` request (`--no-pbr` for the plain model), and
+  `--cost-only` uses the server's quote (`POST /jobs/cost`), so it shows
+  what is charged.
+- **`gen video --seed` and `--negative-prompt` help** points at
+  `video.seed` and `video.negative_prompt_supported` on the model, and says
+  only Omni takes a negative prompt today.
+- **The bundled skills are 1.11.2** (`nolgia-platform`,
+  `nolgia-video-prompting`, `nolgia-ugc-ads`; run `nolgia skills install
+  --force` to replace an older copy): takes with people in motion to the
+  standard the owner's blind pick passed; native 1080p for hero people
+  shots; a video's `signed_url` is the model's original; `veo-3.1` and
+  `veo-3.1-fast` render on `omni-1.1-flash` (`veo-3.1-lite` stays);
+  `wan-3.0` opens at 1080p and takes references; how to keep a real person
+  as filmed.
+- **The OpenAPI spec is re-vendored** from nolgia-api main as of
+  2026-11-06.
 
 ## v0.3.3
 
