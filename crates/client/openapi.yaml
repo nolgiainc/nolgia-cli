@@ -9496,6 +9496,64 @@ paths:
           $ref: '#/components/responses/ProblemResponse'
         default:
           $ref: '#/components/responses/ProblemResponse'
+  /insiders/me/share-deal:
+    get:
+      tags: [Insiders]
+      operationId: getInsiderShareDeal
+      summary: The caller's profit share deal (such as Realtour).
+      description: >
+        The caller's open profit share deal: its terms, the visits, sign ups, trials and paying clients the link brought, the tier and the milestones, and what it earned per statement month (the Pacific month a client's billing period starts in) and per client, without names or email addresses. The revenue and cost breakdown (paid, refunds, chargebacks, sales tax, Stripe fees, AI provider cost, net profit) is included only when NOLGIA switched it on for the deal; otherwise those fields are null. `404` when the caller has no deal; `403` unless the caller is an Insider.
+
+      parameters:
+        - $ref: '#/components/parameters/ShareDealFrom'
+        - $ref: '#/components/parameters/ShareDealTo'
+      responses:
+        '200':
+          description: The deal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InsiderShareDealPortal'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /insiders/invites/{token}:
+    get:
+      tags: [Insiders]
+      operationId: getInsiderInvite
+      summary: What an Insider invite link holds.
+      description: >
+        The handle an invite holds for its invitee (when it holds one), the name it suggests, where the handle's link will land and whether the application is approved on submission. `404` when the link is unknown, used, revoked or expired.
+
+      security: []
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 16
+            maxLength: 128
+      responses:
+        '200':
+          description: The invite.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InsiderInvitePeek'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '429':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
   /insiders/me/performance:
     get:
       tags: [Insiders]
@@ -12004,6 +12062,22 @@ components:
       bearerFormat: PAT
       description: Personal Access Token (prefix `nol_`) for CLI and MCP clients.
   parameters:
+    ShareDealFrom:
+      name: from
+      in: query
+      required: false
+      description: First Pacific day (inclusive); the deal's start month when omitted.
+      schema:
+        type: string
+        format: date
+    ShareDealTo:
+      name: to
+      in: query
+      required: false
+      description: Last Pacific day (inclusive); today when omitted.
+      schema:
+        type: string
+        format: date
     FeedbackID:
       name: id
       in: path
@@ -22374,6 +22448,8 @@ components:
         joined_at:
           type: string
           format: date-time
+        landing:
+          $ref: '#/components/schemas/InsiderLanding'
     InsiderDirectoryEntry:
       type: object
       additionalProperties: false
@@ -24428,6 +24504,408 @@ components:
 
       enum: [micro, mid, macro, custom]
       x-enum-varnames: [InsiderDealBandMicro, InsiderDealBandMid, InsiderDealBandMacro, InsiderDealBandCustom]
+    InsiderLanding:
+      type: string
+      enum: [offer, realtour]
+      x-enum-varnames: [InsiderLandingOffer, InsiderLandingRealtour]
+      description: >-
+        Where the Insider's link lands: `offer` is the Insider offer page, `realtour` the Realtour page with the Insider offer on top.
+    InsiderInvitePeek:
+      type: object
+      additionalProperties: false
+      required: [landing, auto_approve, expires_at]
+      properties:
+        handle:
+          type: string
+          nullable: true
+          description: The @name the invite holds for its invitee; null when the invitee picks one.
+        display_name:
+          type: string
+          nullable: true
+        landing:
+          $ref: '#/components/schemas/InsiderLanding'
+        auto_approve:
+          type: boolean
+          description: The application is approved when it is submitted.
+        expires_at:
+          type: string
+          format: date-time
+    InsiderShareDealTier:
+      type: object
+      additionalProperties: false
+      required: [min_clients, rate_bps]
+      properties:
+        min_clients:
+          type: integer
+          minimum: 0
+          description: Paying clients at the same time from which the rate applies.
+        rate_bps:
+          type: integer
+          minimum: 0
+          maximum: 10000
+          description: The Insider's share of net profit, in basis points (3000 = 30%).
+    InsiderShareDealStatus:
+      type: string
+      enum: [potential, active, ended]
+      x-enum-varnames: [InsiderShareDealStatusPotential, InsiderShareDealStatusActive, InsiderShareDealStatusEnded]
+    InsiderShareDealMilestone:
+      type: object
+      additionalProperties: false
+      required: [key, label, kind, position, done, note]
+      properties:
+        key:
+          type: string
+        label:
+          type: string
+        kind:
+          type: string
+          enum: [auto_clients, manual]
+          x-enum-varnames: [InsiderShareDealMilestoneKindAutoClients, InsiderShareDealMilestoneKindManual]
+        target:
+          type: integer
+          nullable: true
+        progress:
+          type: integer
+          nullable: true
+          description: For the client count milestone, the paying clients now.
+        due_on:
+          type: string
+          format: date
+          nullable: true
+        position:
+          type: integer
+        done:
+          type: boolean
+        done_on:
+          type: string
+          format: date
+          nullable: true
+        checked_at:
+          type: string
+          format: date-time
+          nullable: true
+        checked_by:
+          type: string
+          nullable: true
+        note:
+          type: string
+    InsiderShareDealProgress:
+      type: object
+      additionalProperties: false
+      required: [clients, paying_clients, rate_bps, milestones_met, milestones_total, others_unlocked]
+      properties:
+        clients:
+          type: integer
+          description: Accounts referred through the deal's Insider (blocked ones left out).
+        paying_clients:
+          type: integer
+          description: Clients on a qualifying plan now (the plan rule).
+        rate_bps:
+          type: integer
+          description: The rate the whole book earns this month.
+        next_tier:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/InsiderShareDealTier'
+        milestones_met:
+          type: integer
+        milestones_total:
+          type: integer
+        others_unlocked:
+          type: boolean
+        others_unlocked_at:
+          type: string
+          format: date-time
+          nullable: true
+    InsiderShareDealMoney:
+      type: object
+      additionalProperties: false
+      description: >-
+        Money in US cents. The breakdown fields are null in the portal unless NOLGIA switched the breakdown on for the deal.
+      required: [earned_cents]
+      properties:
+        paid_cents:
+          type: integer
+          format: int64
+          nullable: true
+          description: Plan payments plus top-ups, before refunds, chargebacks and tax.
+        refunded_cents:
+          type: integer
+          format: int64
+          nullable: true
+        chargeback_cents:
+          type: integer
+          format: int64
+          nullable: true
+        tax_cents:
+          type: integer
+          format: int64
+          nullable: true
+          description: Sales tax on what was kept.
+        fee_cents:
+          type: integer
+          format: int64
+          nullable: true
+          description: Stripe processing and dispute fees.
+        net_received_cents:
+          type: integer
+          format: int64
+          nullable: true
+        realtour_net_cents:
+          type: integer
+          format: int64
+          nullable: true
+          description: net_received times the Realtour share of credits.
+        provider_cost_cents:
+          type: integer
+          format: int64
+          nullable: true
+        net_profit_cents:
+          type: integer
+          format: int64
+          nullable: true
+        earned_cents:
+          type: integer
+          format: int64
+          description: The Insider's share.
+        estimated:
+          type: boolean
+          nullable: true
+          description: A fee or a provider cost in it is an estimate, or a billing period is still open.
+    InsiderShareDealLine:
+      type: object
+      additionalProperties: false
+      required: [client_id, kind, statement_month, period_start, period_end, period_kind, open, money]
+      properties:
+        client_id:
+          type: string
+          description: An opaque id for the client, stable per deal.
+        user_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Admin only.
+        email:
+          type: string
+          nullable: true
+          description: Admin only.
+        kind:
+          type: string
+          enum: [own, others]
+          x-enum-varnames: [InsiderShareDealLineKindOwn, InsiderShareDealLineKindOthers]
+          description: own = the Insider's client at the tier rate; others = everyone else at the 10%.
+        statement_month:
+          type: string
+          pattern: '^[0-9]{4}-[0-9]{2}$'
+        period_start:
+          type: string
+          format: date-time
+        period_end:
+          type: string
+          format: date-time
+        period_kind:
+          type: string
+          enum: [month, year_slice]
+          x-enum-varnames: [InsiderShareDealLinePeriodKindMonth, InsiderShareDealLinePeriodKindYearSlice]
+        open:
+          type: boolean
+          description: The period has not ended; its Realtour share can still move.
+        plan_tier:
+          type: string
+          nullable: true
+        invoice_id:
+          type: string
+          nullable: true
+          description: Admin only.
+        realtour_credits:
+          type: integer
+          nullable: true
+        all_credits:
+          type: integer
+          nullable: true
+        realtour_share:
+          type: number
+          nullable: true
+        fee_estimated:
+          type: boolean
+          nullable: true
+        provider_cost_estimated:
+          type: boolean
+          nullable: true
+        rate_bps:
+          type: integer
+        money:
+          $ref: '#/components/schemas/InsiderShareDealMoney'
+    InsiderShareDealMonth:
+      type: object
+      additionalProperties: false
+      required: [month, peak_clients, rate_bps, own, others, earned_cents]
+      properties:
+        month:
+          type: string
+          pattern: '^[0-9]{4}-[0-9]{2}$'
+        peak_clients:
+          type: integer
+          description: The most clients paying at the same time that month (sets the month's tier).
+        rate_bps:
+          type: integer
+        others_rate_bps:
+          type: integer
+          description: The rate on everyone else that month (0 before the milestones are met).
+        own:
+          $ref: '#/components/schemas/InsiderShareDealMoney'
+        others:
+          $ref: '#/components/schemas/InsiderShareDealMoney'
+        earned_cents:
+          type: integer
+          format: int64
+    InsiderShareDealClient:
+      type: object
+      additionalProperties: false
+      required: [client_id, signed_up_at, source, paying_now, money]
+      properties:
+        client_id:
+          type: string
+        user_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Admin only.
+        email:
+          type: string
+          nullable: true
+          description: Admin only.
+        signed_up_at:
+          type: string
+          format: date-time
+        source:
+          type: string
+          description: link, code, checkout_code, stripe_code or manual.
+        paying_now:
+          type: boolean
+        plan_tier:
+          type: string
+          nullable: true
+        first_paid_at:
+          type: string
+          format: date-time
+          nullable: true
+        last_paid_at:
+          type: string
+          format: date-time
+          nullable: true
+        realtour_listings:
+          type: integer
+        realtour_runs:
+          type: integer
+        realtour_videos:
+          type: integer
+        realtour_credits:
+          type: integer
+        money:
+          $ref: '#/components/schemas/InsiderShareDealMoney'
+    InsiderShareDealStatement:
+      type: object
+      additionalProperties: false
+      required: [deal_id, handle, from, to, generated_at, months, lines, clients, total, assumptions]
+      properties:
+        deal_id:
+          type: string
+          format: uuid
+        handle:
+          type: string
+        from:
+          type: string
+          format: date
+        to:
+          type: string
+          format: date
+        generated_at:
+          type: string
+          format: date-time
+        months:
+          type: array
+          items:
+            $ref: '#/components/schemas/InsiderShareDealMonth'
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/InsiderShareDealLine'
+        clients:
+          type: array
+          items:
+            $ref: '#/components/schemas/InsiderShareDealClient'
+        total:
+          $ref: '#/components/schemas/InsiderShareDealMoney'
+        others_total:
+          $ref: '#/components/schemas/InsiderShareDealMoney'
+        assumptions:
+          type: array
+          items:
+            type: string
+    InsiderShareDealTrackingBucket:
+      type: object
+      additionalProperties: false
+      required: [start, visits, visitors, signups, trials, paid_signups, realtour_listings, realtour_runs, realtour_videos, realtour_credits, credits]
+      properties:
+        start:
+          type: string
+          format: date
+        visits:
+          type: integer
+        visitors:
+          type: integer
+        signups:
+          type: integer
+        trials:
+          type: integer
+          description: Studio trials the referred accounts started.
+        paid_signups:
+          type: integer
+          description: Referred accounts whose first qualifying plan payment (a Studio purchase or a trial converting) fell in the bucket.
+        realtour_listings:
+          type: integer
+        realtour_runs:
+          type: integer
+        realtour_videos:
+          type: integer
+        realtour_credits:
+          type: integer
+        credits:
+          type: integer
+          description: Every credit the referred accounts spent.
+    InsiderShareDealPortal:
+      type: object
+      additionalProperties: false
+      required: [handle, product, status, tiers, others_bps, show_breakdown, starts_at, progress, milestones, tracking, statement]
+      properties:
+        handle:
+          type: string
+        product:
+          type: string
+        status:
+          $ref: '#/components/schemas/InsiderShareDealStatus'
+        tiers:
+          type: array
+          items:
+            $ref: '#/components/schemas/InsiderShareDealTier'
+        others_bps:
+          type: integer
+        show_breakdown:
+          type: boolean
+        starts_at:
+          type: string
+          format: date-time
+        progress:
+          $ref: '#/components/schemas/InsiderShareDealProgress'
+        milestones:
+          type: array
+          items:
+            $ref: '#/components/schemas/InsiderShareDealMilestone'
+        tracking:
+          $ref: '#/components/schemas/InsiderShareDealTrackingBucket'
+        statement:
+          $ref: '#/components/schemas/InsiderShareDealStatement'
     PlanTrialStatus:
       type: string
       description: >
