@@ -17310,6 +17310,11 @@ components:
           nullable: true
           minimum: 0
           maximum: 1
+        typical_seconds:
+          type: integer
+          nullable: true
+          description: >-
+            While the job is queued or running, how long a job like this one usually takes from submit to result, in seconds: the median of the jobs on the same model, with the same video task, quality and length band (up to 5, 10 or 15 seconds, or longer), that succeeded in the last 14 days, at least 5 of them, at any length when this length has too few. Null when too few have finished, and on the response to the request that made the job. A typical time, never a promise or a limit. `progress` is null for almost every model, because most providers do not report one.
         created_at:
           type: string
           format: date-time
@@ -21935,6 +21940,31 @@ components:
         updated_at:
           type: string
           format: date-time
+        stage:
+          type: string
+          nullable: true
+          enum: [preparing, reading, rendering, finishing, saving]
+          x-enum-varnames: [RenderStagePreparing, RenderStageReading, RenderStageRendering, RenderStageFinishing, RenderStageSaving]
+          description: >-
+            While the render is running, the step it is on: `preparing` (its inputs are downloaded and its timeline read), `reading` (a green screen render measures the clip before its first frame), `rendering` (the frames are being made; see `progress`), `finishing` (every frame is made and the file is being closed) or `saving` (the result is added to the Library). The render job says it within about 5 seconds of a change. Null when the render is not running, and for a render that has not said yet.
+        progress:
+          type: number
+          nullable: true
+          minimum: 0
+          maximum: 1
+          description: >-
+            While the render is making its frames (`stage: rendering`), the share made so far, from 0 to 1. Null otherwise. It is a frame count, never an estimate.
+        heartbeat_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: >-
+            While the render is running, when its job last said it is still working: at least every 30 seconds. A heartbeat more than 2 minutes old means its job stopped. A stopped render is ended failed, with a plain message and the refund of anything paid for its inputs, by the next run of the render job (Cloud Run's retry of the stopped one, seconds after it stopped, or at the latest the hourly run). Null when the render is not running.
+        typical_seconds:
+          type: integer
+          nullable: true
+          description: >-
+            While the render is queued or running, how long a render like this one usually takes once it starts, in seconds: the median of the same kind (mode; for a green screen render whether it is a grey stand-in, a keep me composite or a plain key; the source clip's picture size, up to 1080p or above, and its length band) that succeeded in the last 14 days, at least 3 of them, at any length when this length has too few. Null when too few have finished. A typical time, never a promise or a limit.
     RenderFraming:
       type: object
       nullable: true
