@@ -224,7 +224,7 @@ paths:
       operationId: listModels
       summary: List available models and their capabilities.
       description: >-
-        The catalog for THIS caller. A model whose generate request this caller would be refused before any quote or charge is left out. Today that is `omni-1.1-flash-edit` (Gemini Omni 1.1 video edit), which its provider does not offer for uploaded footage in the EEA, the UK and Switzerland: it is listed only for a customer placed outside those regions, by the request's own location or, when the request carries none (a call relayed by the hosted MCP server for Claude or ChatGPT, say), by the country the account was placed in at sign-up or on a later request.
+        The catalog for THIS caller. A model whose generate request this caller would be refused before any quote or charge is left out. Today those are `omni-1.1-flash-edit` and `omni-1.2-flash-edit` (Gemini Omni video edit), which their provider does not offer for uploaded footage in the EEA, the UK and Switzerland: each is listed only for a customer placed outside those regions, by the request's own location or, when the request carries none (a call relayed by the hosted MCP server for Claude or ChatGPT, say), by the country the account was placed in at sign-up or on a later request.
       responses:
         '200':
           description: Model catalog.
@@ -1963,9 +1963,9 @@ paths:
         `failure.code` to a `GenerationErrorCode`, so a client can branch without parsing prose.
 
         **Some edit models are not offered everywhere.** `omni-1.1-flash-edit`
-        edits uploaded footage only for customers outside the regions where
-        its provider withholds that feature, and `GET /models` lists it only
-        for them. A request from a customer in one of those regions, or one
+        and `omni-1.2-flash-edit` edit uploaded footage only for customers
+        outside the regions where their provider withholds that feature, and
+        `GET /models` lists them only for them. A request from a customer in one of those regions, or one
         whose region cannot be determined, is refused with `400` and
         `error.code` `validation` before any charge, naming the models that do
         the same job (`seedance-2.5` with `video_task` `edit`,
@@ -1973,7 +1973,8 @@ paths:
         caller's, as the platform's load balancer locates it on this request,
         or, when the request carries none, the country the account was placed
         in at sign-up or on a later request; generating on `omni-1.1-flash`
-        from text or a start frame is unaffected.
+        or `omni-1.2-flash` from text, frames or reference images is
+        unaffected.
       requestBody:
         required: true
         content:
@@ -13929,7 +13930,7 @@ components:
           type: string
           description: >-
             What to call this model on a customer-facing surface. Always present: no published model is nameless, because a raw id is sometimes a provider route path and must never be rendered.
-          examples: ['Veo 3.1 Lite']
+          examples: ['Gemini Omni 1.2 Flash']
         maker:
           type: string
           description: >-
@@ -14121,7 +14122,7 @@ components:
           allOf:
             - $ref: '#/components/schemas/SubscriptionTier'
           description: >-
-            Minimum subscription plan required to run this model. `starter` means every plan can run it. A model published as `pro` needs Pro or Studio, and submitting it on a lower plan is refused with a 402 "Upgrade Required" - that is a plan limit, so adding credits does not unlock it. Premium video (Seedance 2.5, Kling 4.0, every Veo model and every video model at or above 5.4 credits per second) is `pro`; the other video models, the starter video models, are `starter` with `requires_plan` true. Sent for every model so a picker can mark or disable what the account cannot run, rather than letting the user submit and be refused. Cost and eligibility are independent: an affordable model can still be out of plan. Optional in the schema only so that existing clients keep parsing; the API always sends it.
+            Minimum subscription plan required to run this model. `starter` means every plan can run it. A model published as `pro` needs Pro or Studio, and submitting it on a lower plan is refused with a 402 "Upgrade Required" - that is a plan limit, so adding credits does not unlock it. Premium video (Seedance 2.5, Kling 4.0, every Gemini Omni model and every video model at or above 5.4 credits per second) is `pro`; the other video models, the starter video models, are `starter` with `requires_plan` true. Sent for every model so a picker can mark or disable what the account cannot run, rather than letting the user submit and be refused. Cost and eligibility are independent: an affordable model can still be out of plan. Optional in the schema only so that existing clients keep parsing; the API always sends it.
         requires_plan:
           type: boolean
           description: >-
@@ -14270,7 +14271,7 @@ components:
           type: boolean
           description: |
             Whether the model accepts an `image_url` start frame. Dedicated
-            image-to-video variants require one; models like Veo and Omni
+            image-to-video variants require one; models like Gemini Omni 1.2
             Flash take one optionally alongside the text prompt.
         start_frame_required:
           type: boolean
@@ -14292,6 +14293,18 @@ components:
             i2v does NOT support it: those entries route to the direct Kling
             provider, which has no end-frame field. Read this flag rather
             than assuming a family supports it.
+        end_frame_max_seconds:
+          type: integer
+          minimum: 1
+          description: |
+            When present, the longest clip the model makes from a start and
+            end frame pair. A request with an end frame and a longer
+            `duration_seconds` is not refused: it is made and charged at this
+            length, the quote says the same, and the job's `warnings` say
+            why. Show the cap next to the end frame control, before the
+            quote. Example: `omni-1.2-flash` makes up to 15 s from text or a
+            start frame, and up to 10 s from a start and end frame. Absent
+            when the end frame does not shorten the longest clip.
         video_refs_max:
           type: integer
           minimum: 0
@@ -14774,6 +14787,13 @@ components:
             `upscaled_from` tier and charged at it, with the job's `warnings`
             saying so. Example: `seedance-2.5` 4k is upscaled from 1080p.
 
+            A tier the provider upscales inside its own render names the
+            tier it upscales from the same way: `omni-1.2-flash` and
+            `omni-1.2-flash-edit` make 1080p and 4k as Google's upscales of
+            their 720p render (`upscaled_from: 720p`), billed at Google's
+            price for that tier. Each is a new take at that tier, not an
+            upscale of an earlier take.
+
             Image: the `2k` and `4k` tiers of the shared upscale ladder name
             `native`, the model's own render that the same job enlarges to
             the tier's long side (2,048 or 4,096 px). On `nano-banana-pro`,
@@ -14824,7 +14844,7 @@ components:
           type: boolean
           description: |
             Whether the model accepts an `image_url`. Dedicated image-to-video
-            variants require one; models like Veo and Omni Flash take one
+            variants require one; models like Gemini Omni 1.2 Flash take one
             optionally alongside the text prompt. Mirrors
             `references.start_frame`, which carries the full reference-media
             capability set. Read `references.start_frame_required` to tell
@@ -15614,19 +15634,27 @@ components:
         routes: the same text, start/end-frame and image-reference modes as
         2.5 (no reference video or audio) on 4 to 15 second clips at
         480p/720p.
-        Veo 3.1 Lite (`veo-3.1-lite`) is the budget Veo 3.1 tier: 4, 6 or 8
-        second clips with native audio from text or a start frame, 720p
-        default and a 1080p tier, and no reference images. `veo-3.1` and
-        `veo-3.1-fast` are REPLACED by `omni-1.1-flash`: Google Cloud retires
-        them from November 17, 2026 and names Gemini Omni 1.1 Flash as Veo's
-        replacement, so they are no longer listed on `GET /models`, and a
-        request naming either runs on `omni-1.1-flash` at the same quality
-        tier and Omni's price, with "In a single continuous shot." added to
-        the prompt (Veo always made one shot) and a job warning saying so.
+        Gemini Omni 1.2 Flash (`omni-1.2-flash`) is the Google video model:
+        3 to 15 second clips with native sound and speech at 360p, 720p
+        (default), 1080p or 4k (1080p and 4k are Google's upscales of its
+        720p render, made as a new take at that tier; see
+        `quality.options[].upscaled_from`), 16:9 or 9:16, from text, a start
+        frame, a start and end frame (made at 10 s at most:
+        `references.end_frame_max_seconds`), and up to 6 reference images
+        (`@Image1`.. in the prompt), with or without frames. It always makes
+        its own sound; voice and audio references are not available. It
+        makes several shots unless the prompt asks for one continuous shot.
+        Veo is no longer offered: `veo-3.1`, `veo-3.1-fast` and
+        `veo-3.1-lite` are REPLACED by `omni-1.2-flash` and left off
+        `GET /models`; a request naming one runs on `omni-1.2-flash` at the
+        same quality tier and Omni 1.2's price, with "In a single continuous
+        shot." added to the prompt (Veo always made one shot) and a job
+        warning saying so. `omni-flash` is replaced by `omni-1.2-flash` too.
         Gemini Omni 1.1 Flash (`omni-1.1-flash`) renders 3 to 10 second clips
         with native audio and speech at 720p (default) or 1080p from text or
         a start frame; it makes several shots unless the prompt asks for one
-        continuous shot. HappyHorse 1.1
+        continuous shot. Google routes it to Omni 1.2 Flash on December 3,
+        2026. HappyHorse 1.1
         (`happyhorse-1.1`) and HappyHorse 1.0 (`happyhorse-1.0`) render silent
         5 to 15 second clips at 720p/1080p from text or a start image.
         HappyHorse 1.1 Reference to Video (`happyhorse-1.1-r2v`) renders 3 to
@@ -15646,6 +15674,11 @@ components:
         10 second source clip (a video asset with a stored duration) from a text
         instruction and is billed at the source's length; the output keeps the
         source's duration and framing, and it takes no reference images.
+        Gemini Omni 1.2 Edit (`omni-1.2-flash-edit`) rewrites one required 3
+        to 15 second source clip (a video asset with a stored duration, up to
+        32 MB) at 360p, 720p (default), 1080p or 4k, with up to 2 reference
+        images, and is billed at the source's length; the output keeps the
+        source's duration and framing.
         Seedance 1.5 Pro (`seedance-1-5-pro`) is RETIRED: ByteDance shuts it
         down on 2026-11-11, so it is no longer listed on `GET /models`, and
         from that date a request naming it is refused with a 400 that names
@@ -15684,6 +15717,8 @@ components:
         - omni-flash
         - omni-1.1-flash
         - omni-1.1-flash-edit
+        - omni-1.2-flash
+        - omni-1.2-flash-edit
         - grok-imagine-video
         - grok-imagine-video-1.5
         - minimax-h3
@@ -17005,13 +17040,13 @@ components:
             Clip length in seconds. Omit it to let the server pick a duration
             the selected model actually renders: models with a discrete
             duration list (video.durations on GET /models) get the listed
-            value nearest the 5s baseline (ties resolve upward, so Veo
-            defaults to 6s), ranged models clamp the baseline into
+            value nearest the 5s baseline (ties resolve upward, so a model
+            that lists 4 and 6 defaults to 6s), ranged models clamp the baseline into
             [min, max], and a request that attaches reference images takes
             the model's element_refs_duration_seconds pin, when it has one.
             An explicit value is validated strictly against the model's
-            capabilities — note that 5 itself is not a valid Veo duration, so
-            omit the field rather than sending the old baseline. The schema
+            capabilities — note that 5 itself is not a valid duration on every
+            model, so omit the field rather than sending the old baseline. The schema
             deliberately declares no `default`, so generated clients leave
             the field out instead of pinning 5.
         seed:
@@ -25037,7 +25072,7 @@ components:
     CreditWalletType:
       type: string
       description: >
-        Credit buckets. The app channel (browser and device sessions, the NOLGIA Agent, organization API keys and OAuth connector tokens such as ChatGPT's) uses free credits first, then subscription, then shared top-up overflow; the API channel (personal access tokens created by hand) uses shared top-up only. `free` holds free credits (the daily free allowance, whose each day's credits last three Pacific days and whose unspent credits add up to `FREE_DAILY_ROLLOVER_CAP`, 30; the sign-up grant, the referral or Insider welcome and the checklist reward, which last 30 days; and older grants and credit codes, which do not expire): they pay for images, audio, the agent and video below the premium line, never for premium video (Seedance 2.5, Kling 4.0, every Veo model and every video model at or above 5.4 credits per second) and never on the API channel. Free credits exist in the personal space only. `realtour_trial` is the seven-day Studio trial's one-time Realtour allowance (120 credits, personal only): it pays only for Realtour (a photo run's jobs, a camera move on one photo, a filmed clips edit), before the account's own credits, and only while the trial is open; it is listed with the trial's end as `expires_at` and is gone when the trial ends (it expires, converts or is ended by staff). It is never part of `total`, `available_for_app` or `available_for_api`.
+        Credit buckets. The app channel (browser and device sessions, the NOLGIA Agent, organization API keys and OAuth connector tokens such as ChatGPT's) uses free credits first, then subscription, then shared top-up overflow; the API channel (personal access tokens created by hand) uses shared top-up only. `free` holds free credits (the daily free allowance, whose each day's credits last three Pacific days and whose unspent credits add up to `FREE_DAILY_ROLLOVER_CAP`, 30; the sign-up grant, the referral or Insider welcome and the checklist reward, which last 30 days; and older grants and credit codes, which do not expire): they pay for images, audio, the agent and video below the premium line, never for premium video (Seedance 2.5, Kling 4.0, every Gemini Omni model and every video model at or above 5.4 credits per second) and never on the API channel. Free credits exist in the personal space only. `realtour_trial` is the seven-day Studio trial's one-time Realtour allowance (120 credits, personal only): it pays only for Realtour (a photo run's jobs, a camera move on one photo, a filmed clips edit), before the account's own credits, and only while the trial is open; it is listed with the trial's end as `expires_at` and is gone when the trial ends (it expires, converts or is ended by staff). It is never part of `total`, `available_for_app` or `available_for_api`.
 
       enum: [app_subscription, shared_topup, free, realtour_trial]
       x-enum-varnames: [AppSubscription, SharedTopup, CreditWalletTypeFree, CreditWalletTypeRealtourTrial]
@@ -27822,7 +27857,7 @@ components:
           enum: [premium_video, card_required]
           x-enum-varnames: [JobCostFreeExcludedPremiumVideo, JobCostFreeExcludedCardRequired]
           description: >-
-            Why `free_credits_excluded` are left out: `premium_video` (Seedance 2.5, Kling 4.0, Veo and every video model at or above 5.4 credits per second run on paid credits; free credits pay for images and the cheaper video models), or `card_required` (free credits other than the sign-up grant and an Insider welcome wait for a card on file). Present with `free_credits_excluded`.
+            Why `free_credits_excluded` are left out: `premium_video` (Seedance 2.5, Kling 4.0, Gemini Omni and every video model at or above 5.4 credits per second run on paid credits; free credits pay for images and the cheaper video models), or `card_required` (free credits other than the sign-up grant and an Insider welcome wait for a card on file). Present with `free_credits_excluded`.
         suggested_models:
           type: array
           items:
@@ -27869,8 +27904,8 @@ components:
         - `canceled`: the job was canceled by its owner (`POST /jobs/{id}/cancel`), not broken. It is the code the SDK wait helpers raise for a `canceled` job; `cancellation` on the job says what the provider did and what was refunded. A canceled job carries no `failure`.
         - `job_not_cancellable`: `POST /jobs/{id}/cancel` refused (`409`) because the job already finished, or its finished result is already being delivered. The job will reach `succeeded` or `failed` on its own; nothing was changed.
         - `approval_required`: refused with `402` (title `Approval Needed`) because the generation would take an agent run past its limit (the `credit_ceiling` a guided preset's review card sent with the brief; the card shows the customer what such a run typically costs, not the limit). Nothing was submitted and nothing was charged. The detail names the generation's cost, the new run total and the limit; the agent must ask the customer to approve that total before it continues, never quote the limit to them, and never retry, split the job or switch models to fit.
-        - `card_required`: refused with `402` (title `Card Required`) for one of two reasons. Free credits: the account is on the free plan (never paid) with no card on file, no paid credits and no sign-up grant or Insider welcome left (those spend without a card), so its remaining free credits are locked; adding a card (no charge) unlocks them and the daily free allowance (`suggested_models` is empty then). Premium video: the model is premium video (Seedance 2.5, Kling 4.0, every Veo model and every video model at or above 5.4 credits per second) and the account has no card on file and has never paid for a plan or credits. Nothing was submitted and nothing was charged. Adding a card in the NOLGIA app unlocks it with no charge (`help_url` is the app's card page); `suggested_models` lists cheaper video models this account can run now, best first. Images and the cheaper models work without a card. Never retry the same request.
-        - `paid_credits_required`: refused with `402` (title `Paid Credits Required`) because the model is premium video (Seedance 2.5, Kling 4.0, Veo and every video model at or above 5.4 credits per second) and the account is on the free plan (it has never paid for a plan or credits) with no paid credits to cover it. Free credits (the daily allowance and older sign-up grants) pay for images and the cheaper video models only. Nothing was submitted and nothing was charged. Subscribing or buying credits unlocks it (`help_url` is the app's billing page); `suggested_models` lists cheaper video models the free credits cover, best first. Never retry the same request.
+        - `card_required`: refused with `402` (title `Card Required`) for one of two reasons. Free credits: the account is on the free plan (never paid) with no card on file, no paid credits and no sign-up grant or Insider welcome left (those spend without a card), so its remaining free credits are locked; adding a card (no charge) unlocks them and the daily free allowance (`suggested_models` is empty then). Premium video: the model is premium video (Seedance 2.5, Kling 4.0, every Gemini Omni model and every video model at or above 5.4 credits per second) and the account has no card on file and has never paid for a plan or credits. Nothing was submitted and nothing was charged. Adding a card in the NOLGIA app unlocks it with no charge (`help_url` is the app's card page); `suggested_models` lists cheaper video models this account can run now, best first. Images and the cheaper models work without a card. Never retry the same request.
+        - `paid_credits_required`: refused with `402` (title `Paid Credits Required`) because the model is premium video (Seedance 2.5, Kling 4.0, Gemini Omni and every video model at or above 5.4 credits per second) and the account is on the free plan (it has never paid for a plan or credits) with no paid credits to cover it. Free credits (the daily allowance and older sign-up grants) pay for images and the cheaper video models only. Nothing was submitted and nothing was charged. Subscribing or buying credits unlocks it (`help_url` is the app's billing page); `suggested_models` lists cheaper video models the free credits cover, best first. Never retry the same request.
         - `idempotency_key_reused`: refused with `409` because the `Idempotency-Key` already names a different request on this account (another body, apart from `confirmation_token`). A key keeps naming its job while the job runs and for 24 hours after it finishes. Nothing was submitted and nothing was charged; `job_id` names the job the key belongs to. Send a new key for a new request, or the original request again to get that job.
         - `run_ended`: refused with `409` (title `Run Ended`) because the agent run this generation was started for (the turn its turn-scoped credential names) has already ended: the platform failed, swept or stopped the turn, or it finished and delivered its reply. Nothing was submitted and nothing was charged. The agent must stop working on that run, never retry or switch models; the customer's chat already shows how it ended.
     AgentMessageConflict:
@@ -29330,7 +29365,7 @@ components:
           items:
             type: string
           description: Display labels of recommended models (matching the web generation config labels).
-          examples: [['Veo 3.1', 'Seedance 2.0 Pro']]
+          examples: [['Gemini Omni 1.2 Flash', 'Seedance 2.0 Pro']]
         thumbnail_url:
           type: string
           nullable: true
