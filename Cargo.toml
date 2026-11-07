@@ -24,7 +24,7 @@ csv = "1"
 filetime = "0.2"
 fs2 = "0.4"
 md-5 = "0.10"
-quick-xml = "0.37"
+quick-xml = "0.42"
 sha1 = "0.10"
 sha2 = "0.10"
 xxhash-rust = { version = "0.8", features = ["xxh64"] }
