@@ -3,6 +3,21 @@
 Release notes for the Nolgia CLI. Each `## vX.Y.Z` section becomes the body of
 the matching GitHub release.
 
+## Unreleased
+
+- **A Veo id is quoted and checked as the server runs it.** Veo is no longer
+  offered (owner, 2026-11-07), and the catalog no longer lists `veo-3.1`,
+  `veo-3.1-fast` or `veo-3.1-lite`. The API still takes them: it runs the
+  request on `omni-1.2-flash` at the matching tier and price, adds "In a
+  single continuous shot." to the prompt, and says so in a warning.
+  - `gen video --cost-only` used to refuse these ids as "not in the
+    catalog". It now quotes them on `omni-1.2-flash` and prints the server's
+    warning on the next line.
+  - The quality and reference prechecks use `omni-1.2-flash`'s tiers and
+    limits.
+  - `models get veo-3.1` names the successor.
+  - The `gen video` help no longer lists Veo.
+
 ## v0.3.4
 
 - **`render keep-me` on a green or blue screen takes `--matte` too.** With

@@ -1919,6 +1919,111 @@ async fn gen_video_cost_only_prices_quality_tier() {
     .stdout(predicate::str::contains("1556 credits"));
 }
 
+/// Owner, 2026-11-07: Veo is no longer offered. The catalog no longer lists the
+/// Veo ids, but the API runs a request naming one on omni-1.2-flash at the
+/// matching tier with a warning, so `--cost-only` quotes it the same way
+/// instead of refusing an id the server serves.
+fn omni_12_models_json() -> serde_json::Value {
+    json!({"models": [{
+        "id": "omni-1.2-flash", "modality": "video", "recommended": false,
+        "cost": {"credits": 22, "unit": "per_clip", "baseline_seconds": 5},
+        "video": {"min_duration": 3, "max_duration": 15, "aspect_ratios": ["16:9", "9:16"], "image_input": true},
+        "quality": {"default": "720p", "options": [
+            {"id": "360p", "credits": 9, "premium": false},
+            {"id": "720p", "credits": 22, "premium": false},
+            {"id": "1080p", "credits": 31, "premium": false},
+            {"id": "4k", "credits": 60, "premium": true},
+        ]},
+        "references": {"start_frame": true, "start_frame_required": false, "end_frame": true, "video_refs_max": 0,
+                       "element_refs_max": 6, "audio_refs_max": 0},
+    }]})
+}
+
+#[tokio::test]
+async fn gen_video_cost_only_quotes_a_veo_id_on_omni_1_2_with_the_warning() {
+    let api = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/models"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(omni_12_models_json()))
+        .mount(&api)
+        .await;
+    run_ok(
+        &api,
+        &["gen", "video", "--model", "veo-3.1", "--prompt", "x", "--duration-seconds", "4", "--cost-only"],
+    )
+    .stdout(predicate::str::contains("18 credits (omni-1.2-flash, 4s, replacing veo-3.1)"))
+    .stdout(predicate::str::contains(
+        "warning: Veo is no longer offered; this ran on Gemini Omni 1.2 Flash at 720p (22 credits per 5 s). \"In a single continuous shot.\" was added to the prompt so the clip stays one continuous shot, as Veo 3.1 made it.",
+    ));
+    run_ok(
+        &api,
+        &[
+            "gen",
+            "video",
+            "--model",
+            "veo-3.1-fast",
+            "--prompt",
+            "x",
+            "--duration-seconds",
+            "3",
+            "--quality",
+            "360p",
+            "--cost-only",
+        ],
+    )
+    .stdout(predicate::str::contains(
+        "6 credits (omni-1.2-flash, 3s, 360p, replacing veo-3.1-fast)",
+    ))
+    .stdout(predicate::str::contains("at 360p (9 credits per 5 s)"))
+    .stdout(predicate::str::contains("as Veo 3.1 Fast made it."));
+}
+
+#[tokio::test]
+async fn gen_video_checks_a_veo_id_against_omni_1_2() {
+    let api = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/models"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(omni_12_models_json()))
+        .mount(&api)
+        .await;
+    cmd()
+        .arg("--api-url")
+        .arg(api.uri())
+        .args([
+            "gen",
+            "video",
+            "--model",
+            "veo-3.1-lite",
+            "--prompt",
+            "x",
+            "--quality",
+            "8k",
+            "--cost-only",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("not a tier of omni-1.2-flash"));
+}
+
+#[tokio::test]
+async fn models_get_a_veo_id_names_its_successor() {
+    let api = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/models"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(omni_12_models_json()))
+        .mount(&api)
+        .await;
+    cmd()
+        .arg("--api-url")
+        .arg(api.uri())
+        .args(["models", "get", "veo-3.1"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "Veo is no longer offered: a request naming \"veo-3.1\" runs on omni-1.2-flash",
+        ));
+}
+
 /// NOL-451 follow-up: `--cost-only` reflects the audio flag. Audio is on by
 /// default, so the quote includes the surcharge and matches the headline; an
 /// explicit `--generate-audio false` renders the clip silent and drops

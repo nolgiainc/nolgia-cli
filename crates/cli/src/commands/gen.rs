@@ -182,7 +182,7 @@ pub struct VideoArgs {
     /// Start image: a local file (uploaded to /assets) or the UUID of an
     /// existing asset (reused, fresh signed URL). Required for
     /// image-to-video models; optional on models with image input
-    /// support (Veo, Omni Flash) per `nolgia models list`.
+    /// support (Omni Flash) per `nolgia models list`.
     ///
     /// On a background-removal model (`--model remove-background-video`)
     /// --input is instead the CLIP to cut the subject out of, and the only
@@ -198,10 +198,10 @@ pub struct VideoArgs {
     /// e.g. 16:9, 9:16, 1:1, 4:3, 3:4 (model-dependent)
     #[arg(long)]
     pub aspect_ratio: Option<AspectRatio>,
-    /// Clip length in seconds (model-dependent; Kling/Seedance 3-15, Veo 4/6/8,
-    /// Omni Flash 3-10). Omit to let the server choose: 5s normally, or the sum
-    /// of the --shot durations when shots are given. If passed alongside --shot
-    /// it must equal that sum.
+    /// Clip length in seconds (model-dependent; Kling/Seedance 3-15, Omni 1.2
+    /// Flash 3-15, Omni 1.1 Flash 3-10). Omit to let the server choose: 5s
+    /// normally, or the sum of the --shot durations when shots are given. If
+    /// passed alongside --shot it must equal that sum.
     ///
     /// With ONE --video-ref on a model whose reference video shows the
     /// subject to perform (Seedance reference-to-video), omitting it renders
