@@ -75,12 +75,99 @@ pub(crate) async fn fetch(ctx: &CommandContext) -> Result<Vec<Model>> {
 /// One model's catalog entry, or None when the catalog cannot be read or does
 /// not list the id. None means "unknown", never "refused": a caller falls
 /// through to the server, the authority, exactly as the prechecks here do.
+/// A replaced id (see [`replaced`]) answers with its successor's entry, the
+/// model the server runs it on.
 pub(crate) async fn entry(ctx: &CommandContext, model_id: &str) -> Option<Model> {
-    fetch(ctx)
-        .await
-        .ok()?
-        .into_iter()
-        .find(|model| model.id == model_id)
+    let models = fetch(ctx).await.ok()?;
+    find(&models, model_id).map(|(model, _)| model.clone())
+}
+
+/// A model id the catalog no longer lists that the API still serves on a
+/// successor. Owner, 2026-11-07: Veo is no longer offered. nolgia-api runs a
+/// request naming a Veo id on Gemini Omni 1.2 Flash at the matching quality
+/// tier and at its price, adds `suffix` to the prompt, and says so in the
+/// quote's and the job's `warnings` (nolgia-api #1529, #1531). The CLI maps
+/// the id the same way for its local quote and checks instead of refusing an
+/// id the server serves.
+pub(crate) struct ReplacedModel {
+    pub id: &'static str,
+    /// The old model's name, as the server's warning writes it.
+    pub name: &'static str,
+    /// The model family the warning says is no longer offered.
+    pub family: &'static str,
+    pub successor: &'static str,
+    /// The successor's name, as the server's warning writes it.
+    pub successor_name: &'static str,
+    /// The sentence the server adds after the prompt.
+    pub suffix: &'static str,
+}
+
+const REPLACED_MODELS: &[ReplacedModel] = &[
+    ReplacedModel {
+        id: "veo-3.1",
+        name: "Veo 3.1",
+        family: "Veo",
+        successor: "omni-1.2-flash",
+        successor_name: "Gemini Omni 1.2 Flash",
+        suffix: "In a single continuous shot.",
+    },
+    ReplacedModel {
+        id: "veo-3.1-fast",
+        name: "Veo 3.1 Fast",
+        family: "Veo",
+        successor: "omni-1.2-flash",
+        successor_name: "Gemini Omni 1.2 Flash",
+        suffix: "In a single continuous shot.",
+    },
+    ReplacedModel {
+        id: "veo-3.1-lite",
+        name: "Veo 3.1 Lite",
+        family: "Veo",
+        successor: "omni-1.2-flash",
+        successor_name: "Gemini Omni 1.2 Flash",
+        suffix: "In a single continuous shot.",
+    },
+];
+
+/// The replacement for `model_id`, when the API serves it on a successor.
+pub(crate) fn replaced(model_id: &str) -> Option<&'static ReplacedModel> {
+    REPLACED_MODELS.iter().find(|r| r.id == model_id)
+}
+
+impl ReplacedModel {
+    /// The server's warning in its own words (nolgia-api
+    /// `ReplacementPromptNote`), for the successor at `tier` and
+    /// `credits_per_5s` when known. The server may add what the old id cost
+    /// before; the CLI does not keep old prices.
+    pub(crate) fn warning(&self, tier: Option<&str>, credits_per_5s: Option<u64>) -> String {
+        let mut ran = self.successor_name.to_string();
+        if let Some(tier) = tier {
+            ran.push_str(&format!(" at {tier}"));
+        }
+        if let Some(credits) = credits_per_5s {
+            ran.push_str(&format!(" ({credits} credits per 5 s)"));
+        }
+        format!(
+            "{} is no longer offered; this ran on {ran}. {:?} was added to the prompt so the clip stays one continuous shot, as {} made it.",
+            self.family, self.suffix, self.name
+        )
+    }
+}
+
+/// The catalog entry that serves a request for `model_id`: the model itself,
+/// or a replaced id's successor along with the replacement.
+pub(crate) fn find<'m>(
+    models: &'m [Model],
+    model_id: &str,
+) -> Option<(&'m Model, Option<&'static ReplacedModel>)> {
+    if let Some(model) = models.iter().find(|m| m.id == model_id) {
+        return Some((model, None));
+    }
+    let replacement = replaced(model_id)?;
+    models
+        .iter()
+        .find(|m| m.id == replacement.successor)
+        .map(|model| (model, Some(replacement)))
 }
 
 /// The catalog flag that marks a model as taking no prompt, when it carries
@@ -356,12 +443,13 @@ pub async fn quote_video(
     generate_audio: Option<bool>,
 ) -> Result<String> {
     let models = fetch(ctx).await?;
-    let model = models.iter().find(|m| m.id == model_id).with_context(|| {
+    let (model, replacement) = find(&models, model_id).with_context(|| {
         format!("model {model_id:?} not in the catalog — see `nolgia models list`")
     })?;
     let Some(cost) = &model.cost else {
         return Ok(format!(
-            "{model_id}: pricing pending — the server will quote at submit time"
+            "{}: pricing pending — the server will quote at submit time",
+            model.id
         ));
     };
     // `credits` and `audio_surcharge` come from the selected quality tier when
@@ -392,8 +480,22 @@ pub async fn quote_video(
         Some(base) => (per_baseline * duration_seconds).div_ceil(base.get()),
         None => per_baseline,
     };
+    let Some(replacement) = replacement else {
+        return Ok(format!(
+            "{credits} credits ({model_id}, {duration_seconds}s{tier_note})"
+        ));
+    };
+    // A replaced id is quoted as the server runs it: on the successor, at the
+    // tier asked for (or the successor's default), with the server's warning.
+    let tier = quality.or_else(|| model.quality.as_ref().and_then(|q| q.default.as_deref()));
+    let per_5s = match cost.baseline_seconds {
+        Some(base) if base.get() == 5 => Some(per_baseline),
+        _ => None,
+    };
     Ok(format!(
-        "{credits} credits ({model_id}, {duration_seconds}s{tier_note})"
+        "{credits} credits ({}, {duration_seconds}s{tier_note}, replacing {model_id})\nwarning: {}",
+        model.id,
+        replacement.warning(tier, per_5s)
     ))
 }
 
@@ -420,7 +522,7 @@ pub async fn precheck_video_options(
     let Ok(models) = fetch(ctx).await else {
         return Ok(());
     };
-    let Some(model) = models.iter().find(|m| m.id == model_id) else {
+    let Some((model, _)) = find(&models, model_id) else {
         return Ok(());
     };
     if let Some(tier) = options.quality {
@@ -649,6 +751,18 @@ async fn list(args: ListArgs, ctx: &CommandContext) -> Result<()> {
 
 async fn get(args: GetArgs, ctx: &CommandContext) -> Result<()> {
     let models = fetch(ctx).await?;
+    if let Some(replacement) = replaced(&args.id)
+        && !models.iter().any(|m| m.id == args.id)
+    {
+        anyhow::bail!(
+            "{} is no longer offered: a request naming {:?} runs on {} at the matching quality tier and price, with {:?} added to the prompt — see `nolgia models get {}`",
+            replacement.family,
+            args.id,
+            replacement.successor,
+            replacement.suffix,
+            replacement.successor
+        );
+    }
     let model = models.iter().find(|m| m.id == args.id).with_context(|| {
         format!(
             "model {:?} not in the catalog — see `nolgia models list`",
