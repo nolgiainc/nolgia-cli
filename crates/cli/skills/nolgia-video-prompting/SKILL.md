@@ -1,7 +1,7 @@
 ---
 name: nolgia-video-prompting
 description: "Directing craft for NOLGIA video generation: the film standard (references with stated jobs, casting and styling for the role, location plates, one structured prompt per take, written cuts at the genre's rhythm, best of N takes, sound, typeset words, the realism finish), plus the breathing pattern, per-shot sound design and the keep-what-works iteration loop. Use when: writing or fixing video prompts, planning a multi-clip production, a short film, a series episode, a trailer, a commercial or a music video on NOLGIA, or deciding which shots to regenerate. NOT for: platform mechanics such as auth, flags, jobs and credits (use nolgia-platform), vertical UGC ad pipelines (use nolgia-ugc-ads), or still-image prompting."
-version: 1.11.2
+version: 1.11.3
 author: NOLGIA
 license: MIT
 metadata:
@@ -430,9 +430,9 @@ quoting a frame.
   too. `minimax-h3` at 768p or 2k delivers 0.04 to 0.07 bits per pixel, which
   smears skin into wax: on a photoreal person use it only for a sung lip sync shot,
   never for dialogue; a painted or stylized character may use it for a hard
-  performance shot. `veo-3.1` and `veo-3.1-fast` are retired: a request
-  naming either renders on `omni-1.1-flash`, which is untested for people who
-  must read as real.
+  performance shot. Veo is no longer offered: a request naming a Veo id
+  renders on `omni-1.2-flash`, which is untested for people who must read as
+  real.
 - **The cheaper lanes, offered as options, never forced** (5 s at 720p: `wan-3.0`
   28 credits, `kling-v4` 44, `seedance-2.5` 66; check `nolgia models get`; `wan-3.0`
   opens at 1080p, 56, so pass `--quality 720p` for the 28).
