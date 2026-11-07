@@ -29834,6 +29834,31 @@ components:
         description:
           type: string
           maxLength: 300
+        group:
+          type: string
+          minLength: 1
+          maxLength: 80
+          description: >-
+            The `value` of the step's group this option sits in. Required on every option of a step that has `groups`; refused on a step without them.
+    PresetIntakeChoiceGroup:
+      type: object
+      additionalProperties: false
+      required: [value, label]
+      description: >-
+        One group of a grouped choice step, the first of its two picks (for example "Bold and loud", then the styles in it).
+      properties:
+        value:
+          type: string
+          minLength: 1
+          maxLength: 80
+          description: Stable machine value, unique within the step; what each option's `group` names.
+        label:
+          type: string
+          minLength: 1
+          maxLength: 80
+        description:
+          type: string
+          maxLength: 300
     PresetIntakeAssetStep:
       type: object
       additionalProperties: false
@@ -30016,9 +30041,19 @@ components:
         options:
           type: array
           minItems: 1
-          maxItems: 24
+          maxItems: 192
+          description: >-
+            At most 24 options on a step without `groups`. With `groups`, every option names one of them in `group` and each group holds 1 to 24 options (up to 192 in all).
           items:
             $ref: '#/components/schemas/PresetIntakeChoiceOption'
+        groups:
+          type: array
+          minItems: 2
+          maxItems: 8
+          description: >-
+            Makes the step a two level pick: the person picks a group first, then one of the options in it. Group values are unique within the step, every group holds at least one option, and a grouped step takes one pick (`multiple` must be false). `default` still names an option `value`, and its group opens first.
+          items:
+            $ref: '#/components/schemas/PresetIntakeChoiceGroup'
         binds_to:
           type: string
           pattern: "^(option:.+|prompt_slot:[A-Z][A-Z0-9']*( [A-Z][A-Z0-9']*){0,4}|param:[a-z][a-z0-9_]{0,39}|attach)$"
