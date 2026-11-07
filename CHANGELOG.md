@@ -17,6 +17,13 @@ the matching GitHub release.
     limits.
   - `models get veo-3.1` names the successor.
   - The `gen video` help no longer lists Veo.
+- **The bundled skills name Gemini Omni 1.2 Flash** (skills 1.11.3).
+  `nolgia-platform`'s video table now lists `omni-1.2-flash` and
+  `omni-1.2-flash-edit` with their lengths, prices and references, and drops
+  `veo-3.1-lite`. It says Veo ids run on `omni-1.2-flash` with a warning, and
+  that the 1.1 models stay selectable until December 3, 2026.
+  `nolgia-video-prompting` says the same. Run `nolgia skills install --force`
+  to replace an installed copy.
 
 ## v0.3.4
 
