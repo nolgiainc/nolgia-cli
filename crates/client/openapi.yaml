@@ -27864,6 +27864,12 @@ components:
             type: string
           description: >-
             On a premium video quote the paid credits do not cover while free credits are left out: cheaper video models the free credits cover, best first (the same list `paid_credits_required` carries). Absent otherwise.
+        warnings:
+          type: array
+          items:
+            type: string
+          description: >-
+            What the job will say about how this request runs, known before anything is charged, in the same words the job's `warnings` will carry: for example that a model is no longer offered and the request runs on its successor at the price quoted here, or that a start and end frame clip is made and charged at the model's end-frame limit. Show them with the price, before the customer agrees to pay. Absent when there are none.
         sufficient_credits:
           type: boolean
           description: Whether the balance covers `credits` right now. Advisory — the submit re-checks.
