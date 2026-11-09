@@ -17851,11 +17851,41 @@ components:
           format: uuid
           description: >-
             On the result of a green screen or keep-me render (`POST /renders/green-screen`): the matte the composite used, published beside it as its own video, a grey H.264 MP4 at the clip's size and frame rate, white where the person is and soft on their edge. An editor puts it with the result as a separate matte layer (a luma, or after alpha-from-luminance an alpha, track matte) to composite the person over anything else. Absent on everything else, and on the grey stand-in (`fill_subject`).
+        film_finish:
+          $ref: '#/components/schemas/AssetFilmFinish'
         source:
           $ref: '#/components/schemas/AssetSource'
         created_at:
           type: string
           format: date-time
+    AssetFilmFinish:
+      type: object
+      additionalProperties: false
+      readOnly: true
+      required: [status]
+      description: >-
+        Film Maker Images' finish. On an image a film frame job made: how its graded copy is going (`running`, then `done` with `graded_asset_id`, or `failed` with a `note`; the image itself is always kept as it was). On a graded copy: `done`, with the `original_asset_id` it was graded from and the finish values used. Absent on every other asset.
+      properties:
+        status:
+          type: string
+          enum: [running, done, failed]
+          x-enum-varnames: [AssetFilmFinishStatusRunning, AssetFilmFinishStatusDone, AssetFilmFinishStatusFailed]
+        graded_asset_id:
+          type: string
+          format: uuid
+          description: On the original, the graded copy once it is saved.
+        original_asset_id:
+          type: string
+          format: uuid
+          description: On a graded copy, the image it was graded from.
+        note:
+          type: string
+          description: Why the graded copy could not be made, in plain words.
+        post:
+          $ref: '#/components/schemas/FilmPost'
+        letterbox_16x9:
+          type: boolean
+          description: On a graded copy, it sits on a black 16:9 canvas.
     AssetSource:
       type: object
       additionalProperties: false
@@ -20128,6 +20158,61 @@ components:
         updated_at:
           type: string
           format: date-time
+    FilmPost:
+      type: object
+      additionalProperties: false
+      description: >-
+        The finish values the assembler gives a frame: the shape to crop to, whether the shape is shown letterboxed, the exposure, the film grade and the texture strengths. Keys keep the assembler's order.
+      properties:
+        aspect:
+          type: string
+          description: The shape id, like `2.39` or `16:9`.
+        crop_to:
+          type: number
+          format: double
+          nullable: true
+          description: The width over height to centre-crop to; null for no crop.
+        letterbox:
+          type: boolean
+          description: The shape is wider than the generated frame and reads as letterboxed.
+        exposure_gamma:
+          type: number
+          format: double
+          description: Each channel becomes itself to this power (on 0 to 1); 1 or absent leaves it.
+        lut:
+          type: string
+          nullable: true
+          description: The NOLGIA colour preset slug of the film grade; null for no grade.
+        bloom:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+        soften:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+        halation:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+        grain:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+        vignette:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+        dust:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
     SavedStyleList:
       type: object
       additionalProperties: false
