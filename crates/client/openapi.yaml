@@ -14357,9 +14357,26 @@ components:
             Longest reference footage the model accepts, in seconds: each
             reference video, and the reference videos' combined length, must
             be at most this. The API refuses a stored asset, or a set of stored
-            assets, over it with a 400 naming the limit; a raw `video_urls`
+            assets, over it with a 400 naming the limit, except the one clip
+            `video_refs_longer_is_cut` describes; a raw `video_urls`
             entry carries no stored metadata and is left to the provider.
             Absent when the model publishes no such bound.
+        video_refs_longer_is_cut:
+          type: boolean
+          description: |
+            True when a reference run (not an `edit` or an `extend`) over one
+            reference video from your Library (`video_asset_ids`) longer than
+            `video_refs_total_max_seconds` is not refused: the first
+            `video_refs_total_max_seconds` of the clip are used, from
+            `reference_start_seconds` when the request names one, and only
+            that part is sent and billed. A `duration_seconds` longer than the
+            model then renders beside that part is made and charged at the
+            longest it does (Wan 3.0 and Wan 3.0 Prime take a 15 s clip and
+            render up to 15 s with it). The quote and the job's `warnings` say
+            which part is used and how long the video is, so show that before
+            the customer pays. Several reference videos together, and a raw
+            `video_urls` entry, are still held to the limit. Absent (never
+            false) on every other model.
         video_refs_total_max_bytes:
           type: integer
           format: int64
@@ -16932,6 +16949,10 @@ components:
             render's length plus a short handle from here, and only that cut
             is sent and billed: a 30 s clip under a 4 s shot is priced as 4 s
             of footage, not 30. The job's `warnings` say which part was used.
+            On a model that publishes `references.video_refs_longer_is_cut`
+            (Wan 3.0 and Wan 3.0 Prime), a clip longer than the model takes
+            runs on its first `references.video_refs_total_max_seconds` from
+            here instead of being refused.
         edit_target:
           type: string
           nullable: true
