@@ -6607,6 +6607,10 @@ paths:
         numbers here are what `POST /multicam/runs`, `POST
         /multicam/runs/{id}/shots` and a remake expect as the agreed price.
         Nothing is started and nothing is charged.
+
+        A job the caller's plan cannot run is still priced: `plan_required`
+        carries the sentence `POST /multicam/runs` would refuse it with, and
+        `sufficient_credits` is false.
       requestBody:
         required: true
         content:
@@ -6801,6 +6805,12 @@ paths:
         A render is never submitted at a higher price than agreed; when the
         price rises before a render starts, that angle stops with a message
         and nothing is charged for it.
+
+        A run none of whose renders the caller's plan can make is refused
+        with `402` (title `Upgrade Required`) and nothing is started: the
+        model needs a plan (`requires_plan` and `min_tier` on `GET /models`),
+        and the detail names the plan that runs it. `POST /multicam/quote`
+        says the same in `plan_required` before the start.
       requestBody:
         required: true
         content:
@@ -6817,6 +6827,8 @@ paths:
         '400':
           $ref: '#/components/responses/ProblemResponse'
         '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '402':
           $ref: '#/components/responses/ProblemResponse'
         '403':
           $ref: '#/components/responses/ProblemResponse'
@@ -27241,6 +27253,12 @@ components:
           description: What the caller can spend on it, when known.
         sufficient_credits:
           type: boolean
+          description: Whether the caller can pay for the job now. False when `plan_required` is set, whatever the balance.
+        plan_required:
+          type: string
+          nullable: true
+          description: >-
+            Set when the caller's plan runs none of this job's renders: the sentence `POST /multicam/runs` refuses the job with (`402`), naming the plan that runs the model. It is a plan limit, so adding credits does not change it. The price is still quoted.
         subject:
           type: string
           nullable: true
