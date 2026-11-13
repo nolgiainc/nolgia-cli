@@ -3185,6 +3185,8 @@ async fn billing_portal_outputs_url() {
     run_ok(&api, &["billing", "portal"]).stdout(predicate::str::contains("billing.example"));
 }
 
+/// The fixture here carries no `spendable_now` (an API from before the field):
+/// the last line stays the total it always was.
 #[tokio::test]
 async fn billing_credits_shows_both_pools() {
     let api = MockServer::start().await;
@@ -3212,6 +3214,117 @@ async fn json_billing_credits_emits_raw_balance() {
         .stdout(predicate::str::contains("app_subscription"))
         .stdout(predicate::str::contains("shared_topup"))
         .stdout(predicate::str::contains("buckets"));
+}
+
+/// The card step's sentence as nolgia-api writes it (`free_credits_waiting.message`).
+/// The CLI relays it; it never writes its own.
+const WAITING_MESSAGE: &str = "Add a card to use the 349 free credits on your account. There is no charge: the card stays on file with your account and is charged only if you choose a plan or buy credits yourself. You can remove it at any time. Prepaid cards are not accepted. Your sign-up credits work without a card; other free credits wait for one. Or subscribe or buy credits.";
+const WAITING_CARD_URL: &str = "https://nolgia.ai/billing/card";
+
+/// A free account with no card on file whose 349 free credits wait for one:
+/// `total` and `available_for_credential` count them, `spendable_now` does not.
+fn locked_credit_balance_json() -> serde_json::Value {
+    json!({
+        "user_id": USER_ID, "app_subscription": 0, "shared_topup": 0, "free": 349, "total": 349,
+        "available_for_app": 349, "available_for_api": 0,
+        "credential_channel": "app", "available_for_credential": 349,
+        "spendable_now": 0, "free_card_required": true,
+        "free_credits_waiting": {"credits": 349, "message": WAITING_MESSAGE, "card_url": WAITING_CARD_URL},
+        "buckets": [
+            {"wallet_id": Uuid::new_v4(), "type": "free", "balance": 349, "expires_at": null}
+        ]
+    })
+}
+
+async fn mount_billing_credits(api: &MockServer, body: serde_json::Value) {
+    Mock::given(method("GET"))
+        .and(path("/v1/billing/credits"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(body))
+        .mount(api)
+        .await;
+}
+
+fn stdout_lines(assert: assert_cmd::assert::Assert) -> Vec<String> {
+    String::from_utf8(assert.get_output().stdout.clone())
+        .expect("utf-8 stdout")
+        .lines()
+        .map(str::to_owned)
+        .collect()
+}
+
+#[tokio::test]
+async fn billing_credits_prints_what_can_be_spent_now_not_the_total() {
+    let api = MockServer::start().await;
+    // A paid account: everything it holds can be spent, so the two agree, and
+    // the line is the spendable figure under its own name.
+    let mut body = credit_balance_json();
+    body["available_for_credential"] = json!(546881);
+    body["spendable_now"] = json!(546881);
+    mount_billing_credits(&api, body).await;
+    let lines = stdout_lines(run_ok(&api, &["billing", "credits"]));
+    assert_eq!(
+        lines,
+        [
+            "subscription: 546631 (resets with plan)  api top-ups: 250",
+            "available now: 546881",
+        ]
+    );
+}
+
+#[tokio::test]
+async fn billing_credits_names_free_credits_that_wait_for_a_card() {
+    let api = MockServer::start().await;
+    mount_billing_credits(&api, locked_credit_balance_json()).await;
+    let lines = stdout_lines(run_ok(&api, &["billing", "credits"]));
+    // 0 to spend, never the 349 of `total`; then the API's sentence, word for
+    // word, and the card page it sent.
+    assert_eq!(
+        lines,
+        [
+            "subscription: 0 (resets with plan)  api top-ups: 0",
+            "available now: 0",
+            WAITING_MESSAGE,
+            WAITING_CARD_URL,
+        ]
+    );
+}
+
+#[tokio::test]
+async fn billing_credits_with_sign_up_credits_and_waiting_credits_prints_the_spendable_part() {
+    let api = MockServer::start().await;
+    // 20 sign-up credits spend without a card, 49 older free credits wait.
+    let mut body = locked_credit_balance_json();
+    body["free"] = json!(69);
+    body["total"] = json!(69);
+    body["available_for_app"] = json!(69);
+    body["available_for_credential"] = json!(69);
+    body["spendable_now"] = json!(20);
+    body["free_credits_waiting"]["credits"] = json!(49);
+    body["free_credits_waiting"]["message"] = json!("Add a card to use the 49 free credits.");
+    mount_billing_credits(&api, body).await;
+    let lines = stdout_lines(run_ok(&api, &["billing", "credits"]));
+    assert_eq!(lines[1], "available now: 20");
+    assert_eq!(lines[2], "Add a card to use the 49 free credits.");
+    assert_eq!(lines.len(), 4);
+}
+
+#[tokio::test]
+async fn json_billing_credits_keeps_the_api_body_for_waiting_credits() {
+    let api = MockServer::start().await;
+    mount_billing_credits(&api, locked_credit_balance_json()).await;
+    let raw = run_ok(&api, &["--json", "billing", "credits"])
+        .get_output()
+        .stdout
+        .clone();
+    let doc: serde_json::Value = serde_json::from_slice(&raw).expect("one JSON document");
+    // JSON mode is the API's body: every figure as sent, nothing renamed.
+    assert_eq!(doc["total"], 349);
+    assert_eq!(doc["available_for_credential"], 349);
+    assert_eq!(doc["spendable_now"], 0);
+    assert_eq!(doc["free_card_required"], true);
+    assert_eq!(doc["free_credits_waiting"]["credits"], 349);
+    assert_eq!(doc["free_credits_waiting"]["message"], WAITING_MESSAGE);
+    assert_eq!(doc["free_credits_waiting"]["card_url"], WAITING_CARD_URL);
 }
 
 #[tokio::test]

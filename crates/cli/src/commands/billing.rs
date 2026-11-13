@@ -41,7 +41,20 @@ async fn credits(ctx: &CommandContext) -> Result<()> {
                 "subscription: {} (resets with plan)  api top-ups: {}",
                 balance.app_subscription, balance.shared_topup
             );
-            println!("total: {}", balance.total);
+            // The balance to show is what this credential can spend right now
+            // (`spendable_now`), not `total`: `total` counts free credits that
+            // wait for a card, which no request can spend yet. An API that
+            // does not send the field keeps the line it always had.
+            match balance.spendable_now {
+                Some(spendable) => println!("available now: {spendable}"),
+                None => println!("total: {}", balance.total),
+            }
+            // Free credits that wait for a card: the API's own sentence, as
+            // written, then the page it sends for adding the card.
+            if let Some(waiting) = &balance.free_credits_waiting {
+                println!("{}", waiting.message);
+                println!("{}", waiting.card_url);
+            }
             Ok(())
         }
     }

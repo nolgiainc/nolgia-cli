@@ -8930,7 +8930,7 @@ paths:
       operationId: getPlanTrial
       summary: The account's free trial state and whether it can start one.
       description: >
-        Seven days of Studio plan features (premium models, video, Multicam, Drive, custom voices, Studio abilities and a NOLGIA Agent on the shared trial pool) with no card and no extra credits: everything still spends the account's own credits at normal prices. One trial per person, ever. `eligible` says whether `POST /billing/trial` would start one now; `ineligible_reason` says why not. Personal accounts only: inside an organization the organization's plan applies.
+        Seven days of Studio plan features (premium models, video, Multicam, Drive, custom voices, Studio abilities and a NOLGIA Agent on the shared trial pool) with no extra credits: everything still spends the account's own credits at normal prices. One trial per person, ever. `eligible` says whether `POST /billing/trial` would start one now; `ineligible_reason` says why not. Personal accounts only: inside an organization the organization's plan applies. Which trial the account gets is `with_card`: true for the trial that starts with a card on Stripe's page and charges the plan when it ends unless cancelled (with `price_cents` and `charge_at`, the terms to state before the card step); absent for the trial that charges nothing.
 
       responses:
         '200':
@@ -25146,6 +25146,36 @@ components:
           description: >
             After the trial ends without a plan that includes the agent, the trial agent and its memory are kept until this time, then deleted.
 
+        with_card:
+          type: boolean
+          description: >
+            True when this account's trial is the one with a card that is charged when it ends: trials with a card are on and the account's sign-up country is known and not held back. Before a trial it says how one would start (a card on Stripe's page, free for `duration_days`, then the plan in `tier` at `price_cents` a month on `charge_at` unless cancelled before then); on a started trial it says the trial was started that way. Absent for the trial that charges nothing and never becomes a paid plan on its own.
+
+        price_cents:
+          type: integer
+          description: >
+            With `with_card`, the plan's monthly price in US cents: the Stripe price the trial's Checkout is opened on, charged when the trial ends and every month after. Absent when the price cannot be read, and once the trial is over.
+
+        charge_at:
+          type: string
+          format: date-time
+          description: >
+            With `with_card`, when the card is charged unless the trial is cancelled before then: `duration_days` from now for a trial not started yet, the trial's end for a running one. Absent once the charge is cancelled or the trial is over.
+
+        charge_cancelled:
+          type: boolean
+          description: >
+            True on a running trial with a card whose charge was cancelled: nothing will be charged, and the trial's features stay until `ends_at`.
+
+        charge_cancelled_at:
+          type: string
+          format: date-time
+          description: When the account cancelled the charge with `POST /billing/trial/cancel`. Absent for a cancel made on Stripe's own page.
+        can_cancel_charge:
+          type: boolean
+          description: >
+            True on a running trial with a card whose charge is still to come: `POST /billing/trial/cancel` cancels it in one step.
+
     StartPlanTrialRequest:
       type: object
       additionalProperties: false
@@ -25187,10 +25217,49 @@ components:
         expires_at:
           type: string
           format: date-time
+    FreeDailyEnded:
+      type: object
+      required: [ended_on]
+      description: >
+        The dated notice for an account that had the free daily allowance: present, in the personal space only, for 30 days from the day NOLGIA ended the allowance, on an account that was granted daily credits in the 30 days before that day. Nothing was taken back: daily credits granted before the end stay until `credits_expire_at`. Absent for every other account, and for everyone once the 30 days are over.
+
+      properties:
+        ended_on:
+          type: string
+          format: date
+          description: The day the free daily allowance ended (America/Los_Angeles).
+        credits_expire_at:
+          type: string
+          format: date-time
+          description: >
+            When the last of the daily credits this account still holds expire on their own (a midnight, America/Los_Angeles). Absent when it holds none.
+
+    FreeCreditsWaiting:
+      type: object
+      additionalProperties: false
+      required: [credits, message, card_url]
+      description: >
+        Free credits the account holds and cannot spend until a card is on file. Present on `GET /billing/credits` only for a free-plan account with no card on file that holds such credits, read with a credential on the app channel (a personal access token never spends free credits). The sign-up grant, a referral or Insider welcome and the checklist reward spend without a card and are never counted here. A card on file opens these credits and is not charged; so does paying for a plan or credits.
+
+      properties:
+        credits:
+          type: integer
+          description: >
+            How many free credits wait for a card. They are counted in `free`, `total`, `available_for_app` and `available_for_credential`, and never in `spendable_now`.
+
+        message:
+          type: string
+          description: >
+            The sentence to show or read to the person as written: how many free credits a card opens and what the card does (no charge; it stays on file and is charged only for a plan or credits the person chooses; it can be removed; prepaid cards are not accepted). It is the sentence a generation refused with `card_required` carries.
+
+        card_url:
+          type: string
+          format: uri
+          description: The page in the NOLGIA app where the card is added.
     CreditWalletType:
       type: string
       description: >
-        Credit buckets. The app channel (browser and device sessions, the NOLGIA Agent, organization API keys and OAuth connector tokens such as ChatGPT's) uses free credits first, then subscription, then shared top-up overflow; the API channel (personal access tokens created by hand) uses shared top-up only. `free` holds free credits (the daily free allowance, whose each day's credits last three Pacific days and whose unspent credits add up to `FREE_DAILY_ROLLOVER_CAP`, 30; the sign-up grant, the referral or Insider welcome and the checklist reward, which last 30 days; and older grants and credit codes, which do not expire): they pay for images, audio, the agent and video below the premium line, never for premium video (Seedance 2.5, Kling 4.0, every Gemini Omni model and every video model at or above 5.4 credits per second) and never on the API channel. Free credits exist in the personal space only. `realtour_trial` is the seven-day Studio trial's one-time Realtour allowance (120 credits, personal only): it pays only for Realtour (a photo run's jobs, a camera move on one photo, a filmed clips edit), before the account's own credits, and only while the trial is open; it is listed with the trial's end as `expires_at` and is gone when the trial ends (it expires, converts or is ended by staff). It is never part of `total`, `available_for_app` or `available_for_api`.
+        Credit buckets. The app channel (browser and device sessions, the NOLGIA Agent, organization API keys and OAuth connector tokens such as ChatGPT's) uses free credits first, then subscription, then shared top-up overflow; the API channel (personal access tokens created by hand) uses shared top-up only. `free` holds free credits (the sign-up grant, the referral or Insider welcome and the checklist reward, which last 30 days; older grants and credit codes, which do not expire; and daily credits granted while the free daily allowance was on, each grant lasting three Pacific days): they pay for images, audio, the agent and video below the premium line, never for premium video (Seedance 2.5, Kling 4.0, every Gemini Omni model and every video model at or above 5.4 credits per second) and never on the API channel. Free credits exist in the personal space only. `realtour_trial` is the seven-day Studio trial's one-time Realtour allowance (120 credits, personal only): it pays only for Realtour (a photo run's jobs, a camera move on one photo, a filmed clips edit), before the account's own credits, and only while the trial is open; it is listed with the trial's end as `expires_at` and is gone when the trial ends (it expires, converts or is ended by staff). It is never part of `total`, `available_for_app` or `available_for_api`.
 
       enum: [app_subscription, shared_topup, free, realtour_trial]
       x-enum-varnames: [AppSubscription, SharedTopup, CreditWalletTypeFree, CreditWalletTypeRealtourTrial]
@@ -25265,26 +25334,35 @@ components:
         free_daily_credits:
           type: integer
           description: >
-            The free daily allowance this account gets: set only for an account on the free plan (it has never paid) while the allowance is on. Unspent daily credits roll over: each day's credits last three Pacific days, and a day's credits are added (with the account's first request that day) only up to 30 unspent daily credits in total, so an account that comes back every third day finds 30.
+            Daily free credits, present only while NOLGIA's free daily allowance is switched on: what an account on the free plan (it has never paid) is granted each Pacific day, unspent ones adding up to 30. While the allowance is off this field is absent for every account, no daily credits are granted, and daily credits granted earlier stay in their bucket until its `expires_at`. Never read its absence as a balance: `free` is the free credits the account holds.
 
         free_refills_at:
           type: string
           format: date-time
           description: >
-            When the next free daily allowance becomes available (the next midnight, America/Los_Angeles). Set with `free_daily_credits`, unless `free_card_required`.
+            When the next daily free credits arrive (the next midnight, America/Los_Angeles). Set only with `free_daily_credits`, unless `free_card_required`; absent while the free daily allowance is off.
 
         free_card_required:
           type: boolean
           description: >
-            True for a free-plan account with no card on file: its free credits (`free`) are locked and no daily allowance arrives until it adds a card in the NOLGIA app (no charge). `free_daily_credits` then says what a card unlocks.
+            True for a free-plan account with no card on file: its free credits (`free`) are locked until it adds a card in the NOLGIA app (no charge) or pays for a plan or credits, except the sign-up grant, a referral or Insider welcome and the checklist reward (buckets with an `expires_at`), which spend without a card. `free_credits_waiting` says how many credits wait and `spendable_now` what can be spent without one. While the free daily allowance is on, `free_daily_credits` also says what a card adds each day; while it is off a card adds no credits.
 
+        free_daily_ended:
+          $ref: '#/components/schemas/FreeDailyEnded'
         credential_channel:
           $ref: '#/components/schemas/CreditChannel'
         available_for_credential:
           type: integer
           description: >
-            What the credential that made this request can spend: `available_for_app` on the app channel, `available_for_api` on the API channel (see `credential_channel`). Set on `GET /billing/credits`. A single request is billed from one pool, so the largest request that can succeed may be smaller than this sum.
+            What the credential that made this request can spend: `available_for_app` on the app channel, `available_for_api` on the API channel (see `credential_channel`). Set on `GET /billing/credits`. A single request is billed from one pool, so the largest request that can succeed may be smaller than this sum. It counts free credits that wait for a card (`free_credits_waiting`); `spendable_now` is the figure without them.
 
+        spendable_now:
+          type: integer
+          description: >
+            What the credential that made this request can spend right now, and the number to show as the balance: `available_for_credential` less the free credits that wait for a card (`free_credits_waiting`). It is the balance `POST /jobs/cost` compares a price against. For an account with a card on file, an account that has paid, and an account holding only credits that need no card it equals `available_for_credential`. Set on `GET /billing/credits`. A single request is billed from one pool, and premium video never spends free credits, so the largest request that can succeed may be smaller.
+
+        free_credits_waiting:
+          $ref: '#/components/schemas/FreeCreditsWaiting'
         buckets:
           type: array
           items:
@@ -25336,7 +25414,7 @@ components:
       x-enum-varnames: [CreditTransactionKindGrant, CreditTransactionKindTopup, CreditTransactionKindRedeem, CreditTransactionKindGeneration, CreditTransactionKindAgentTurn, CreditTransactionKindRender, CreditTransactionKindRefund, CreditTransactionKindAdjustment]
     CreditTransactionWallet:
       type: string
-      description: Which wallet a row moved, the expiring monthly plan wallet, the non-expiring top-up wallet, the free credits wallet (daily allowance and older free grants), or the Studio trial's one-time Realtour allowance (`realtour_trial`, shown as "Studio trial Realtour credits", never money).
+      description: Which wallet a row moved, the expiring monthly plan wallet, the non-expiring top-up wallet, the free credits wallet (the sign-up grant and other free grants), or the Studio trial's one-time Realtour allowance (`realtour_trial`, shown as "Studio trial Realtour credits", never money).
       enum: [subscription, topup, free, realtour_trial]
       x-enum-varnames: [CreditTransactionWalletSubscription, CreditTransactionWalletTopup, CreditTransactionWalletFree, CreditTransactionWalletRealtourTrial]
     CreditTransactionWalletFilter:
@@ -28034,8 +28112,8 @@ components:
         - `canceled`: the job was canceled by its owner (`POST /jobs/{id}/cancel`), not broken. It is the code the SDK wait helpers raise for a `canceled` job; `cancellation` on the job says what the provider did and what was refunded. A canceled job carries no `failure`.
         - `job_not_cancellable`: `POST /jobs/{id}/cancel` refused (`409`) because the job already finished, or its finished result is already being delivered. The job will reach `succeeded` or `failed` on its own; nothing was changed.
         - `approval_required`: refused with `402` (title `Approval Needed`) because the generation would take an agent run past its limit (the `credit_ceiling` a guided preset's review card sent with the brief; the card shows the customer what such a run typically costs, not the limit). Nothing was submitted and nothing was charged. The detail names the generation's cost, the new run total and the limit; the agent must ask the customer to approve that total before it continues, never quote the limit to them, and never retry, split the job or switch models to fit.
-        - `card_required`: refused with `402` (title `Card Required`) for one of two reasons. Free credits: the account is on the free plan (never paid) with no card on file, no paid credits and no sign-up grant or Insider welcome left (those spend without a card), so its remaining free credits are locked; adding a card (no charge) unlocks them and the daily free allowance (`suggested_models` is empty then). Premium video: the model is premium video (Seedance 2.5, Kling 4.0, every Gemini Omni model and every video model at or above 5.4 credits per second) and the account has no card on file and has never paid for a plan or credits. Nothing was submitted and nothing was charged. Adding a card in the NOLGIA app unlocks it with no charge (`help_url` is the app's card page); `suggested_models` lists cheaper video models this account can run now, best first. Images and the cheaper models work without a card. Never retry the same request.
-        - `paid_credits_required`: refused with `402` (title `Paid Credits Required`) because the model is premium video (Seedance 2.5, Kling 4.0, Gemini Omni and every video model at or above 5.4 credits per second) and the account is on the free plan (it has never paid for a plan or credits) with no paid credits to cover it. Free credits (the daily allowance and older sign-up grants) pay for images and the cheaper video models only. Nothing was submitted and nothing was charged. Subscribing or buying credits unlocks it (`help_url` is the app's billing page); `suggested_models` lists cheaper video models the free credits cover, best first. Never retry the same request.
+        - `card_required`: refused with `402` (title `Card Required`) for one of two reasons. Free credits: the account is on the free plan (never paid) with no card on file, no paid credits and no sign-up grant or Insider welcome left (those spend without a card), so its remaining free credits are locked; adding a card (no charge) unlocks them (`suggested_models` is empty then). While the free daily allowance is on the detail names the daily credits a card adds; while it is off this is returned only to an account holding free credits that wait for a card, and an account with none gets `out_of_credits`. Premium video: the model is premium video (Seedance 2.5, Kling 4.0, every Gemini Omni model and every video model at or above 5.4 credits per second) and the account has no card on file and has never paid for a plan or credits. Nothing was submitted and nothing was charged. Adding a card in the NOLGIA app unlocks it with no charge (`help_url` is the app's card page); `suggested_models` lists cheaper video models this account can run now, best first. Images and the cheaper models work without a card. Never retry the same request.
+        - `paid_credits_required`: refused with `402` (title `Paid Credits Required`) because the model is premium video (Seedance 2.5, Kling 4.0, Gemini Omni and every video model at or above 5.4 credits per second) and the account is on the free plan (it has never paid for a plan or credits) with no paid credits to cover it. Free credits (the sign-up grant and other free grants) pay for images and the cheaper video models only. Nothing was submitted and nothing was charged. Subscribing or buying credits unlocks it (`help_url` is the app's billing page); `suggested_models` lists cheaper video models the free credits cover, best first. Never retry the same request.
         - `idempotency_key_reused`: refused with `409` because the `Idempotency-Key` already names a different request on this account (another body, apart from `confirmation_token`). A key keeps naming its job while the job runs and for 24 hours after it finishes. Nothing was submitted and nothing was charged; `job_id` names the job the key belongs to. Send a new key for a new request, or the original request again to get that job.
         - `run_ended`: refused with `409` (title `Run Ended`) because the agent run this generation was started for (the turn its turn-scoped credential names) has already ended: the platform failed, swept or stopped the turn, or it finished and delivered its reply. Nothing was submitted and nothing was charged. The agent must stop working on that run, never retry or switch models; the customer's chat already shows how it ended.
     AgentMessageConflict:
