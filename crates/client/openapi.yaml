@@ -8930,8 +8930,10 @@ paths:
       operationId: getPlanTrial
       summary: The account's free trial state and whether it can start one.
       description: >
-        Seven days of Studio plan features (premium models, video, Multicam, Drive, custom voices, Studio abilities and a NOLGIA Agent on the shared trial pool) with no extra credits: everything still spends the account's own credits at normal prices. One trial per person, ever. `eligible` says whether `POST /billing/trial` would start one now; `ineligible_reason` says why not. Personal accounts only: inside an organization the organization's plan applies. Which trial the account gets is `with_card`: true for the trial that starts with a card on Stripe's page and charges the plan when it ends unless cancelled (with `price_cents` and `charge_at`, the terms to state before the card step); absent for the trial that charges nothing.
+        Seven days of Studio plan features (premium models, video, Multicam, Drive, custom voices, Studio abilities and a NOLGIA Agent on the shared trial pool) with no extra credits: everything still spends the account's own credits at normal prices. One trial per person, ever. `eligible` says whether `POST /billing/trial` would start one now; `ineligible_reason` says why not. Personal accounts only: inside an organization the organization's plan applies. Which trial the account gets is `with_card`: true for the trial that starts with a card on Stripe's page and charges the plan when it ends unless cancelled (with `price_cents` and `charge_at`, the terms to state before the card step); absent for the trial that charges nothing. Where the deployment's general trial is the Pro trial, the answer without `door` describes that one instead: `tier` is `pro`, `with_card` is true and `trial_credits` is what it grants at its start, for an account it is offered to (a sign-up country on its list, never paid); for every other account `eligible` is false and no trial is offered. The Studio trial is then read and started with `door=realtour`. An account has one trial, ever, whichever door started it.
 
+      parameters:
+        - $ref: '#/components/parameters/PlanTrialDoor'
       responses:
         '200':
           description: The trial state.
@@ -12075,6 +12077,13 @@ components:
       bearerFormat: PAT
       description: Personal Access Token (prefix `nol_`) for CLI and MCP clients.
   parameters:
+    PlanTrialDoor:
+      name: door
+      in: query
+      required: false
+      description: Which trial to describe; omitted, the general trial. See `PlanTrialDoor`.
+      schema:
+        $ref: '#/components/schemas/PlanTrialDoor'
     ShareDealFrom:
       name: from
       in: query
@@ -25196,6 +25205,23 @@ components:
           description: >
             True on a running trial with a card whose charge is still to come: `POST /billing/trial/cancel` cancels it in one step.
 
+        trial_credits:
+          type: integer
+          description: >
+            The one-time credits the trial grants at its start: before a trial, what starting it would grant; on a started trial, what it granted. They pay for everything the trial's plan runs, premium video included, end with the trial, and nothing of them carries into a paid month. Absent for a trial that grants no credits.
+
+        trial_credits_left:
+          type: integer
+          description: >
+            On a running trial that granted credits, what is left of them to spend now. Absent otherwise.
+
+    PlanTrialDoor:
+      type: string
+      description: >
+        Which trial a request is about, where a deployment has two. Omitted: the general trial, the one every trial button but Realtour's starts. `realtour`: the seven-day Studio trial kept for Realtour, whose videos need Studio. Where the general trial is the Studio trial (every deployment that has not switched to the Pro trial) both doors are the same trial and `door` changes nothing.
+
+      enum: [realtour]
+      x-enum-varnames: [PlanTrialDoorRealtour]
     StartPlanTrialRequest:
       type: object
       additionalProperties: false
@@ -25207,6 +25233,8 @@ components:
           pattern: '^[a-z0-9_-]+$'
           description: Where the trial was started from (for the trial funnel), e.g. `pricing`, `paywall_video`, `agent`, `signup`.
           examples: ['pricing']
+        door:
+          $ref: '#/components/schemas/PlanTrialDoor'
     ConfirmPlanTrialRequest:
       type: object
       additionalProperties: false
@@ -25279,10 +25307,10 @@ components:
     CreditWalletType:
       type: string
       description: >
-        Credit buckets. The app channel (browser and device sessions, the NOLGIA Agent, organization API keys and OAuth connector tokens such as ChatGPT's) uses free credits first, then subscription, then shared top-up overflow; the API channel (personal access tokens created by hand) uses shared top-up only. `free` holds free credits (the sign-up grant, the referral or Insider welcome and the checklist reward, which last 30 days; older grants and credit codes, which do not expire; and daily credits granted while the free daily allowance was on, each grant lasting three Pacific days): they pay for images, audio, the agent and video below the premium line, never for premium video (Seedance 2.5, Kling 4.0, every Gemini Omni model and every video model at or above 5.4 credits per second) and never on the API channel. Free credits exist in the personal space only. `realtour_trial` is the seven-day Studio trial's one-time Realtour allowance (120 credits, personal only): it pays only for Realtour (a photo run's jobs, a camera move on one photo, a filmed clips edit), before the account's own credits, and only while the trial is open; it is listed with the trial's end as `expires_at` and is gone when the trial ends (it expires, converts or is ended by staff). It is never part of `total`, `available_for_app` or `available_for_api`.
+        Credit buckets. The app channel (browser and device sessions, the NOLGIA Agent, organization API keys and OAuth connector tokens such as ChatGPT's) uses free credits first, then subscription, then shared top-up overflow; the API channel (personal access tokens created by hand) uses shared top-up only. `free` holds free credits (the sign-up grant, the referral or Insider welcome and the checklist reward, which last 30 days; older grants and credit codes, which do not expire; and daily credits granted while the free daily allowance was on, each grant lasting three Pacific days): they pay for images, audio, the agent and video below the premium line, never for premium video (Seedance 2.5, Kling 4.0, every Gemini Omni model and every video model at or above 5.4 credits per second) and never on the API channel. Free credits exist in the personal space only. `realtour_trial` is the seven-day Studio trial's one-time Realtour allowance (120 credits, personal only): it pays only for Realtour (a photo run's jobs, a camera move on one photo, a filmed clips edit), before the account's own credits, and only while the trial is open; it is listed with the trial's end as `expires_at` and is gone when the trial ends (it expires, converts or is ended by staff). It is never part of `total`, `available_for_app` or `available_for_api`. `plan_trial` is the one-time credits of a free trial that grants credits (the Pro trial, where it is offered; personal only): they pay for everything the trial's plan runs on the app channel, premium video included, after free credits and before the account's other credits, and only while the trial is open; the bucket is listed with the trial's end as `expires_at` and is gone when the trial ends (charged, run out after a cancel, or ended by staff). Nothing of it carries into a paid month. While listed it is part of `total` and `available_for_app`, never of `available_for_api`.
 
-      enum: [app_subscription, shared_topup, free, realtour_trial]
-      x-enum-varnames: [AppSubscription, SharedTopup, CreditWalletTypeFree, CreditWalletTypeRealtourTrial]
+      enum: [app_subscription, shared_topup, free, realtour_trial, plan_trial]
+      x-enum-varnames: [AppSubscription, SharedTopup, CreditWalletTypeFree, CreditWalletTypeRealtourTrial, CreditWalletTypePlanTrial]
     CreditRedeemRequest:
       type: object
       additionalProperties: false
@@ -25350,6 +25378,11 @@ components:
           type: integer
           description: >
             The seven-day Studio trial's one-time Realtour allowance left ("Studio trial Realtour credits"): it pays only for Realtour, before the account's own credits, and ends with the trial (its bucket's `expires_at`). Never counted in `total`, `available_for_app` or `available_for_api`, and never money. Present only while the account has a live allowance (an open trial that was granted one, even when it is spent to 0); absent inside an organization.
+
+        plan_trial:
+          type: integer
+          description: >
+            What is left of the one-time credits a free trial granted at its start ("Trial credits"): counted in `total` and `available_for_app`, never in `available_for_api`. They pay for everything the trial's plan runs, premium video included, and end with the trial (the bucket's `expires_at`); nothing of them carries into a paid month. Present only while the account is in a trial that granted credits (even when they are spent to 0); absent inside an organization.
 
         free_daily_credits:
           type: integer
@@ -25434,9 +25467,9 @@ components:
       x-enum-varnames: [CreditTransactionKindGrant, CreditTransactionKindTopup, CreditTransactionKindRedeem, CreditTransactionKindGeneration, CreditTransactionKindAgentTurn, CreditTransactionKindRender, CreditTransactionKindRefund, CreditTransactionKindAdjustment]
     CreditTransactionWallet:
       type: string
-      description: Which wallet a row moved, the expiring monthly plan wallet, the non-expiring top-up wallet, the free credits wallet (the sign-up grant and other free grants), or the Studio trial's one-time Realtour allowance (`realtour_trial`, shown as "Studio trial Realtour credits", never money).
-      enum: [subscription, topup, free, realtour_trial]
-      x-enum-varnames: [CreditTransactionWalletSubscription, CreditTransactionWalletTopup, CreditTransactionWalletFree, CreditTransactionWalletRealtourTrial]
+      description: Which wallet a row moved, the expiring monthly plan wallet, the non-expiring top-up wallet, the free credits wallet (the sign-up grant and other free grants), the Studio trial's one-time Realtour allowance (`realtour_trial`, shown as "Studio trial Realtour credits", never money), or the one-time credits of a free trial that grants credits (`plan_trial`, shown as "Trial credits", never money; the ledger's `wallet` filter does not offer it, read it with `all`).
+      enum: [subscription, topup, free, realtour_trial, plan_trial]
+      x-enum-varnames: [CreditTransactionWalletSubscription, CreditTransactionWalletTopup, CreditTransactionWalletFree, CreditTransactionWalletRealtourTrial, CreditTransactionWalletPlanTrial]
     CreditTransactionWalletFilter:
       type: string
       description: Wallet filter for the ledger read; `all` is the default.
