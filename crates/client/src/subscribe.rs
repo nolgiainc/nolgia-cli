@@ -128,7 +128,8 @@ impl JobHandle {
     /// full; a started render is refunded only when the provider stops it
     /// without billing, so `cancellation.settlement` can read `pending` until
     /// the provider answers (fetch the job again later to see how it settled).
-    /// A canceled job is never added to the library. A pending or later
+    /// If the job had already finished at the provider, it may still use its
+    /// credits and its result may still be added to the library. A pending or later
     /// [`result`](Self::result) on this handle or any clone then fails with
     /// [`ErrorCode::Canceled`], whose message is the server's
     /// `cancellation.message`.

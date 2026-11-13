@@ -388,8 +388,9 @@ nolgia wait "$job_uuid" --field failure.kind
 ### Canceling a job
 
 `nolgia jobs cancel <JOB_ID>` cancels a queued or running job on the server.
-The job ends as `canceled` straight away and is never delivered, whatever the
-model provider does next. The command prints the job's status line, the
+The job ends as `canceled` straight away. If it had already finished at the
+model provider, it may still use its credits, and its result may still be added
+to your library. The command prints the job's status line, the
 server's own sentence about what the provider did and what happened to the
 credits, then the credits: `Credits: 30 refunded.`, `Credits: 20 refunded, 10
 charged.` (the provider stopped part way and bills what it rendered), or
