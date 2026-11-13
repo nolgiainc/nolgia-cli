@@ -5,6 +5,15 @@ the matching GitHub release.
 
 ## Unreleased
 
+- **`jobs cancel --help` no longer says a canceled job is never delivered.**
+  Since 2026-11-13 the API delivers a canceled video the provider had already
+  finished and billed for, and charges it once. The help, the README and the
+  client's `cancel_job` note now say: "If it had already finished at the
+  provider, it may still use its credits, and its result may still be added
+  to your library." The command still prints the server's own sentence as
+  written; the server's four sentences for a cancel that waits on the
+  provider now end "If it had already finished, it may still use its
+  credits." (nolgia-api, 2026-11-13).
 - **`billing credits` prints what can be spent now.** Its last line read
   `total: N`, and `total` counts free credits that wait for a card, which no
   request can spend yet: an account with 349 such credits and no card on file

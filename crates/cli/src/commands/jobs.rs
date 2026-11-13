@@ -17,9 +17,9 @@ pub enum JobsCommand {
     /// Cancel a queued or running job on the server and stop it at the model provider
     #[command(
         long_about = "Cancel a queued or running job on the server and stop it at the model provider.\n\n\
-The job ends as `canceled` straight away and is never delivered: no asset is added to your library, \
-whatever the provider does next. The output says what the provider did and what happened to the \
-credits. A job that had not reached the provider is refunded in full. A render the provider had \
+The job ends as `canceled` straight away. If it had already finished at the provider, it may still \
+use its credits, and its result may still be added to your library. The output says what the \
+provider did and what happened to the credits. A job that had not reached the provider is refunded in full. A render the provider had \
 already started is refunded only when the provider stops it without billing; until the provider \
 answers, the credits read `pending`, and `nolgia jobs get <JOB_ID>` shows how they settled.\n\n\
 Canceling cannot be undone. Canceling a job twice prints the same result. A job that already \
