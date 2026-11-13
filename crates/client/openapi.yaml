@@ -25282,6 +25282,25 @@ components:
           description: >
             When the last of the daily credits this account still holds expire on their own (a midnight, America/Los_Angeles). Absent when it holds none.
 
+    StarterCreditsRaised:
+      type: object
+      required: [raised_on, monthly_credits]
+      description: >
+        The dated notice for an account that was on the Starter plan the day the plan went from 300 to 500 credits a month: present, in the personal space only, for 30 days from that day, on an account that is still on Starter and received the one-time credits for the month it was in. Absent for every other account (one that subscribed later was granted 500 from its first month and is told nothing), and for everyone once the 30 days are over.
+
+      properties:
+        raised_on:
+          type: string
+          format: date
+          description: The day Starter began to include `monthly_credits` (America/Los_Angeles).
+        monthly_credits:
+          type: integer
+          description: The credits Starter includes every month now.
+        added_credits:
+          type: integer
+          description: >
+            The credits added once to the month the account was in when the plan was raised, in the same wallet as that month's plan credits (they end with it). Absent once that month has ended.
+
     FreeCreditsWaiting:
       type: object
       additionalProperties: false
@@ -25402,6 +25421,8 @@ components:
 
         free_daily_ended:
           $ref: '#/components/schemas/FreeDailyEnded'
+        starter_credits_raised:
+          $ref: '#/components/schemas/StarterCreditsRaised'
         credential_channel:
           $ref: '#/components/schemas/CreditChannel'
         available_for_credential:
