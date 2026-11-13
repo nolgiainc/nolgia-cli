@@ -22464,6 +22464,26 @@ components:
           description: The organization's seat cap (`null` = unlimited); absent for personal plans.
         complimentary:
           $ref: '#/components/schemas/ComplimentaryPlan'
+        first_payment_bonus:
+          $ref: '#/components/schemas/FirstPaymentBonusOutlook'
+    FirstPaymentBonusOutlook:
+      type: object
+      additionalProperties: false
+      required: [credits]
+      description: >
+        Present only while this account's first paid plan invoice would still earn the first payment bonus: a personal account with no plan of its own (`status` `none`, or `trialing` on the free trial) that never paid for a plan and never received the bonus. Absent for every other account, while the bonus is off, for an account created on or after the day the bonus ended for new accounts, and for everyone once `last_day` has passed. A client states the bonus to an account only from this object, with `last_day` when it is present.
+
+      properties:
+        credits:
+          type: integer
+          description: Bonus credits the first paid plan invoice adds, once, to the top-up balance.
+          examples: [300]
+        last_day:
+          type: string
+          format: date
+          description: >
+            The last day (America/Los_Angeles) the first plan invoice can be paid and still earn the bonus. Absent while the bonus has no end.
+
     ComplimentaryPlan:
       type: object
       additionalProperties: false
