@@ -2594,10 +2594,12 @@ paths:
       summary: Cancel a job, and stop it at the model provider where the provider allows it.
       description: |
         Cancels a queued or running job. The job moves to the terminal status
-        `canceled` straight away, it is never delivered afterwards (no asset
-        is added to the library, whatever the provider does next), and the
-        response's `cancellation` object says plainly what happened to the
-        work and to the credits:
+        `canceled` straight away and stays there, and the response's
+        `cancellation` object says plainly what happened to the work and to
+        the credits. A canceled job adds nothing to the library, with one
+        exception: a video or 3D render the provider could not stop, finished
+        anyway and billed for is charged, so its finished result is delivered
+        (`cancellation.delivered`).
 
         - The job had not reached the model provider yet (`stage:
           before_submit`): nothing was sent, and the whole credit hold is
@@ -2615,6 +2617,15 @@ paths:
           render it finishes and bills is charged. Nothing is refunded that
           the provider billed, and a refund is never reported before it
           happened.
+        - A video or 3D render the provider finished and billed for after the
+          cancel is yours: when the provider's answer for that run carries
+          its charge, the finished result is fetched, checked and added to
+          the library like any other, `cancellation.delivered` is `true`,
+          `credits_charged` says what it used, and the job (still
+          `canceled`) carries its `asset`. When the answer shows the provider
+          charged nothing, the credits are refunded and nothing is added. On
+          a provider whose answer cannot say what it charged, and for image
+          and audio jobs, a finished render is charged and not delivered.
 
         Idempotent: canceling a job that is already `canceled` returns its
         existing cancellation with `200`. A job that already finished, or
@@ -17470,7 +17481,7 @@ components:
           type: string
           nullable: true
           description: >-
-            Human-readable companion to status_detail, safe to render to the customer as-is. On a `canceled` job it is the same plain statement as `cancellation.message`: what the cancel did at the provider and what happened to the credits.
+            Human-readable companion to status_detail, safe to render to the customer as-is. On a `canceled` job it is the same plain statement as `cancellation.message`: what the cancel did at the provider and what happened to the credits, or that the finished result is in the library (`cancellation.delivered`).
         fal_request_id:
           type: string
           nullable: true
@@ -17534,7 +17545,7 @@ components:
       additionalProperties: false
       required: [canceled_at, stage, provider_cancel, settlement, message]
       description: >-
-        What canceling the job did (`POST /jobs/{id}/cancel`). Present only when `status` is `canceled`. A canceled job is never delivered: no asset is created for it, even when the provider finishes the render.
+        What canceling the job did (`POST /jobs/{id}/cancel`). Present only when `status` is `canceled`. A canceled job adds nothing to the library unless `delivered` is `true`: the provider finished the render anyway and billed for it, so the credits were charged and the finished result was delivered.
       properties:
         canceled_at:
           type: string
@@ -17556,7 +17567,7 @@ components:
           enum: [pending, refunded, partially_refunded, charged]
           x-enum-varnames: [JobCancelSettlementPending, JobCancelSettlementRefunded, JobCancelSettlementPartiallyRefunded, JobCancelSettlementCharged]
           description: >-
-            What happened to the job's credit hold. `pending`: the provider has not given its final answer yet; the hold is neither refunded nor charged. `refunded`: the hold was released and the job cost nothing. `partially_refunded`: the provider stopped the render part way and bills only for the part it rendered, so that share was charged (`credits_charged`) and the rest refunded (`credits_refunded`). `charged`: the provider billed for the render, so the credits were not refunded.
+            What happened to the job's credit hold. `pending`: the provider has not given its final answer yet; the hold is neither refunded nor charged. `refunded`: the hold was released and the job cost nothing. `partially_refunded`: the provider stopped the render part way and bills only for the part it rendered, so that share was charged (`credits_charged`) and the rest refunded (`credits_refunded`). `charged`: the provider billed for the render, so the credits were not refunded; `delivered` says whether the finished result was added to the library.
         credits_refunded:
           type: integer
           nullable: true
@@ -17567,6 +17578,10 @@ components:
           nullable: true
           minimum: 0
           description: Credits kept for the render. Set once `settlement` is `charged` or `partially_refunded`.
+        delivered:
+          type: boolean
+          description: >-
+            True when the provider finished the render after the cancel and billed for it, so the finished result was added to the library and the credits were charged (`settlement: charged`, `credits_charged`). The job stays `canceled` and carries its `asset`. Absent on every other canceled job: nothing was added to the library.
         message:
           type: string
           description: >-
