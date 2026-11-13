@@ -265,7 +265,7 @@ Use PATs for CI, scripts, and agents. Prefer `NOLGIA_TOKEN` or a secret manager 
 
 ## Credits
 
-`nolgia billing credits` reports subscription and API top-up balances separately, plus the overall total (use `--json` for additional fields). Device-login sessions and PAT-authenticated requests use the credential-appropriate pool; the API rejects a generation when that pool cannot cover it. `billing subscription` shows plan status, and `billing portal` prints a Stripe customer-portal link. `account usage` reports the number of job and asset items on its default visible pages, not credit spend or an all-account total.
+`nolgia billing credits` reports subscription and API top-up balances separately, then `available now`: what this credential can spend right now (the API's `spendable_now`). Free credits that wait for a card are not part of that number; when an account holds some, the next lines are the API's own sentence about them and the page where the card is added. Use `--json` for the API's whole answer, `total` included. Device-login sessions and PAT-authenticated requests use the credential-appropriate pool; the API rejects a generation when that pool cannot cover it. `billing subscription` shows plan status, and `billing portal` prints a Stripe customer-portal link. `account usage` reports the number of job and asset items on its default visible pages, not credit spend or an all-account total.
 
 ## Organizations
 

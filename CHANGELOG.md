@@ -5,6 +5,16 @@ the matching GitHub release.
 
 ## Unreleased
 
+- **`billing credits` prints what can be spent now.** Its last line read
+  `total: N`, and `total` counts free credits that wait for a card, which no
+  request can spend yet: an account with 349 such credits and no card on file
+  read `total: 349` and its next request was refused. The line now reads
+  `available now: N`, the API's `spendable_now` (nolgia-api, 2026-11-13), so
+  that account reads `available now: 0`. When free credits wait for a card,
+  the API's own sentence about them follows, as written, then the page where
+  the card is added. `--json` is the API's answer unchanged and now carries
+  `spendable_now` and `free_credits_waiting`. Against an API that does not
+  send `spendable_now`, the line stays `total: N`.
 - **A Veo id is quoted and checked as the server runs it.** Veo is no longer
   offered (owner, 2026-11-07), and the catalog no longer lists `veo-3.1`,
   `veo-3.1-fast` or `veo-3.1-lite`. The API still takes them: it runs the
