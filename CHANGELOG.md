@@ -3,7 +3,7 @@
 Release notes for the Nolgia CLI. Each `## vX.Y.Z` section becomes the body of
 the matching GitHub release.
 
-## Unreleased
+## v0.3.5
 
 - **`jobs cancel --help` no longer says a canceled job is never delivered.**
   Since 2026-11-13 the API delivers a canceled video the provider had already
