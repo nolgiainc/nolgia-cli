@@ -17464,8 +17464,8 @@ components:
           type: string
           nullable: true
           description: >-
-            Machine-readable refinement of a non-terminal status. "provider_down" marks a queued job parked because its model provider is temporarily unavailable; the job resumes automatically when the provider recovers. "upstream_at_capacity" marks a queued job waiting for a free slot because the provider is at its ceiling for simultaneous generations; the provider is healthy and the job submits automatically as in-flight renders finish. Both are non-terminal and neither is an error: the job is still going to run, and the credit hold is not settled while it waits. Treat any unrecognized value as a plain queued job.
-          examples: ['provider_down', 'upstream_at_capacity']
+            Machine-readable refinement of a non-terminal status. "provider_down" marks a queued job parked because its model provider is temporarily unavailable; the job resumes automatically when the provider recovers. "upstream_at_capacity" marks a queued job waiting for a free slot because the provider is at its ceiling for simultaneous generations; the provider is healthy and the job submits automatically as in-flight renders finish. Both are non-terminal and neither is an error: the job is still going to run, and the credit hold is not settled while it waits. "making_again" marks a queued or running job on its one automatic second run: the first run failed on NOLGIA's side or the model provider's, the account had not had a job succeed yet, and the same request is being run once more on the same job and the same credit hold. Nothing is charged for the failed run; the job is charged once, only if the second run delivers. If the second run fails too, the job fails with `failure.made_again: true`. Treat any unrecognized value as a plain queued or running job.
+          examples: ['provider_down', 'upstream_at_capacity', 'making_again']
         status_message:
           type: string
           nullable: true
@@ -17608,6 +17608,10 @@ components:
           nullable: true
           description: >-
             What the credit ledger actually did with this job's credit hold, recorded when the hold settled. `true`: the hold was released and the job cost nothing. `false`: the hold was consumed and the credits were charged (a content-filter refusal the provider billed for is charged, except on an account's first job, which is refunded once; one the provider did not bill for is refunded). Absent or null when there is no ledger outcome to report: the job took no hold, the hold is still settling (`GET /jobs/{id}/wait` waits a few seconds for it), or the job failed before this field existed. Never read an absent value as "no charge".
+        made_again:
+          type: boolean
+          description: >-
+            `true` when the job had its one automatic second run (`status_detail: "making_again"`) and that run failed too: the same request failed twice. Omitted otherwise. A job is made again at most once, so there is no third run to wait for.
     JobCredits:
       type: object
       additionalProperties: false
