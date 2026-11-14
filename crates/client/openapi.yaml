@@ -14150,6 +14150,20 @@ components:
         recommended:
           type: boolean
           description: Whether this model is surfaced as a priority/recommended option.
+        available:
+          type: boolean
+          description: >-
+            Whether the model can take a request right now. False while no provider that makes it can start work for NOLGIA (a provider account issue on NOLGIA's side, not anything in a request): a picker should show the model as "Unavailable right now" and not let it be chosen, and a page that offers a ready-made request for it should offer `stand_in` instead. It turns true again by itself, within about a minute of the provider serving NOLGIA again. Sent for every model; optional in the schema only so that existing clients keep parsing, and a client must read a missing value as true.
+        unavailable_code:
+          type: string
+          enum: [provider_account]
+          description: >-
+            Why `available` is false. `provider_account`: the provider is refusing NOLGIA's account with it (out of credit, or the key refused). Absent while the model is available. Not the reserved `unavailable_reason`, which is about one caller: this is about the model, for every caller.
+        stand_in:
+          type: string
+          description: >-
+            Sent with `available: false` when NOLGIA makes this model's requests on another model meanwhile: the id of that model, which is available now. A job that names the unavailable model and whose request runs on the stand-in unchanged is made on it and reports it as its `model`, is charged the stand-in's price when that is lower and never more than the quote, and carries the warning "<model> is unavailable right now. This was made on <stand-in> instead." A request the stand-in cannot run unchanged (an aspect ratio, a number of reference images or a tool it does not have) fails as before, with nothing charged. Absent when the model is available or has no stand-in.
+          examples: ['flux-3-image-klein']
         min_tier:
           allOf:
             - $ref: '#/components/schemas/SubscriptionTier'
