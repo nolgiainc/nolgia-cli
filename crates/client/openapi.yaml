@@ -25336,12 +25336,18 @@ components:
         message:
           type: string
           description: >
-            The sentence to show or read to the person as written: how many free credits a card opens and what the card does (no charge; it stays on file and is charged only for a plan or credits the person chooses; it can be removed; prepaid cards are not accepted). It is the sentence a generation refused with `card_required` carries.
+            The sentence to show or read to the person as written: how many free credits a card opens and what the card does (no charge; it stays on file and is charged only for a plan or credits the person chooses; it can be removed; prepaid cards are not accepted). It is the sentence a generation refused with `card_required` carries. When the credits have an end date (`ends_on`) it also says "They end on <date>. Add a card by then and they are yours to use."
 
         card_url:
           type: string
           format: uri
           description: The page in the NOLGIA app where the card is added.
+        ends_on:
+          type: string
+          format: date
+          description: >
+            The day these credits end, for an account that NOLGIA has told one by email: 30 days after that email. They end at the end of that day, Pacific time, unless a card is on file or a plan or credits were paid for by then; a card or a payment in time keeps them, with no end date. `message` states the same day. Absent when the credits have no end date: most accounts, and every account that was not sent such an email. Show it as a date, as written, without converting it to a time zone.
+
     CreditWalletType:
       type: string
       description: >
