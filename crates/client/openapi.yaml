@@ -25349,6 +25349,28 @@ components:
           description: >
             The credits added once to the month the account was in when the plan was raised, in the same wallet as that month's plan credits (they end with it). Absent once that month has ended.
 
+    FirstVideoRetry:
+      type: object
+      additionalProperties: false
+      required: [credits, expires_at, job_id, model]
+      description: >
+        One free retry of the account's first video. When a new account on the free plan finishes its first video on the free plan's video model, it is granted once, ever, exactly the credits that video cost, as free credits that end a few days after the video finished, so it can make the video again without paying. The credits are already counted in `free`, `total`, `available_for_app` and `spendable_now`; they pay for anything free credits pay for and never for premium video. Present on `GET /billing/credits` only in the personal space, only while NOLGIA offers the retry, and only while it is whole: it is absent once the credits are spent (or held by a generation in progress) and after `expires_at`. Absent for an account that has paid, and for an account whose first video does not qualify.
+
+      properties:
+        credits:
+          type: integer
+          description: The credits granted for the retry, which is what the first video cost.
+        expires_at:
+          type: string
+          format: date-time
+          description: When the retry's credits end if they are not spent.
+        job_id:
+          type: string
+          format: uuid
+          description: The job of the first video, so a client can offer the same prompt and settings again.
+        model:
+          type: string
+          description: The model id the first video was made on.
     FreeCreditsWaiting:
       type: object
       additionalProperties: false
@@ -25491,6 +25513,8 @@ components:
 
         free_credits_waiting:
           $ref: '#/components/schemas/FreeCreditsWaiting'
+        first_video_retry:
+          $ref: '#/components/schemas/FirstVideoRetry'
         buckets:
           type: array
           items:
