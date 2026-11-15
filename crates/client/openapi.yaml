@@ -15518,6 +15518,18 @@ components:
         `seed` reaches the provider on `ideogram-v4` and `qwen-image-3` only
         (Reve and Seedream publish no seed).
 
+        `seedream-5.5` (ByteDance Seedream 5.5) generates from a prompt and
+        edits with up to 10 reference images on one id. It renders three
+        native `quality` tiers, the model's own resolution classes: `1k`,
+        `1.5k` (the default) and `2k`, across eight aspect ratios (21:9,
+        16:9, 3:2, 4:3, 1:1, 3:4, 2:3, 9:16). `1k` and `1.5k` cost the same
+        credits and `2k` costs more; every reference image is charged, the
+        first included (`cost.input_images_per_credit` on `GET /models`).
+        One image per request. `seed` and `negative_prompt` do not reach the
+        provider. Its transparent-background and layer outputs are not
+        offered yet. No default uses it: `auto` picks the same models as
+        before.
+
         `remove-background` is a promptless foreground-extraction utility:
         submit exactly one source reference via `POST /generate/image` for
         a transparent PNG. It publishes `remove_background: true` and takes
@@ -15600,6 +15612,7 @@ components:
         - nano-banana-2-lite
         - nano-banana-2.1
         - seedream-v5-pro
+        - seedream-5.5
         - flux-schnell
         - flux-ultra
         - flux-pro
@@ -16532,7 +16545,7 @@ components:
           nullable: true
           maxItems: 14
           description: >-
-            Multiple reference images (https URLs) for models that support multi-reference input: `nano-banana-pro` and `nano-banana-2.1` (up to 14), `seedream-v5-pro`, `flux-3-image` and `flux-3-image-klein` (up to 10), the OpenAI gpt-image models and Kling Image 3.0 (up to 4) and `qwen-image-3` (up to 3). Mutually additive with `image_url` (it is treated as the first reference); never more than the model's `image.reference_images_max`, and never more than 14. A model that bills references past an allowance publishes it as `cost.free_input_images` / `cost.input_images_per_credit`. OpenAI references are fetched server-side under one 10 MB combined download budget; every other model fetches the URLs itself, so they must stay reachable until the render completes. Rejected (400) on models without multi-reference support. An entry can also be the id of one of your own image assets: it is signed for you, in its place in the list.
+            Multiple reference images (https URLs) for models that support multi-reference input: `nano-banana-pro` and `nano-banana-2.1` (up to 14), `seedream-5.5`, `seedream-v5-pro`, `flux-3-image` and `flux-3-image-klein` (up to 10), the OpenAI gpt-image models and Kling Image 3.0 (up to 4) and `qwen-image-3` (up to 3). Mutually additive with `image_url` (it is treated as the first reference); never more than the model's `image.reference_images_max`, and never more than 14. A model that bills references past an allowance publishes it as `cost.free_input_images` / `cost.input_images_per_credit`. OpenAI references are fetched server-side under one 10 MB combined download budget; every other model fetches the URLs itself, so they must stay reachable until the render completes. Rejected (400) on models without multi-reference support. An entry can also be the id of one of your own image assets: it is signed for you, in its place in the list.
           items:
             type: string
             maxLength: 2048
@@ -16542,7 +16555,7 @@ components:
           nullable: true
           maxItems: 14
           description: >-
-            Reference images given as ids of your own image assets — the server resolves each to a signed URL and it rides the same multi-reference path as `image_urls` (the image lane's sibling of the video lane's `element_asset_ids`). Counted against the same per-model cap as `image_url` + `image_urls` combined (`image.reference_images_max` on `GET /models` — 14 on nano-banana-pro and nano-banana-2.1, 10 on seedream-v5-pro and FLUX 3, 4 on gpt-image-2 and Kling Image 3.0, 3 on qwen-image-3, 1 on single-reference models, 0 on models with no reference input, where any reference is rejected with a 400 rather than silently dropped). Prefer this over `image_urls` for assets already in your Library: the server re-signs the underlying objects at execution time, so a queued job never runs with an expired URL.
+            Reference images given as ids of your own image assets — the server resolves each to a signed URL and it rides the same multi-reference path as `image_urls` (the image lane's sibling of the video lane's `element_asset_ids`). Counted against the same per-model cap as `image_url` + `image_urls` combined (`image.reference_images_max` on `GET /models` — 14 on nano-banana-pro and nano-banana-2.1, 10 on seedream-5.5, seedream-v5-pro and FLUX 3, 4 on gpt-image-2 and Kling Image 3.0, 3 on qwen-image-3, 1 on single-reference models, 0 on models with no reference input, where any reference is rejected with a 400 rather than silently dropped). Prefer this over `image_urls` for assets already in your Library: the server re-signs the underlying objects at execution time, so a queued job never runs with an expired URL.
           items:
             type: string
             format: uuid
