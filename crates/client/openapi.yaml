@@ -13886,7 +13886,7 @@ components:
         model:
           type: string
           description: The model id to send.
-          examples: ['seedream-v5-pro']
+          examples: ['seedream-5.5']
         quality:
           type: string
           description: The `quality` tier to send.
@@ -13907,7 +13907,7 @@ components:
           type: string
           description: >-
             Where the pick came from, in one true line a client can show beside it.
-          examples: ["Picked in NOLGIA's blind people-photo tests, Nov 2026"]
+          examples: ["Picked in NOLGIA's blind menu test, Nov 2026"]
     ServicePrice:
       type: object
       additionalProperties: false
@@ -15588,14 +15588,16 @@ components:
         the prompt does not rule out) goes to `gpt-image-2.5-sunburst`, with
         any reference, mask or setting, at the same credits as Flare (NOLGIA's
         blind text-image test, 2026-11-05). A photo of people written from text
-        alone goes to `seedream-v5-pro` at `2k`, with `aura` off unless you set
-        it (the most real-looking people in NOLGIA's blind test, 2026-11-04).
-        Everything else goes to `gpt-image-2.5-flare`, as today: a person
-        holding a product or a beauty item (a `product_id`, or the product in
-        the prompt), a label, any reference, mask, character or other saved
-        image, a prompt with no person, and any `aspect_ratio`, `quality` or
-        `render_quality` that `seedream-v5-pro` does not offer. The job carries
-        a note naming the pick. Name a model to choose it yourself.
+        alone goes to `seedream-5.5` at `2k`, with `aura` off unless you set
+        it. It goes to `seedream-v5-pro` at `2k` instead when the request asks
+        for more than one picture (`seedream-5.5` makes one a request) or
+        while `seedream-5.5` is unavailable. Everything else goes to
+        `gpt-image-2.5-flare`, as today: a person holding a product or a
+        beauty item (a `product_id`, or the product in the prompt), a label,
+        any reference, mask, character or other saved image, a prompt with no
+        person, and any `aspect_ratio`, `quality` or `render_quality` that
+        neither of those two models offers. The job carries a note naming the
+        pick. Name a model to choose it yourself.
       enum:
         - auto
         - gpt-image-2.5-sunburst
