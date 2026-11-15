@@ -13575,7 +13575,7 @@ components:
           description: Longest lifetime a new share link may have, in days. `null` = no maximum, which also allows links that never expire. Existing links are unchanged.
         require_two_step_for_password_members:
           type: boolean
-          description: Members who sign in with an email and password must use two-step sign-in (an authenticator app or a passkey); members without it set it up at their next sign-in. Members who sign in with Google, Apple or the organization's single sign-on follow that provider's own two-step policy.
+          description: Members who sign in with an email and password must use two-step sign-in (an authenticator app or a passkey); members without it set it up at their next sign-in. Members who sign in with Google, Apple, Microsoft or the organization's single sign-on follow that provider's own two-step policy.
     ShareLinkUnlockRequest:
       type: object
       additionalProperties: false
