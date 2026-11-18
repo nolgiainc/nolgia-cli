@@ -15590,17 +15590,26 @@ components:
         quotes, or a poster, a thumbnail, a menu, a headline, lettering or text
         the prompt does not rule out) goes to `gpt-image-2.5-sunburst`, with
         any reference, mask or setting, at the same credits as Flare (NOLGIA's
-        blind text-image test, 2026-11-05). A photo of people written from text
+        blind text-image test, 2026-11-05). A picture made from images (any
+        reference, an edit of a picture, a character or other saved image, a
+        `product_id`'s photos) goes to `seedream-5.5` at `2k`, with `aura` off
+        unless you set it, and is charged its reference images like any
+        `seedream-5.5` request (owner decision, 2026-11-18). It stays on
+        `gpt-image-2.5-flare` when it needs a mask, marks, a background or
+        `keep_subject`, sends more references than `seedream-5.5` takes, asks
+        for more than one picture, sets a ratio, tier or `render_quality`
+        `seedream-5.5` does not offer, sends a prompt longer than it reads, or
+        edits a picture with no shape named whose shape it does not render (a
+        4:5 picture stays 4:5 there). A photo of people written from text
         alone goes to `seedream-5.5` at `2k`, with `aura` off unless you set
         it. It goes to `seedream-v5-pro` at `2k` instead when the request asks
         for more than one picture (`seedream-5.5` makes one a request) or
         while `seedream-5.5` is unavailable. Everything else goes to
         `gpt-image-2.5-flare`, as today: a person holding a product or a
-        beauty item (a `product_id`, or the product in the prompt), a label,
-        any reference, mask, character or other saved image, a prompt with no
-        person, and any `aspect_ratio`, `quality` or `render_quality` that
-        neither of those two models offers. The job carries a note naming the
-        pick. Name a model to choose it yourself.
+        beauty item named in the prompt, a label, a prompt with no person, and
+        any `aspect_ratio`, `quality` or `render_quality` that neither of
+        those two models offers. The job carries a note naming the pick. Name
+        a model to choose it yourself.
       enum:
         - auto
         - gpt-image-2.5-sunburst
