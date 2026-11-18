@@ -15588,15 +15588,16 @@ components:
         `POST /jobs/cost`. It is not a model: the job, its asset and the quote
         report the model it picked. A picture whose words must read (words in
         quotes, or a poster, a thumbnail, a menu, a headline, lettering or text
-        the prompt does not rule out) goes to `gpt-image-2.5-sunburst`, with
-        any reference, mask or setting, at the same credits as Flare (NOLGIA's
-        blind text-image test, 2026-11-05). A picture made from images (any
+        the prompt does not rule out) goes to `gpt-image-2.6-flare`, with any
+        reference or setting, at its 11 credits a picture (owner decision,
+        2026-11-18). A picture made from images (any
         reference, an edit of a picture, a character or other saved image, a
         `product_id`'s photos) goes to `seedream-5.5` at `2k`, with `aura` off
         unless you set it, and is charged its reference images like any
         `seedream-5.5` request (owner decision, 2026-11-18). It stays on
-        `gpt-image-2.5-flare` when it needs a mask, marks, a background or
-        `keep_subject`, sends more references than `seedream-5.5` takes, asks
+        `gpt-image-2.6-flare` when it needs marks or a background (on
+        `gpt-image-2.5-flare` when it needs a mask or `keep_subject`), sends
+        more references than `seedream-5.5` takes, asks
         for more than one picture, sets a ratio, tier or `render_quality`
         `seedream-5.5` does not offer, sends a prompt longer than it reads, or
         edits a picture with no shape named whose shape it does not render (a
@@ -15605,11 +15606,15 @@ components:
         it. It goes to `seedream-v5-pro` at `2k` instead when the request asks
         for more than one picture (`seedream-5.5` makes one a request) or
         while `seedream-5.5` is unavailable. Everything else goes to
-        `gpt-image-2.5-flare`, as today: a person holding a product or a
-        beauty item named in the prompt, a label, a prompt with no person, and
-        any `aspect_ratio`, `quality` or `render_quality` that neither of
-        those two models offers. The job carries a note naming the pick. Name
-        a model to choose it yourself.
+        `gpt-image-2.6-flare`, at 11 credits a picture (owner decision,
+        2026-11-18): a person holding a product or a beauty item named in the
+        prompt, a label, a prompt with no person, and any `aspect_ratio`,
+        `quality` or `render_quality` that neither of those two models
+        offers. A request with a mask or `keep_subject` goes to
+        `gpt-image-2.5-flare` wherever it would have gone, since
+        `gpt-image-2.6-flare` takes no mask; it is charged 8 credits a
+        picture there. The job carries a note naming the pick. Name a model
+        to choose it yourself.
       enum:
         - auto
         - gpt-image-2.5-sunburst
