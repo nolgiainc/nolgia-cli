@@ -3822,16 +3822,19 @@ paths:
       description: |
         Composes the requested sheet scaffold with the character's canonical
         description and the full Aura layer, with the character's primary
-        reference attached as identity conditioning. The turnaround renders on
-        gpt-image-2.5-sunburst as an edit of that reference; split and
-        expression render on gpt-image-2. The
+        reference attached as identity conditioning. All three sheets render
+        on seedream-5.5 (gpt-image-2.5-sunburst when the composed prompt is
+        longer than seedream-5.5 reads); the turnaround is an edit of that
+        reference. The
         character must have at least one reference image. Optional wearable
         references ride the same request and are rendered exactly as shown in
         every view - a request whose references exceed what the sheet lane can
         carry is refused (400), never silently dropped.
 
         Billed exactly like the equivalent `POST /generate/image` call on the
-        model the sheet renders on (the job records it).
+        model the sheet renders on (the job records it): one image at its
+        default tier plus the model's reference charge for the primary
+        reference and each wearable.
       parameters:
         - name: id
           in: path
