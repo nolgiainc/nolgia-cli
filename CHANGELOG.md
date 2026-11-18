@@ -3,6 +3,24 @@
 Release notes for the Nolgia CLI. Each `## vX.Y.Z` section becomes the body of
 the matching GitHub release.
 
+## Unreleased
+
+- **`gen image` defaults to `auto`.** With no `--model`, it now asks the
+  API to pick, the same as the website, instead of `flux-3-image` (owner
+  decision 2026-11-18). The API sends words in the picture and most other
+  prompts to GPT Image 2.6 Flare (11 credits), a photo of people or a
+  picture made from `--input`/`--reference` images to Seedream 5.5 (2
+  credits, plus 1 for each started three images), and a `--mask` edit to GPT Image 2.5 Flare (8 credits). Whatever
+  the picked model cannot make as asked (a ratio, a tier, several pictures)
+  goes to one that can. The job and `--json` name the model picked.
+  - **Any model still runs when named.** `--model flux-3-image` keeps FLUX 3
+    Image at 3 credits.
+  - **`--expand-to` is unchanged.** With no `--model`, or with
+    `--model flux-3-image` or `--model flux-pro` from an older script, it
+    still outpaints with `flux-expand`.
+  - `INSTALL_FOR_AGENTS.md` and the bundled `nolgia-platform` skill (1.11.4)
+    name the new default.
+
 ## v0.3.5
 
 - **`jobs cancel --help` no longer says a canceled job is never delivered.**

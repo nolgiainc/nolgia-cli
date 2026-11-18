@@ -6429,8 +6429,9 @@ async fn gen_image_expand_forwards_prompt() {
     );
 }
 
-/// flux-pro was `gen image`'s default until 2026-11-03, so a script written
-/// then may still name it beside --expand-to. It keeps getting flux-expand.
+/// flux-pro was `gen image`'s default until 2026-11-03 (and flux-3-image until
+/// 2026-11-18), so a script written then may still name it beside
+/// --expand-to. It keeps getting flux-expand.
 #[tokio::test]
 async fn gen_image_expand_switches_from_the_old_default_too() {
     let api = MockServer::start().await;
@@ -6455,15 +6456,16 @@ async fn gen_image_expand_switches_from_the_old_default_too() {
     );
 }
 
-/// With no --model, `gen image` asks for FLUX 3 Image: the older FLUX models
-/// left the public catalog on 2026-11-03 (nolgia-api #1461).
+/// With no --model, `gen image` asks for `auto` and NOLGIA picks, as on the
+/// website (owner decision 2026-11-18, question 6: "Yes, Auto
+/// (Recommended)"). Until then it asked for FLUX 3 Image.
 #[tokio::test]
-async fn gen_image_defaults_to_flux_3_image() {
+async fn gen_image_defaults_to_auto() {
     let api = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path("/v1/generate/image"))
         .and(body_partial_json(
-            json!({"model": "flux-3-image", "prompt": "a red bicycle"}),
+            json!({"model": "auto", "prompt": "a red bicycle"}),
         ))
         .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
         .expect(1)
@@ -6593,7 +6595,7 @@ async fn gen_image_still_requires_prompt_without_expand() {
         .assert()
         .failure()
         .stderr(predicate::str::contains(
-            "--prompt is required for flux-3-image",
+            "--prompt is required for auto",
         ));
     assert!(
         api.received_requests()
@@ -7263,7 +7265,7 @@ async fn gen_image_without_a_prompt_is_refused_on_generators_and_without_input()
         .assert()
         .failure()
         .stderr(predicate::str::contains(
-            "--prompt is required for flux-3-image",
+            "--prompt is required for auto",
         ));
     cmd()
         .args([

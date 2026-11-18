@@ -1,7 +1,7 @@
 ---
 name: nolgia-platform
 description: "Generate images, video, audio, and 3D models on the NOLGIA platform with the `nolgia` CLI or the NOLGIA MCP server (https://mcp.nolgia.ai/mcp): auth, model choice from the live catalog, async jobs, reference images, outpainting, voices, credits, and failure recovery. Use when: the user asks for AI-generated media and NOLGIA is available, e.g. 'generate an image', 'make a video', 'animate this photo', 'extend this image to 9:16', 'make a voiceover', 'check my jobs', or 'assemble these clips into one video', or 'do my DIT / offload and verify these cards / rename the footage'. NOT for: directing craft and multi-shot planning (use nolgia-video-prompting), vertical UGC ad production (use nolgia-ugc-ads), or editing media locally without the platform."
-version: 1.11.3
+version: 1.11.4
 author: NOLGIA
 license: MIT
 metadata:
@@ -51,8 +51,11 @@ nolgia voices list --model <tts model>   # voice ids for --voice
 
 ```bash
 # Image (prints the signed URL; --out saves it, renamed to the real format
-# when the extension is wrong, e.g. .png -> .jpg). Default model: flux-3-image
-# (FLUX 3 Image, 3 credits at 1k; takes --input references).
+# when the extension is wrong, e.g. .png -> .jpg). Default model: auto (NOLGIA
+# picks, as on the website: words and most pictures on GPT Image 2.6 Flare, 11
+# credits; a photo of people or a picture made from --input images on Seedream
+# 5.5, 2 plus 1 per started three images; a --mask on GPT Image 2.5 Flare, 8).
+# The job names the pick.
 nolgia gen image --prompt "isometric server room, dramatic lighting" --out img.png
 
 # 3D (GLB): 1 to 4 photos; --draft costs 2 credits. Estimate with --cost-only.

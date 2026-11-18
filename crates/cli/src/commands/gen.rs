@@ -34,7 +34,8 @@ pub struct ImageArgs {
     /// Model id (see `nolgia models list --modality image`). Any id the API
     /// accepts is forwarded verbatim, so a model added after this binary was
     /// built still works — the API is the authority on what exists. The
-    /// default is FLUX 3 Image, which also takes --input references.
+    /// default is `auto`: NOLGIA picks the model for the request, as the
+    /// website does, and the job names the model it picked.
     #[arg(long, default_value = DEFAULT_IMAGE_MODEL)]
     pub model: String,
     /// What to draw. Required, except on a model that takes no prompt: one
@@ -449,15 +450,22 @@ pub(crate) struct AsyncJob {
 
 const DEFAULT_WAIT_TIMEOUT_SECONDS: u64 = 300;
 
-/// `gen image`'s model when --model is omitted. FLUX 3 Image since the older
-/// FLUX models (flux-pro, flux-ultra, flux-schnell and the FLUX 2 family) left
-/// the public catalog on 2026-11-03 (nolgia-api #1461); they still run when
-/// named.
-const DEFAULT_IMAGE_MODEL: &str = "flux-3-image";
+/// `gen image`'s model when --model is omitted: `auto`, so NOLGIA picks, the
+/// same as the website (owner decision 2026-11-18, question 6: "The command
+/// line tool's 'gen image' with no model named uses FLUX 3 today ... Make the
+/// command line default to Auto ...?" "Yes, Auto (Recommended)"). The server
+/// routes it (nolgia-api `RouteAutoImage`): words to GPT Image 2.6 Flare, a
+/// photo of people or a picture made from --input/--reference images to
+/// Seedream 5.5, a --mask to GPT Image 2.5 Flare, everything else to GPT Image
+/// 2.6 Flare, and whatever one of those cannot make as asked to a model that
+/// can. Every catalog precheck passes `auto` through (it is not a model in
+/// GET /models): the server answers for the model it picks.
+const DEFAULT_IMAGE_MODEL: &str = "auto";
 
-/// The model --expand-to used to switch away from before the default moved,
-/// so a script that still names it keeps getting flux-expand.
-const LEGACY_DEFAULT_IMAGE_MODEL: &str = "flux-pro";
+/// The defaults --expand-to used to switch away from before the default
+/// moved (flux-pro until 2026-11-03, flux-3-image until 2026-11-18), so a
+/// script that still names one keeps getting flux-expand.
+const LEGACY_DEFAULT_IMAGE_MODELS: [&str; 2] = ["flux-3-image", "flux-pro"];
 
 pub async fn run(command: GenCommand, ctx: &CommandContext) -> Result<()> {
     match command {
@@ -469,13 +477,12 @@ pub async fn run(command: GenCommand, ctx: &CommandContext) -> Result<()> {
 }
 
 async fn image(args: ImageArgs, ctx: &CommandContext) -> Result<()> {
-    // --expand-to with no --model means the default, which cannot outpaint:
-    // it switches to flux-expand. A named outpainting model is kept.
+    // --expand-to with no --model means the default, which does not
+    // outpaint: it switches to flux-expand. A named outpainting model is kept.
     let model = if args.expand_to.is_some()
-        && matches!(
-            args.model.as_str(),
-            DEFAULT_IMAGE_MODEL | LEGACY_DEFAULT_IMAGE_MODEL
-        ) {
+        && (args.model == DEFAULT_IMAGE_MODEL
+            || LEGACY_DEFAULT_IMAGE_MODELS.contains(&args.model.as_str()))
+    {
         "flux-expand".to_string()
     } else {
         args.model
@@ -2075,7 +2082,7 @@ mod encore_gap_tests {
         let enhancer = model(json!({
             "id": "topaz-image-standard", "modality": "image", "image_enhance": true
         }));
-        let generator = model(json!({"id": DEFAULT_IMAGE_MODEL, "modality": "image"}));
+        let generator = model(json!({"id": "flux-3-image", "modality": "image"}));
 
         assert!(check_promptless_image("remove-background", Some(&cutout), true).is_ok());
         assert!(check_promptless_image("topaz-image-standard", Some(&enhancer), true).is_ok());
@@ -2083,12 +2090,21 @@ mod encore_gap_tests {
             .unwrap_err()
             .to_string();
         assert!(needs_input.contains("--input"), "{needs_input}");
-        let needs_prompt = check_promptless_image(DEFAULT_IMAGE_MODEL, Some(&generator), true)
+        let needs_prompt = check_promptless_image("flux-3-image", Some(&generator), true)
             .unwrap_err()
             .to_string();
         assert!(
             needs_prompt.contains("--prompt is required for flux-3-image"),
             "{needs_prompt}"
+        );
+        // The default, `auto`, is no catalog entry: it needs a prompt.
+        assert_eq!(DEFAULT_IMAGE_MODEL, "auto");
+        let auto_needs_prompt = check_promptless_image(DEFAULT_IMAGE_MODEL, None, true)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            auto_needs_prompt.contains("--prompt is required for auto"),
+            "{auto_needs_prompt}"
         );
         // An unreadable catalog cannot vouch for the model.
         assert!(check_promptless_image("remove-background", None, true).is_err());
