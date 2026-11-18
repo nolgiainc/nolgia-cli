@@ -18,8 +18,8 @@ the matching GitHub release.
   - **`--expand-to` is unchanged.** With no `--model`, or with
     `--model flux-3-image` or `--model flux-pro` from an older script, it
     still outpaints with `flux-expand`.
-  - `INSTALL_FOR_AGENTS.md` and the bundled `nolgia-platform` skill (1.11.4)
-    name the new default.
+  - `INSTALL_FOR_AGENTS.md` and the bundled `nolgia-platform` skill name the
+    new default (bundled skills 1.11.4).
 
 ## v0.3.5
 

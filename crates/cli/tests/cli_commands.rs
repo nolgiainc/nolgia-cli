@@ -6594,9 +6594,7 @@ async fn gen_image_still_requires_prompt_without_expand() {
         .args(["gen", "image"])
         .assert()
         .failure()
-        .stderr(predicate::str::contains(
-            "--prompt is required for auto",
-        ));
+        .stderr(predicate::str::contains("--prompt is required for auto"));
     assert!(
         api.received_requests()
             .await
@@ -7264,9 +7262,7 @@ async fn gen_image_without_a_prompt_is_refused_on_generators_and_without_input()
         .args(["--api-url", &api.uri(), "gen", "image", "--no-wait"])
         .assert()
         .failure()
-        .stderr(predicate::str::contains(
-            "--prompt is required for auto",
-        ));
+        .stderr(predicate::str::contains("--prompt is required for auto"));
     cmd()
         .args([
             "--api-url",
