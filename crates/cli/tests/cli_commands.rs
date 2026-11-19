@@ -1919,6 +1919,155 @@ async fn gen_video_cost_only_prices_quality_tier() {
     .stdout(predicate::str::contains("1556 credits"));
 }
 
+/// Seedance 2.5 as the live catalog publishes it (2026-11-19): a request
+/// carrying reference video is priced at `video_input_credits`, per tier.
+async fn mount_video_input_models(api: &MockServer) {
+    Mock::given(method("GET"))
+        .and(path("/v1/models"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"models": [{
+            "id": "seedance-2.5", "modality": "video", "recommended": true,
+            "cost": {"credits": 66, "unit": "per_clip", "baseline_seconds": 5, "video_input_credits": 78},
+            "video": {"min_duration": 4, "max_duration": 15, "aspect_ratios": ["16:9", "9:16"], "image_input": true},
+            "quality": {"default": "720p", "options": [
+                {"id": "480p", "credits": 31, "premium": false, "video_input_credits": 36},
+                {"id": "720p", "credits": 66, "premium": false, "video_input_credits": 78},
+                {"id": "1080p", "credits": 160, "premium": true, "video_input_credits": 191},
+            ]},
+            "references": {"start_frame": true, "start_frame_required": false, "end_frame": true,
+                           "video_refs_max": 10, "element_refs_max": 9, "audio_refs_max": 3,
+                           "video_refs_total_max_seconds": 30, "subject_video_reference": true,
+                           "video_tasks": ["reference", "edit", "extend"]},
+        }]})))
+        .mount(api)
+        .await;
+}
+
+fn quote_args<'a>(quality: &'a str, seconds: &'a str, extra: &[&'a str]) -> Vec<&'a str> {
+    let mut args = vec![
+        "gen",
+        "video",
+        "--model",
+        "seedance-2.5",
+        "--prompt",
+        "x",
+        "--quality",
+        quality,
+        "--duration-seconds",
+        seconds,
+        "--cost-only",
+    ];
+    args.extend_from_slice(extra);
+    args
+}
+
+/// The quote for a run with a reference video is the tier's
+/// `video_input_credits`, the rate the server charges (a real 720p 5 s
+/// Seedance 2.5 reference run was charged 78 while the CLI quoted 66). The
+/// same request with no clip keeps `credits`.
+#[tokio::test]
+async fn gen_video_cost_only_prices_a_reference_video_at_the_video_input_rate() {
+    let api = MockServer::start().await;
+    mount_video_input_models(&api).await;
+    mount_reference_clip(&api, 5.04).await;
+    let with_clip = ["--video-ref", ASSET_ID];
+    run_ok(&api, &quote_args("720p", "5", &with_clip)).stdout(predicate::str::diff(
+        "78 credits (seedance-2.5, 5s, 720p, with reference video)\n",
+    ));
+    run_ok(&api, &quote_args("1080p", "5", &with_clip)).stdout(predicate::str::diff(
+        "191 credits (seedance-2.5, 5s, 1080p, with reference video)\n",
+    ));
+    run_ok(&api, &quote_args("720p", "5", &[])).stdout(predicate::str::diff(
+        "66 credits (seedance-2.5, 5s, 720p)\n",
+    ));
+    // No --quality: the model's own with-video rate (its default tier).
+    run_ok(
+        &api,
+        &[
+            "gen",
+            "video",
+            "--model",
+            "seedance-2.5",
+            "--prompt",
+            "x",
+            "--duration-seconds",
+            "10",
+            "--video-ref",
+            ASSET_ID,
+            "--cost-only",
+        ],
+    )
+    .stdout(predicate::str::diff(
+        "156 credits (seedance-2.5, 10s, with reference video)\n",
+    ));
+}
+
+/// A reference longer than the render. On a reference run over one clip the
+/// server sends and bills only the part the render uses, so the render's
+/// length is priced. An extend bills the whole clip: its counted length is
+/// the spec's ceiling and the quote says "at most". An edit renders, and
+/// bills, the source's counted length.
+#[tokio::test]
+async fn gen_video_cost_only_counts_a_reference_longer_than_the_render() {
+    let api = MockServer::start().await;
+    mount_video_input_models(&api).await;
+    mount_reference_clip(&api, 12.4).await;
+    run_ok(&api, &quote_args("720p", "5", &["--video-ref", ASSET_ID])).stdout(
+        predicate::str::diff("78 credits (seedance-2.5, 5s, 720p, with reference video)\n"),
+    );
+    run_ok(
+        &api,
+        &quote_args(
+            "720p",
+            "5",
+            &["--video-ref", ASSET_ID, "--video-task", "extend"],
+        ),
+    )
+    .stdout(predicate::str::diff(
+        "188 credits at most (seedance-2.5, 5s, 720p, with 12s of reference video)\n",
+    ));
+    run_ok(
+        &api,
+        &quote_args(
+            "480p",
+            "5",
+            &["--video-ref", ASSET_ID, "--video-task", "edit"],
+        ),
+    )
+    .stdout(predicate::str::diff(
+        "87 credits (seedance-2.5, 12s, 480p, with reference video)\n",
+    ));
+}
+
+/// A model that publishes no `video_input_credits` quotes a run with a clip
+/// exactly as before: `credits` over the render's length.
+#[tokio::test]
+async fn gen_video_cost_only_without_a_video_input_rate_is_unchanged() {
+    let api = MockServer::start().await;
+    mount_video_models(&api).await;
+    mount_reference_clip(&api, 12.0).await;
+    run_ok(
+        &api,
+        &[
+            "gen",
+            "video",
+            "--model",
+            R2V_MODEL,
+            "--prompt",
+            "x",
+            "--duration-seconds",
+            "5",
+            "--quality",
+            "1080p",
+            "--video-ref",
+            ASSET_ID,
+            "--cost-only",
+        ],
+    )
+    .stdout(predicate::str::diff(format!(
+        "360 credits ({R2V_MODEL}, 5s, 1080p)\n"
+    )));
+}
+
 /// Owner, 2026-11-07: Veo is no longer offered. The catalog no longer lists the
 /// Veo ids, but the API runs a request naming one on omni-1.2-flash at the
 /// matching tier with a warning, so `--cost-only` quotes it the same way

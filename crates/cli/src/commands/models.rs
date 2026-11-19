@@ -435,12 +435,17 @@ fn quality_choices(model: &Model, quality: &QualityCapabilities) -> String {
 /// Audio is on by default, so the published `credits` already includes the
 /// model's audio surcharge; an explicit `--generate-audio false` renders the
 /// clip silent and is quoted at `credits - audio_surcharge`.
+///
+/// A request carrying reference video (`--video-ref`, in a reference, edit
+/// or extend run) on a model that publishes `video_input_credits` is priced
+/// at that rate instead, over the length [`video_input_seconds`] counts.
 pub async fn quote_video(
     ctx: &CommandContext,
     model_id: &str,
     duration_seconds: u64,
     quality: Option<&str>,
     generate_audio: Option<bool>,
+    video_input: Option<VideoInput<'_>>,
 ) -> Result<String> {
     let models = fetch(ctx).await?;
     let (model, replacement) = find(&models, model_id).with_context(|| {
@@ -452,37 +457,93 @@ pub async fn quote_video(
             model.id
         ));
     };
-    // `credits` and `audio_surcharge` come from the selected quality tier when
-    // `--quality` is given, otherwise from the model's base cost.
-    let (base_credits, audio_surcharge, tier_note) = match quality {
+    // `credits`, `video_input_credits` and `audio_surcharge` come from the
+    // selected quality tier when `--quality` is given, otherwise from the
+    // model's base cost (its default tier).
+    let (credits, with_video_credits, audio_surcharge, tier_note) = match quality {
         Some(tier) => {
             let option = check_quality(model, tier)?;
             (
                 option.credits.get(),
+                option.video_input_credits,
                 option.audio_surcharge,
                 format!(", {tier}"),
             )
         }
-        None => (cost.credits.get(), cost.audio_surcharge, String::new()),
+        None => (
+            cost.credits.get(),
+            cost.video_input_credits,
+            cost.audio_surcharge,
+            String::new(),
+        ),
     };
+    // A provider that bills a video input at its own rate (nolgia-api's
+    // videoRefRateAlias: Seedance 2.5's with-video rows) prices every render
+    // carrying a clip at `video_input_credits`, and bills the clip's own
+    // length too. A model without the field quotes exactly as before.
+    let video_input =
+        video_input.filter(|input| !input.refs.is_empty() && with_video_credits.is_some());
+    let (base_credits, duration_seconds, billed_seconds, video_note, ceiling) = match video_input {
+        None => (
+            credits,
+            duration_seconds,
+            duration_seconds,
+            String::new(),
+            false,
+        ),
+        Some(input) => {
+            let stored = stored_video_seconds(ctx, input.refs).await;
+            let longest = model
+                .references
+                .as_ref()
+                .and_then(|r| r.video_refs_total_max_seconds)
+                .map(|s| s.get());
+            let counted = video_input_seconds(
+                duration_seconds,
+                input.task,
+                input.refs.len(),
+                stored,
+                longest,
+            );
+            let note = match (counted.billed > counted.output, stored) {
+                (false, _) => ", with reference video".to_string(),
+                (true, Some(_)) => format!(", with {}s of reference video", counted.billed),
+                (true, None) => format!(
+                    ", with reference video of unknown length, counted as {}s",
+                    counted.billed
+                ),
+            };
+            (
+                with_video_credits.map_or(credits, |c| c.get()),
+                counted.output,
+                counted.billed,
+                note,
+                counted.ceiling,
+            )
+        }
+    };
+    let tier_note = format!("{tier_note}{video_note}");
+    let bound = if ceiling { " at most" } else { "" };
     // Audio is ON by default, so the published per-baseline `credits` already
     // includes the surcharge. An explicit `--generate-audio false` renders the
     // clip silent and is charged `credits - audio_surcharge`, subtracted from
     // the per-baseline rate BEFORE duration scaling to match the server's order
     // (pricing.go). Only models that charge more for audio (Kling today) carry a
-    // surcharge; every other model's price is unchanged.
+    // surcharge; every other model's price is unchanged. The with-video rate
+    // takes the same order on the server (QuoteVideoRefsAudio), and no model
+    // that publishes `video_input_credits` carries a surcharge today.
     let per_baseline = if generate_audio == Some(false) {
         base_credits.saturating_sub(audio_surcharge.map_or(0, |s| s.get()))
     } else {
         base_credits
     };
     let credits = match cost.baseline_seconds {
-        Some(base) => (per_baseline * duration_seconds).div_ceil(base.get()),
+        Some(base) => (per_baseline * billed_seconds).div_ceil(base.get()),
         None => per_baseline,
     };
     let Some(replacement) = replacement else {
         return Ok(format!(
-            "{credits} credits ({model_id}, {duration_seconds}s{tier_note})"
+            "{credits} credits{bound} ({model_id}, {duration_seconds}s{tier_note})"
         ));
     };
     // A replaced id is quoted as the server runs it: on the successor, at the
@@ -493,10 +554,79 @@ pub async fn quote_video(
         _ => None,
     };
     Ok(format!(
-        "{credits} credits ({}, {duration_seconds}s{tier_note}, replacing {model_id})\nwarning: {}",
+        "{credits} credits{bound} ({}, {duration_seconds}s{tier_note}, replacing {model_id})\nwarning: {}",
         model.id,
         replacement.warning(tier, per_5s)
     ))
+}
+
+/// The reference video a `gen video` request carries, for its quote: the
+/// clips (`--video-ref` asset ids) and the run (`--video-task`).
+pub struct VideoInput<'a> {
+    pub refs: &'a [uuid::Uuid],
+    pub task: Option<&'a str>,
+}
+
+/// The lengths a render carrying reference video is made and billed at.
+#[derive(Debug, PartialEq, Eq)]
+struct VideoInputSeconds {
+    output: u64,
+    billed: u64,
+    /// The billed length is the API spec's ceiling, not the server's exact
+    /// count: the charge can be lower (see [`video_input_seconds`]).
+    ceiling: bool,
+}
+
+/// How long a render carrying reference video is billed, the way nolgia-api
+/// counts it (VideoInputBillingSeconds, planReferenceTrim): the clips' summed
+/// length to the nearest whole second, never below the render's own length.
+///
+/// - An edit renders at its source's counted length and bills that.
+/// - A reference run over one clip of known length sends and bills only the
+///   part the render uses (`reference_start_seconds` in the API spec), so it
+///   bills the render's length whatever the clip's.
+/// - Otherwise (an extend, several clips) a clip longer than the render bills
+///   at its own counted length, the client formula of the spec's
+///   `QualityOption.video_input_credits`. The server divides the combined
+///   seconds by a coverage it does not publish, so the charge can be lower,
+///   never higher. A clip whose length is not stored is counted as the
+///   longest footage the model takes, as the server counts it.
+fn video_input_seconds(
+    duration: u64,
+    task: Option<&str>,
+    clips: usize,
+    stored: Option<f64>,
+    longest: Option<u64>,
+) -> VideoInputSeconds {
+    let counted = stored.map(|s| super::r#gen::counted_reference_seconds(s) as u64);
+    let exact = |seconds: u64| VideoInputSeconds {
+        output: seconds,
+        billed: seconds,
+        ceiling: false,
+    };
+    match (task, counted) {
+        (Some("edit"), Some(source)) => exact(source),
+        (None | Some("reference"), Some(_)) if clips == 1 => exact(duration),
+        _ => {
+            let input = counted.or(longest).unwrap_or(duration);
+            VideoInputSeconds {
+                output: duration,
+                billed: duration.max(input),
+                ceiling: input > duration,
+            }
+        }
+    }
+}
+
+/// The clips' stored lengths summed, or None when one is not stored or
+/// cannot be read (the server then counts the longest the model takes).
+async fn stored_video_seconds(ctx: &CommandContext, refs: &[uuid::Uuid]) -> Option<f64> {
+    let mut total = 0.0;
+    for id in refs {
+        let asset = ctx.client().get_asset().id(*id).send().await.ok()?;
+        total += asset.into_inner().duration_seconds.filter(|s| *s > 0.0)?;
+    }
+    Some(total)
 }
 
 /// Reference/quality parameters of a pending `gen video` request, for
