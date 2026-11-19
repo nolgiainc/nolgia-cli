@@ -3822,16 +3822,19 @@ paths:
       description: |
         Composes the requested sheet scaffold with the character's canonical
         description and the full Aura layer, with the character's primary
-        reference attached as identity conditioning. The turnaround renders on
-        gpt-image-2.5-sunburst as an edit of that reference; split and
-        expression render on gpt-image-2. The
+        reference attached as identity conditioning. All three sheets render
+        on seedream-5.5 (gpt-image-2.5-sunburst when the composed prompt is
+        longer than seedream-5.5 reads); the turnaround is an edit of that
+        reference. The
         character must have at least one reference image. Optional wearable
         references ride the same request and are rendered exactly as shown in
         every view - a request whose references exceed what the sheet lane can
         carry is refused (400), never silently dropped.
 
         Billed exactly like the equivalent `POST /generate/image` call on the
-        model the sheet renders on (the job records it).
+        model the sheet renders on (the job records it): one image at its
+        default tier plus the model's reference charge for the primary
+        reference and each wearable.
       parameters:
         - name: id
           in: path
@@ -15585,19 +15588,33 @@ components:
         `POST /jobs/cost`. It is not a model: the job, its asset and the quote
         report the model it picked. A picture whose words must read (words in
         quotes, or a poster, a thumbnail, a menu, a headline, lettering or text
-        the prompt does not rule out) goes to `gpt-image-2.5-sunburst`, with
-        any reference, mask or setting, at the same credits as Flare (NOLGIA's
-        blind text-image test, 2026-11-05). A photo of people written from text
+        the prompt does not rule out) goes to `gpt-image-2.6-flare`, with any
+        reference or setting, at its 11 credits a picture (owner decision,
+        2026-11-18). A picture made from images (any
+        reference, an edit of a picture, a character or other saved image, a
+        `product_id`'s photos) goes to `seedream-5.5` at `2k`, with `aura` off
+        unless you set it, and is charged its reference images like any
+        `seedream-5.5` request (owner decision, 2026-11-18). It stays on
+        `gpt-image-2.6-flare` when it needs marks or a background (on
+        `gpt-image-2.5-flare` when it needs a mask or `keep_subject`), sends
+        more references than `seedream-5.5` takes, asks
+        for more than one picture, sets a ratio, tier or `render_quality`
+        `seedream-5.5` does not offer, sends a prompt longer than it reads, or
+        edits a picture with no shape named whose shape it does not render (a
+        4:5 picture stays 4:5 there). A photo of people written from text
         alone goes to `seedream-5.5` at `2k`, with `aura` off unless you set
         it. It goes to `seedream-v5-pro` at `2k` instead when the request asks
         for more than one picture (`seedream-5.5` makes one a request) or
         while `seedream-5.5` is unavailable. Everything else goes to
-        `gpt-image-2.5-flare`, as today: a person holding a product or a
-        beauty item (a `product_id`, or the product in the prompt), a label,
-        any reference, mask, character or other saved image, a prompt with no
-        person, and any `aspect_ratio`, `quality` or `render_quality` that
-        neither of those two models offers. The job carries a note naming the
-        pick. Name a model to choose it yourself.
+        `gpt-image-2.6-flare`, at 11 credits a picture (owner decision,
+        2026-11-18): a person holding a product or a beauty item named in the
+        prompt, a label, a prompt with no person, and any `aspect_ratio`,
+        `quality` or `render_quality` that neither of those two models
+        offers. A request with a mask or `keep_subject` goes to
+        `gpt-image-2.5-flare` wherever it would have gone, since
+        `gpt-image-2.6-flare` takes no mask; it is charged 8 credits a
+        picture there. The job carries a note naming the pick. Name a model
+        to choose it yourself.
       enum:
         - auto
         - gpt-image-2.5-sunburst
@@ -20576,7 +20593,7 @@ components:
           description: For the `background` scope only, a picture of your own to put the person on instead of describing a new background. The step then runs `remove-background` with this picture (no prompt, `detail` may be empty, no model choice) and costs what a cut-out costs.
         model:
           $ref: '#/components/schemas/ImageModel'
-          description: Scoped steps require an allowed model and default to the scope's first model. Unscoped steps default to the style model hint, then the previous step model, then gpt-image-2.
+          description: Scoped steps require an allowed model and default to the scope's first model. Unscoped steps default to the style model hint, then the previous step model, then seedream-5.5, or gpt-image-2.5-flare when the step needs a mask, marks, a render_quality or a tier seedream-5.5 does not publish, or the picture has a shape it does not render (4:5, 5:4, 3:1, 1:3), so the picture keeps its shape.
         style_id:
           type: string
           format: uuid
