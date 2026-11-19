@@ -3,6 +3,22 @@
 Release notes for the Nolgia CLI. Each `## vX.Y.Z` section becomes the body of
 the matching GitHub release.
 
+## Unreleased
+
+- **`gen video --cost-only` prices a run with a reference video at the
+  rate it is charged.** A request with `--video-ref` on a model that
+  publishes `video_input_credits` (Seedance 2.5 today) is now quoted at
+  that rate for the tier (the model's own with no `--quality`), as the
+  website does: 78 credits for 5 s at 720p, where the CLI said 66 and the
+  job was charged 78. The line says `with reference video`.
+  - **The clip's length counts the way the API counts it.** An edit is
+    priced at its source's length to the nearest second. A reference run
+    over one clip is priced at the render's length, since only that part
+    is sent and billed. An extend, or several clips, longer than the
+    render is priced at their counted length and the line says
+    `at most`, because the charge can be lower.
+  - A model without `video_input_credits` is quoted exactly as before.
+
 ## v0.3.6
 
 - **`gen image` defaults to `auto`.** With no `--model`, it now asks the

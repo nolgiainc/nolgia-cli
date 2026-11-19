@@ -749,6 +749,10 @@ async fn video(mut args: VideoArgs, ctx: &CommandContext) -> Result<()> {
             duration,
             args.quality.as_deref(),
             args.generate_audio,
+            Some(super::models::VideoInput {
+                refs: &args.video_refs,
+                task: args.video_task.as_deref(),
+            }),
         )
         .await?;
         println!("{quote}");
@@ -994,7 +998,7 @@ async fn remove_background_video(args: VideoArgs, ctx: &CommandContext) -> Resul
         })?;
     if args.cost_only {
         let seconds = remove_background_seconds(&input, args.duration_seconds, ctx).await?;
-        let quote = super::models::quote_video(ctx, model, seconds, None, None).await?;
+        let quote = super::models::quote_video(ctx, model, seconds, None, None, None).await?;
         println!("{quote}");
         return Ok(());
     }
@@ -1157,7 +1161,7 @@ async fn reference_duration(
 /// A reference video's length the way the API counts it: to the nearest
 /// whole second, halves away from zero (Go's math.Round in nolgia-api's
 /// VideoInputCountedSeconds), and never below one second.
-fn counted_reference_seconds(seconds: f64) -> i64 {
+pub(super) fn counted_reference_seconds(seconds: f64) -> i64 {
     (seconds.round() as i64).max(1)
 }
 
