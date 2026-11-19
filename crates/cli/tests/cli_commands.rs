@@ -1920,7 +1920,7 @@ async fn gen_video_cost_only_prices_quality_tier() {
 }
 
 /// What `gen video --cost-only` adds to the catalog's figure when the server's
-/// quote cannot be had: these catalog tests mount no `POST /jobs/cost`, so the
+/// quote cannot be had: the catalog tests mount no `POST /jobs/cost`, so the
 /// route answers like a server without it (404, no problem body), and the
 /// catalog arithmetic is the fallback, said on the line.
 const FALLBACK: &str =
@@ -1983,9 +1983,9 @@ async fn gen_video_cost_only_prices_a_reference_video_at_the_video_input_rate() 
     run_ok(&api, &quote_args("1080p", "5", &with_clip)).stdout(predicate::str::diff(format!(
         "191 credits (seedance-2.5, 5s, 1080p, with reference video){FALLBACK}\n"
     )));
-    run_ok(&api, &quote_args("720p", "5", &[])).stdout(predicate::str::diff(
-        "66 credits (seedance-2.5, 5s, 720p)\n",
-    ));
+    run_ok(&api, &quote_args("720p", "5", &[])).stdout(predicate::str::diff(format!(
+        "66 credits (seedance-2.5, 5s, 720p){FALLBACK}\n"
+    )));
     // No --quality: the model's own with-video rate (its default tier).
     run_ok(
         &api,
@@ -2247,6 +2247,81 @@ async fn gen_video_cost_only_falls_back_to_the_catalog_and_says_so() {
          the server's: a quote uploads nothing, so {start} cannot be sent"
     )));
     assert!(cost_bodies(&api).await.is_empty());
+}
+
+/// A request with no clip is the server's figure too: Seedance 2.5's 4k is
+/// made as an upscale from 1080p and charged 174 for 5 s, where the catalog
+/// row says 202. The flags ride as the run sends them.
+#[tokio::test]
+async fn gen_video_cost_only_without_video_prints_the_servers_quote() {
+    let api = MockServer::start().await;
+    mount_video_input_models(&api).await;
+    mount_cost_quote(
+        &api,
+        cost_quote(
+            "video",
+            "seedance-2.5",
+            174,
+            json!({"duration_seconds": 5, "quality": "4k"}),
+        ),
+    )
+    .await;
+    run_ok(&api, &quote_args("4k", "5", &["--generate-audio", "false"])).stdout(
+        predicate::str::diff("174 credits (seedance-2.5, 5s, 4k, server quote)\n"),
+    );
+    let bodies = cost_bodies(&api).await;
+    assert_eq!(bodies.len(), 1);
+    let video = &bodies[0]["video"];
+    assert_eq!(video["quality"], "4k");
+    assert_eq!(video["duration_seconds"], 5);
+    assert_eq!(video["generate_audio"], false);
+    assert!(video.get("video_asset_ids").is_none());
+    // The catalog's 202 only when the server cannot answer, labelled.
+    let api = MockServer::start().await;
+    mount_video_input_models(&api).await;
+    mount_cost_quote(&api, ResponseTemplate::new(503)).await;
+    run_ok(&api, &quote_args("720p", "5", &[])).stdout(predicate::str::diff(
+        "66 credits (seedance-2.5, 5s, 720p); the catalog's figure, not the server's: the \
+         server's quote was unavailable (503 Service Unavailable)\n",
+    ));
+}
+
+/// A background removal is quoted on its own route, `remove_background_video`.
+#[tokio::test]
+async fn gen_video_remove_background_cost_only_prints_the_servers_quote() {
+    let api = MockServer::start().await;
+    mount_encore_models(&api).await;
+    mount_cost_quote(
+        &api,
+        cost_quote(
+            "remove_background_video",
+            "remove-background-video",
+            23,
+            json!({"duration_seconds": 8}),
+        ),
+    )
+    .await;
+    run_ok(
+        &api,
+        &[
+            "gen",
+            "video",
+            "--model",
+            "remove-background-video",
+            "--input",
+            ASSET_ID,
+            "--cost-only",
+        ],
+    )
+    .stdout(predicate::str::diff(
+        "23 credits (remove-background-video, 8s, server quote)\n",
+    ));
+    let bodies = cost_bodies(&api).await;
+    assert_eq!(bodies[0]["kind"], "remove_background_video");
+    assert_eq!(
+        bodies[0]["remove_background_video"]["source_asset_id"],
+        ASSET_ID
+    );
 }
 
 /// `gen image --cost-only` is the server's quote for the request the run

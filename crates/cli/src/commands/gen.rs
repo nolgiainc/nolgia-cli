@@ -330,13 +330,13 @@ pub struct VideoArgs {
     /// --input (the start frame).
     #[arg(long = "end-frame", value_name = "ASSET_ID")]
     pub end_frame: Option<String>,
-    /// Print the price and exit without creating a job. A request carrying
-    /// --video-ref is priced by the server's free quote (`POST /jobs/cost`:
-    /// nothing is submitted, reserved or charged) on the body the run would
-    /// send, so the figure is the one charged; any other request is priced
-    /// from the live catalog. Asset UUIDs only: a quote uploads nothing, so
-    /// a local --input, --end-frame or --audio-ref gets the catalog's figure,
-    /// and the line says so.
+    /// Print the price and exit without creating a job: the server's free
+    /// quote (`POST /jobs/cost`: nothing is submitted, reserved or charged)
+    /// on the body the run would send, so the figure is the one charged.
+    /// The live catalog's figure is printed only when the server cannot
+    /// answer, and the line says so. Asset UUIDs only: a quote uploads
+    /// nothing, so a local --input, --end-frame or --audio-ref also gets the
+    /// catalog's figure, labelled.
     #[arg(long, default_value_t = false)]
     pub cost_only: bool,
     /// Multi-shot segment "SECONDS:PROMPT" or "SECONDS:PROMPT|AUDIO DIRECTION".
@@ -929,21 +929,20 @@ async fn video(mut args: VideoArgs, ctx: &CommandContext) -> Result<()> {
             None => args.duration_seconds.map(|d| d.get()).unwrap_or(5),
             Some(shots) => shots.iter().map(|s| s.duration_seconds.get()).sum(),
         };
-        // A run carrying video is priced on the clips' own length, which the
-        // server counts in ways the catalog does not publish (several clips
-        // share a coverage; an upscale tier reads the source), so it is the
-        // server's free quote, on the body the run would send, that is
-        // printed. The catalog arithmetic is only the fallback, said so.
-        let unavailable = if args.video_refs.is_empty() {
-            None
-        } else {
-            match quote_video_request(&args, prompt, shots, ctx).await? {
-                Ok(quote) => {
-                    println!("{}", video_server_quote_line(&quote, duration));
-                    return Ok(());
-                }
-                Err(reason) => Some(reason),
+        // Every request is priced by the server's free quote, on the body the
+        // run would send: the catalog cannot say what the server counts (the
+        // clips' own length at a coverage it does not publish; a 4k tier made
+        // as an upscale and charged below its published row). The catalog
+        // arithmetic is only the fallback, and the line says so.
+        let reason = match quote_video_request(&args, prompt, shots, ctx).await? {
+            Ok(quote) => {
+                println!(
+                    "{}",
+                    video_server_quote_line(&quote, duration, !args.video_refs.is_empty())
+                );
+                return Ok(());
             }
+            Err(reason) => reason,
         };
         let quote = super::models::quote_video(
             ctx,
@@ -957,10 +956,7 @@ async fn video(mut args: VideoArgs, ctx: &CommandContext) -> Result<()> {
             }),
         )
         .await?;
-        match unavailable {
-            None => println!("{quote}"),
-            Some(reason) => println!("{}", catalog_fallback_line(&quote, &reason)),
-        }
+        println!("{}", catalog_fallback_line(&quote, &reason));
         return Ok(());
     }
     // The request schema's ceiling (`video_asset_ids` maxItems). Each
@@ -1184,18 +1180,34 @@ async fn quote_video_request(
 
 /// `gen video --cost-only`'s line for a server quote: the figure the submit
 /// holds, the length and tier the server priced, and its warnings.
-fn video_server_quote_line(quote: &nolgia_client::types::JobCostQuote, duration: u64) -> String {
+fn video_server_quote_line(
+    quote: &nolgia_client::types::JobCostQuote,
+    duration: u64,
+    with_video: bool,
+) -> String {
     let seconds = quote
         .duration_seconds
         .and_then(|s| u64::try_from(s).ok())
         .unwrap_or(duration);
+    // A length the server did not echo and the request did not name is left
+    // out rather than printed as 0s.
+    let seconds = if seconds == 0 {
+        String::new()
+    } else {
+        format!(", {seconds}s")
+    };
     let tier = quote
         .quality
         .as_deref()
         .map(|tier| format!(", {tier}"))
         .unwrap_or_default();
+    let video = if with_video {
+        ", with reference video"
+    } else {
+        ""
+    };
     format!(
-        "{} credits ({}, {seconds}s{tier}, with reference video, server quote){}",
+        "{} credits ({}{seconds}{tier}{video}, server quote){}",
         quote.credits,
         quote.model,
         super::models::quote_warnings(quote)
@@ -1315,9 +1327,49 @@ async fn remove_background_video(args: VideoArgs, ctx: &CommandContext) -> Resul
             )
         })?;
     if args.cost_only {
+        // The server's free quote on the body the run would send; the
+        // catalog's figure only when it cannot be had, said so.
+        let source = match &input {
+            super::restore::RestoreInput::Url(url) => Ok((None, Some(url.clone()))),
+            super::restore::RestoreInput::Asset(id) => Ok((Some(*id), None)),
+            super::restore::RestoreInput::File(path) => Err(format!(
+                "a quote uploads nothing, so {} cannot be sent: pass its asset UUID (`nolgia \
+                 assets upload`) for the server's figure",
+                path.display()
+            )),
+        };
+        let reason = match source {
+            Err(reason) => reason,
+            Ok((source_asset_id, source_url)) => {
+                let body: nolgia_client::types::RemoveBackgroundVideoRequest =
+                    nolgia_client::types::RemoveBackgroundVideoRequest::builder()
+                        .model(model_value)
+                        .source_asset_id(source_asset_id)
+                        .source_url(source_url)
+                        .duration_seconds(args.duration_seconds)
+                        .try_into()
+                        .context("building background removal request")?;
+                let mut request = super::models::job_cost_request(
+                    nolgia_client::types::JobCostKind::RemoveBackgroundVideo,
+                );
+                request.remove_background_video = Some(body);
+                match super::models::server_quote(ctx, request, "quoting the background removal")
+                    .await?
+                {
+                    super::models::ServerQuote::Quoted(quote) => {
+                        let declared = args.duration_seconds.map_or(0, |d| d.get());
+                        println!("{}", video_server_quote_line(&quote, declared, false));
+                        return Ok(());
+                    }
+                    super::models::ServerQuote::Unavailable(reason) => {
+                        format!("the server's quote was unavailable ({reason})")
+                    }
+                }
+            }
+        };
         let seconds = remove_background_seconds(&input, args.duration_seconds, ctx).await?;
         let quote = super::models::quote_video(ctx, model, seconds, None, None, None).await?;
-        println!("{quote}");
+        println!("{}", catalog_fallback_line(&quote, &reason));
         return Ok(());
     }
     let (source_asset_id, source_url) = match input {

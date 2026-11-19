@@ -5,6 +5,15 @@ the matching GitHub release.
 
 ## Unreleased
 
+- **Every `gen video --cost-only` is the server's figure, with or without
+  a clip.** A request with no clip is now priced by the same free quote
+  (`POST /jobs/cost`), so a tier the catalog row over-states is printed at
+  its charge: Seedance 2.5 at 4k for 5 s prints 174 credits (the catalog
+  row says 202; the server makes 4k as an upscale from 1080p). A
+  background removal (`--model remove-background-video`) is quoted on its
+  own route the same way. The catalog's figure stays only as the fallback
+  when the server cannot answer, or when a local file would have to be
+  uploaded, and the line says so.
 - **`gen video --cost-only` prints the server's exact figure for a run
   carrying video.** A request with `--video-ref` (reference, edit or extend,
   one clip or several) is now priced by the server's free quote
