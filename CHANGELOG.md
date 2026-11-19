@@ -3,7 +3,7 @@
 Release notes for the Nolgia CLI. Each `## vX.Y.Z` section becomes the body of
 the matching GitHub release.
 
-## Unreleased
+## v0.3.6
 
 - **`gen image` defaults to `auto`.** With no `--model`, it now asks the
   API to pick, the same as the website, instead of `flux-3-image` (owner
@@ -20,6 +20,9 @@ the matching GitHub release.
     still outpaints with `flux-expand`.
   - `INSTALL_FOR_AGENTS.md` and the bundled `nolgia-platform` skill name the
     new default (bundled skills 1.11.4).
+- The OpenAPI spec re-vendored up to #538 (the image defaults that changed
+  on the API on 2026-11-18: character sheets and Keep editing on Seedream
+  5.5, Auto on GPT Image 2.6 Flare).
 
 ## v0.3.5
 
