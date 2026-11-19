@@ -998,6 +998,69 @@ pub async fn precheck_image_expand(ctx: &CommandContext, model_id: &str) -> Resu
     Ok(())
 }
 
+/// What the server's free quote route (`POST /jobs/cost`) answered.
+pub(crate) enum ServerQuote {
+    /// The server's own figure: what the submit holds for this exact body.
+    Quoted(Box<nolgia_client::types::JobCostQuote>),
+    /// No figure, for a reason that is not the request's: the route was
+    /// unreachable or failed, needs a sign-in, or this server predates it.
+    Unavailable(String),
+}
+
+/// A `POST /jobs/cost` envelope carrying one payload.
+pub(crate) fn job_cost_request(
+    kind: nolgia_client::types::JobCostKind,
+) -> nolgia_client::types::JobCostRequest {
+    nolgia_client::types::JobCostRequest {
+        kind,
+        three_d: None,
+        audio: None,
+        image: None,
+        remove_background_video: None,
+        restore_video: None,
+        set: None,
+        video: None,
+    }
+}
+
+/// Ask `POST /jobs/cost` what a request costs. Nothing is submitted, reserved
+/// or charged: nolgia-api runs the generate handler dry and stops where it
+/// would hold credits, so the figure is the one the submit holds. A refusal of
+/// the request itself (the submit path's own 4xx, forwarded verbatim) is an
+/// error in the submit's words: the run would be refused the same way.
+pub(crate) async fn server_quote(
+    ctx: &CommandContext,
+    request: nolgia_client::types::JobCostRequest,
+    action: &str,
+) -> Result<ServerQuote> {
+    match ctx.client().quote_job_cost().body(request).send().await {
+        Ok(response) => Ok(ServerQuote::Quoted(Box::new(response.into_inner()))),
+        Err(nolgia_client::ApiError::UnexpectedResponse(response)) => {
+            let status = response.status();
+            let message = super::problem_message(response).await;
+            // A server without the route answers 404/405 with no problem body.
+            let no_route = matches!(status.as_u16(), 404 | 405) && message.is_none();
+            if status.is_server_error() || status.as_u16() == 401 || no_route {
+                return Ok(ServerQuote::Unavailable(match message {
+                    Some(message) => format!("{status}: {message}"),
+                    None => status.to_string(),
+                }));
+            }
+            Err(super::describe(action, status, message))
+        }
+        Err(err) => Ok(ServerQuote::Unavailable(err.to_string())),
+    }
+}
+
+/// The server's warnings for a quote, one `warning:` line each.
+pub(crate) fn quote_warnings(quote: &nolgia_client::types::JobCostQuote) -> String {
+    quote
+        .warnings
+        .iter()
+        .map(|warning| format!("\nwarning: {warning}"))
+        .collect()
+}
+
 /// The server's quote (`POST /jobs/cost`) for a `gen 3d` request, without
 /// uploading or submitting. Asset UUIDs and `--image-url` are quoted as they
 /// will be sent. A local file is not uploaded for a quote: the front view is
