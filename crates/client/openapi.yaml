@@ -30286,6 +30286,26 @@ components:
           type: boolean
           description: >-
             When true, the form offers an optional "Mark what to change" control on this step's picture, the same marks as the image page: the customer draws on the picture and the run sends the drawing as `markup_asset_id`, so only the marked part changes. It never makes the step or the marks required. Absent means false, and false is not stored. On write it needs a `create_image` target whose model takes marks (`image.markup` true on GET /models), `submit.kind` `generate`, `modality` `image`, `binds_to` `reference_asset_ids` or `image_url` with `max` 1, and this step first among the image reference steps (marks sit on the first picture). One marks step per intake, no `mask_asset_id`, `face_reference_asset_id` or `character_id` step beside it, and the image reference steps plus the marks layer within `image.reference_images_max`.
+        when_attached:
+          $ref: '#/components/schemas/PresetIntakeWhenAttached'
+    PresetIntakeWhenAttached:
+      type: object
+      additionalProperties: false
+      required: [slot, text]
+      description: >-
+        What a labelled slot of the baked prompt says when this asset step has at least one file. On a run with a file, the slot's filler is replaced by `text` (the same fill as a `prompt_slot:` binding), before any doctrine writer sees the draft; with no file the slot keeps the prompt's own words, so the baked filler is the "nothing attached" wording and every path that fills nothing sends it. Every assembly path applies it (`POST /presets/{slug}/assemble` in both modes, `nolgia_run_preset`, and nolgia.com's preset form). On write the step needs a binding that sends the file (not `attach`), a `create_image`, `create_video` or `create_audio` target with `submit.kind` `generate`, and `slot` must be a labelled slot of the baked prompt; `text` is the words after the label, without it.
+      properties:
+        slot:
+          type: string
+          pattern: "^[A-Z][A-Z0-9']*( [A-Z][A-Z0-9']*){0,4}$"
+          description: The slot's label without its colon, as in the prompt (`CHANNEL LOGO` for `CHANNEL LOGO:`).
+          examples: ['CHANNEL LOGO']
+        text:
+          type: string
+          minLength: 1
+          maxLength: 400
+          description: The slot's words when a file is attached.
+          examples: ["the attached logo image is the channel's own mark, reproduced once, small and exactly as given, in a corner clear of the face and the title"]
     PresetIntakeCharacterStep:
       type: object
       additionalProperties: false
