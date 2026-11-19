@@ -164,7 +164,7 @@ nolgia billing credits
 
 **Check:** it exits 0 and prints `subscription: N (resets with plan)  api top-ups: N` and `total: N`. If the applicable balance is insufficient, tell your user and wait for credits before submitting. Personal-space PATs spend API top-ups, so a positive subscription balance alone is not enough for a PAT.
 
-**Tell your user before running the next command: “I will generate one verification image; this spends a small number of your Nolgia credits.”** The CLI supplies its default image model, `flux-3-image` (FLUX 3 Image, 3 credits at its 1k default):
+**Tell your user before running the next command: “I will generate one verification image; this spends a small number of your Nolgia credits.”** The CLI supplies its default image model, `auto`: NOLGIA picks the model for the prompt, and for this prompt (no people, no words) it picks GPT Image 2.6 Flare, 11 credits:
 
 ```sh
 nolgia gen image --prompt "a paper-cut mountain range at dawn" --out nolgia-verify.png
