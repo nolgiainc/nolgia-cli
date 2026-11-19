@@ -3,6 +3,34 @@
 Release notes for the Nolgia CLI. Each `## vX.Y.Z` section becomes the body of
 the matching GitHub release.
 
+## Unreleased
+
+- **`gen video --cost-only` prints the server's exact figure for a run
+  carrying video.** A request with `--video-ref` (reference, edit or extend,
+  one clip or several) is now priced by the server's free quote
+  (`POST /jobs/cost`: nothing is submitted, reserved or charged) on the
+  body the run would send, so the number is the one charged, with no
+  `at most`: two 5 s clips on a 5 s 720p Seedance 2.5 render print 125
+  credits, where the catalog could only say 156 at most. The line ends
+  `server quote`, with the server's warnings under it. When the route
+  cannot answer (unreachable, a server error, not signed in), or a local
+  `--input`, `--end-frame` or `--audio-ref` would have to be uploaded,
+  the catalog's figure is printed as before and the line says it is not
+  the server's and why. The server refusing the request is an error in its
+  words, as the run would be. Requests without video are quoted from the
+  catalog as before.
+- **`gen image --cost-only`.** The server's quote for the request the run
+  would send (model or `auto`, `--quality`, `--render-quality`, references,
+  mask, character and outfit). With `auto` (the default) it names the
+  model NOLGIA picks: `11 credits (auto picks gpt-image-2.6-flare, server
+  quote)`. Asset UUIDs are quoted as sent. A quote uploads nothing: a local
+  `--input` or `--reference` is counted unseen (`local files counted
+  unseen`), and where its shape can change the price (`auto` with no
+  `--aspect-ratio`, an upscale tier the picture may already meet) or it is
+  a `--mask`, the quote asks for its asset id (`nolgia assets upload`)
+  instead of printing a figure that could be low.
+- **`gen audio --cost-only`**, the server's quote for the request.
+
 ## v0.3.7
 
 - **`gen video --cost-only` prices a run with a reference video at the

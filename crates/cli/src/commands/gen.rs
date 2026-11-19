@@ -152,6 +152,17 @@ pub struct ImageArgs {
     /// list` for ids). The project must exist and belong to you.
     #[arg(long, value_name = "PROJECT_UUID")]
     pub project_id: Option<uuid::Uuid>,
+    /// Print the price and exit without creating a job: the server's free
+    /// quote (`POST /jobs/cost`: nothing is submitted, reserved or charged)
+    /// for the request the run would send, so the figure is the one charged.
+    /// With `auto` it names the model NOLGIA picks for this request. Asset
+    /// UUIDs are quoted as sent; a quote uploads nothing, so a local file is
+    /// counted unseen, and where its shape can change the price (`auto`, an
+    /// upscale tier) or it is a --mask, the quote asks for its asset UUID
+    /// (`nolgia assets upload`) instead of printing a figure that could be
+    /// low.
+    #[arg(long, default_value_t = false)]
+    pub cost_only: bool,
     #[arg(long, default_value_t = false)]
     pub wait: bool,
     #[arg(long, default_value_t = false)]
@@ -319,8 +330,13 @@ pub struct VideoArgs {
     /// --input (the start frame).
     #[arg(long = "end-frame", value_name = "ASSET_ID")]
     pub end_frame: Option<String>,
-    /// Print the credit estimate from the live catalog and exit without
-    /// creating a job
+    /// Print the price and exit without creating a job. A request carrying
+    /// --video-ref is priced by the server's free quote (`POST /jobs/cost`:
+    /// nothing is submitted, reserved or charged) on the body the run would
+    /// send, so the figure is the one charged; any other request is priced
+    /// from the live catalog. Asset UUIDs only: a quote uploads nothing, so
+    /// a local --input, --end-frame or --audio-ref gets the catalog's figure,
+    /// and the line says so.
     #[arg(long, default_value_t = false)]
     pub cost_only: bool,
     /// Multi-shot segment "SECONDS:PROMPT" or "SECONDS:PROMPT|AUDIO DIRECTION".
@@ -396,6 +412,11 @@ pub struct AudioArgs {
     /// for ids). The project must exist and belong to you.
     #[arg(long, value_name = "PROJECT_UUID")]
     pub project_id: Option<uuid::Uuid>,
+    /// Print the price and exit without creating a job: the server's free
+    /// quote (`POST /jobs/cost`: nothing is submitted, reserved or charged)
+    /// for the request the run would send, so the figure is the one charged.
+    #[arg(long, default_value_t = false)]
+    pub cost_only: bool,
     #[arg(long, default_value_t = false)]
     pub wait: bool,
     #[arg(long, default_value_t = false)]
@@ -485,7 +506,7 @@ async fn image(args: ImageArgs, ctx: &CommandContext) -> Result<()> {
     {
         "flux-expand".to_string()
     } else {
-        args.model
+        args.model.clone()
     };
     // Only a missing prompt costs a catalog read: a prompt on a model that
     // takes none is refused by the server in the same words.
@@ -553,6 +574,9 @@ async fn image(args: ImageArgs, ctx: &CommandContext) -> Result<()> {
         args.references.len() < 14,
         "--input plus --reference: at most 14 reference images per request"
     );
+    if args.cost_only {
+        return quote_image(&args, model, aspect_ratio, render_quality, ctx).await;
+    }
     let mut reference_asset_ids = match args.input.as_deref() {
         Some(input) => vec![resolve_reference_asset(input, "--input", ctx).await?],
         None => Vec::new(),
@@ -565,39 +589,14 @@ async fn image(args: ImageArgs, ctx: &CommandContext) -> Result<()> {
         None => None,
     };
 
-    let quality = args
-        .quality
-        .as_deref()
-        .map(GenerateImageRequestQuality::try_from)
-        .transpose()
-        .map_err(|e| anyhow::anyhow!("--quality: {e}"))?;
-    let prompt = args
-        .prompt
-        .map(nolgia_client::types::GenerateImageRequestPrompt::try_from)
-        .transpose()
-        .map_err(|e| anyhow::anyhow!("--prompt: {e}"))?;
-    let render_quality_value = render_quality
-        .map(nolgia_client::types::GenerateImageRequestRenderQuality::try_from)
-        .transpose()
-        .map_err(|e| anyhow::anyhow!("--render-quality: {e}"))?;
-    let body: GenerateImageRequest = GenerateImageRequest::builder()
-        .model(model)
-        .prompt(prompt)
-        .render_quality(render_quality_value)
-        .quality(quality)
-        .aspect_ratio(aspect_ratio)
-        .aura(args.aura)
-        .face_reference_asset_id(args.face_reference_asset_id)
-        .character_id(args.character_id)
-        .outfit(outfit_name(
-            args.outfit.as_deref(),
-            nolgia_client::types::GenerateImageRequestOutfit::try_from,
-        )?)
-        .reference_asset_ids(reference_asset_ids)
-        .mask_asset_id(mask_asset_id)
-        .project_id(args.project_id)
-        .try_into()
-        .context("building image request")?;
+    let body = image_request(
+        &args,
+        model,
+        aspect_ratio,
+        render_quality,
+        reference_asset_ids,
+        mask_asset_id,
+    )?;
     let identity_requested = args.face_reference_asset_id.is_some() || args.character_id.is_some();
     let job = match ctx.client().generate_image().body(body).send().await {
         Ok(response) => response.into_inner(),
@@ -637,6 +636,193 @@ async fn image(args: ImageArgs, ctx: &CommandContext) -> Result<()> {
         }
     })
     .await
+}
+
+/// The body `gen image` submits, from the flags and the references already
+/// resolved to asset ids. `--cost-only` quotes this same body.
+fn image_request(
+    args: &ImageArgs,
+    model: String,
+    aspect_ratio: Option<ImageAspectRatio>,
+    render_quality: Option<&str>,
+    reference_asset_ids: Vec<uuid::Uuid>,
+    mask_asset_id: Option<uuid::Uuid>,
+) -> Result<GenerateImageRequest> {
+    let quality = args
+        .quality
+        .as_deref()
+        .map(GenerateImageRequestQuality::try_from)
+        .transpose()
+        .map_err(|e| anyhow::anyhow!("--quality: {e}"))?;
+    let prompt = args
+        .prompt
+        .clone()
+        .map(nolgia_client::types::GenerateImageRequestPrompt::try_from)
+        .transpose()
+        .map_err(|e| anyhow::anyhow!("--prompt: {e}"))?;
+    let render_quality_value = render_quality
+        .map(nolgia_client::types::GenerateImageRequestRenderQuality::try_from)
+        .transpose()
+        .map_err(|e| anyhow::anyhow!("--render-quality: {e}"))?;
+    GenerateImageRequest::builder()
+        .model(model)
+        .prompt(prompt)
+        .render_quality(render_quality_value)
+        .quality(quality)
+        .aspect_ratio(aspect_ratio)
+        .aura(args.aura)
+        .face_reference_asset_id(args.face_reference_asset_id)
+        .character_id(args.character_id)
+        .outfit(outfit_name(
+            args.outfit.as_deref(),
+            nolgia_client::types::GenerateImageRequestOutfit::try_from,
+        )?)
+        .reference_asset_ids(reference_asset_ids)
+        .mask_asset_id(mask_asset_id)
+        .project_id(args.project_id)
+        .try_into()
+        .context("building image request")
+}
+
+/// `gen image --cost-only`: the server's free quote (`POST /jobs/cost`) for
+/// the body the run would send. Nothing is uploaded or submitted. Asset UUIDs
+/// go as sent. A local --input or --reference rides as a stand-in https URL
+/// (the server counts it, but cannot see it): exact for a named model, since
+/// a picture's content changes no price, but its SHAPE can, where nothing
+/// names one: `auto` keeps an edit's shape by picking another model, and an
+/// upscale tier is charged as the native render when the picture already
+/// meets it (nolgia-api RouteAutoImage, DecideImageTier). There, and for a
+/// local --mask (the API takes a mask by asset id only), the quote asks for
+/// the file's asset UUID rather than print a figure that could be low.
+async fn quote_image(
+    args: &ImageArgs,
+    model: String,
+    aspect_ratio: Option<ImageAspectRatio>,
+    render_quality: Option<&str>,
+    ctx: &CommandContext,
+) -> Result<()> {
+    let upload_first = |file: &str, why: &str| {
+        anyhow::anyhow!(
+            "--cost-only uploads nothing, and {why}. Upload it once (`nolgia assets upload \
+             {file}`) and quote with its asset id in place of the file; the run then reuses it."
+        )
+    };
+    if let Some(mask) = args.mask.as_deref().filter(|m| Path::new(m).exists()) {
+        return Err(upload_first(
+            mask,
+            &format!("the API takes a mask by asset id only, so {mask} cannot be quoted"),
+        ));
+    }
+    let mut reference_asset_ids = Vec::new();
+    let mut image_url = None;
+    let mut image_urls = Vec::new();
+    let mut local = Vec::new();
+    for (position, (input, flag)) in args
+        .input
+        .iter()
+        .map(|input| (input, "--input"))
+        .chain(args.references.iter().map(|r| (r, "--reference")))
+        .enumerate()
+    {
+        if Path::new(input).exists() {
+            let stand_in = format!("https://quote.nolgia.invalid/reference-{position}.png");
+            if position == 0 {
+                image_url = Some(stand_in);
+            } else {
+                image_urls.push(stand_in);
+            }
+            local.push(input.as_str());
+        } else {
+            reference_asset_ids.push(uuid::Uuid::parse_str(input).with_context(|| {
+                format!("{flag}: {input:?} is neither an asset UUID nor an existing file")
+            })?);
+        }
+    }
+    let shape_named = aspect_ratio.is_some();
+    let requested = model.clone();
+    let mut body = image_request(
+        args,
+        model,
+        aspect_ratio,
+        render_quality,
+        reference_asset_ids,
+        args.mask
+            .as_deref()
+            .map(uuid::Uuid::parse_str)
+            .transpose()
+            .context("--mask: not an asset UUID")?,
+    )?;
+    if let Some(url) = image_url {
+        body.image_url = Some(url.try_into().map_err(|e| anyhow::anyhow!("{e}"))?);
+    }
+    if !image_urls.is_empty() {
+        body.image_urls = Some(
+            image_urls
+                .into_iter()
+                .map(|url| url.try_into().map_err(|e| anyhow::anyhow!("{e}")))
+                .collect::<Result<_>>()?,
+        );
+    }
+    let auto = requested == DEFAULT_IMAGE_MODEL;
+    if auto
+        && !shape_named
+        && let Some(file) = local.first()
+    {
+        return Err(upload_first(
+            file,
+            &format!(
+                "`auto` picks the model by the shape of the picture it edits, which a quote \
+                 cannot see in {file} (or pass --aspect-ratio)"
+            ),
+        ));
+    }
+    let mut request = super::models::job_cost_request(nolgia_client::types::JobCostKind::Image);
+    request.image = Some(body);
+    let quote = match super::models::server_quote(ctx, request, "quoting the image request").await?
+    {
+        super::models::ServerQuote::Quoted(quote) => *quote,
+        super::models::ServerQuote::Unavailable(reason) => {
+            println!(
+                "image credit quote unavailable: the server's quote could not be read \
+                 ({reason}). No job submitted; per-model prices: `nolgia models get <model>`."
+            );
+            return Ok(());
+        }
+    };
+    let upscale_by_shape = quote.settings.iter().any(|row| row.label == "Upscale");
+    if upscale_by_shape
+        && !shape_named
+        && let Some(file) = local.first()
+    {
+        return Err(upload_first(
+            file,
+            &format!(
+                "whether this tier is an upscale or the native render depends on the shape of \
+                 {file}, which a quote cannot see (or pass --aspect-ratio)"
+            ),
+        ));
+    }
+    let picked = if auto {
+        format!("auto picks {}", quote.model)
+    } else {
+        quote.model.clone()
+    };
+    let tier = quote
+        .quality
+        .as_deref()
+        .map(|tier| format!(", {tier}"))
+        .unwrap_or_default();
+    let unseen = if local.is_empty() {
+        ""
+    } else {
+        ", local files counted unseen"
+    };
+    println!(
+        "{} credits ({picked}{tier}, server quote{unseen}){}",
+        quote.credits,
+        super::models::quote_warnings(&quote)
+    );
+    Ok(())
 }
 
 /// `--prompt` may be left off only on a model the catalog marks as taking
@@ -743,6 +929,22 @@ async fn video(mut args: VideoArgs, ctx: &CommandContext) -> Result<()> {
             None => args.duration_seconds.map(|d| d.get()).unwrap_or(5),
             Some(shots) => shots.iter().map(|s| s.duration_seconds.get()).sum(),
         };
+        // A run carrying video is priced on the clips' own length, which the
+        // server counts in ways the catalog does not publish (several clips
+        // share a coverage; an upscale tier reads the source), so it is the
+        // server's free quote, on the body the run would send, that is
+        // printed. The catalog arithmetic is only the fallback, said so.
+        let unavailable = if args.video_refs.is_empty() {
+            None
+        } else {
+            match quote_video_request(&args, prompt, shots, ctx).await? {
+                Ok(quote) => {
+                    println!("{}", video_server_quote_line(&quote, duration));
+                    return Ok(());
+                }
+                Err(reason) => Some(reason),
+            }
+        };
         let quote = super::models::quote_video(
             ctx,
             &args.model.to_string(),
@@ -755,7 +957,10 @@ async fn video(mut args: VideoArgs, ctx: &CommandContext) -> Result<()> {
             }),
         )
         .await?;
-        println!("{quote}");
+        match unavailable {
+            None => println!("{quote}"),
+            Some(reason) => println!("{}", catalog_fallback_line(&quote, &reason)),
+        }
         return Ok(());
     }
     // The request schema's ceiling (`video_asset_ids` maxItems). Each
@@ -805,6 +1010,44 @@ async fn video(mut args: VideoArgs, ctx: &CommandContext) -> Result<()> {
     for audio_ref in &args.audio_refs {
         audio_asset_ids.push(resolve_audio_reference(audio_ref, ctx).await?);
     }
+    let identity_requested = args.character_id.is_some();
+    let body = video_request(
+        &args,
+        prompt,
+        shots,
+        image_url,
+        end_image_asset_id,
+        audio_asset_ids,
+    )?;
+    let job = match ctx.client().generate_video().body(body).send().await {
+        Ok(response) => response.into_inner(),
+        Err(err) => {
+            return Err(super::submit_error(err, "submitting video job", "nolgia gen video").await);
+        }
+    };
+    let wait = args.wait && !args.no_wait;
+    deliver_video_job(
+        job.id,
+        wait,
+        args.timeout,
+        args.out,
+        identity_requested,
+        ctx,
+    )
+    .await
+}
+
+/// The body `gen video` submits, from the flags and the inputs already
+/// resolved to what the API takes. `--cost-only` quotes this same body, so
+/// the price asked for and the request sent cannot drift apart.
+fn video_request(
+    args: &VideoArgs,
+    prompt: String,
+    shots: Option<Vec<VideoShot>>,
+    image_url: Option<String>,
+    end_image_asset_id: Option<uuid::Uuid>,
+    audio_asset_ids: Vec<uuid::Uuid>,
+) -> Result<GenerateVideoRequest> {
     let quality = args
         .quality
         .as_deref()
@@ -813,17 +1056,18 @@ async fn video(mut args: VideoArgs, ctx: &CommandContext) -> Result<()> {
         .map_err(|e| anyhow::anyhow!("--quality: {e}"))?;
     let negative_prompt = args
         .negative_prompt
+        .clone()
         .map(GenerateVideoRequestNegativePrompt::try_from)
         .transpose()
         .map_err(|e| anyhow::anyhow!("--negative-prompt: {e}"))?;
     let motion_id = args
         .motion
+        .clone()
         .map(GenerateVideoRequestMotionId::try_from)
         .transpose()
         .map_err(|e| anyhow::anyhow!("--motion: {e}"))?;
-    let identity_requested = args.character_id.is_some();
     let mut builder = GenerateVideoRequest::builder()
-        .model(args.model)
+        .model(args.model.clone())
         .prompt(prompt)
         .negative_prompt(negative_prompt)
         .image_url(image_url)
@@ -850,10 +1094,10 @@ async fn video(mut args: VideoArgs, ctx: &CommandContext) -> Result<()> {
         // default when there are not (NOL-342).
         .duration_seconds(args.duration_seconds);
     if !args.video_refs.is_empty() {
-        builder = builder.video_asset_ids(Some(args.video_refs));
+        builder = builder.video_asset_ids(Some(args.video_refs.clone()));
     }
     if !args.elements.is_empty() {
-        builder = builder.element_asset_ids(Some(args.elements));
+        builder = builder.element_asset_ids(Some(args.elements.clone()));
     }
     if let Some(task) = args.video_task.as_deref() {
         let task: nolgia_client::types::VideoTaskInner = task.parse().map_err(|_| {
@@ -877,23 +1121,97 @@ async fn video(mut args: VideoArgs, ctx: &CommandContext) -> Result<()> {
     if !audio_asset_ids.is_empty() {
         builder = builder.audio_asset_ids(Some(audio_asset_ids));
     }
-    let body: GenerateVideoRequest = builder.try_into().context("building video request")?;
-    let job = match ctx.client().generate_video().body(body).send().await {
-        Ok(response) => response.into_inner(),
-        Err(err) => {
-            return Err(super::submit_error(err, "submitting video job", "nolgia gen video").await);
-        }
+    builder.try_into().context("building video request")
+}
+
+/// The server's free quote (`POST /jobs/cost`) for the body this `gen video`
+/// run would send, without uploading anything. Asset UUIDs go as the run
+/// sends them (an --input UUID as its fresh signed URL). A local file would
+/// have to be uploaded first, which a quote does not do: that, or a route
+/// that cannot answer, is the `Err` reason the catalog fallback prints.
+async fn quote_video_request(
+    args: &VideoArgs,
+    prompt: String,
+    shots: Option<Vec<VideoShot>>,
+    ctx: &CommandContext,
+) -> Result<std::result::Result<nolgia_client::types::JobCostQuote, String>> {
+    let local: Vec<&str> = args
+        .input
+        .iter()
+        .chain(args.end_frame.iter())
+        .chain(args.audio_refs.iter())
+        .map(String::as_str)
+        .filter(|input| Path::new(input).exists())
+        .collect();
+    if !local.is_empty() {
+        return Ok(Err(format!(
+            "a quote uploads nothing, so {} cannot be sent: pass asset UUIDs (`nolgia assets \
+             upload`) for the server's figure",
+            local.join(", ")
+        )));
+    }
+    let image_url = match args.input.as_deref() {
+        Some(input) => Some(resolve_input_image(input, ctx).await?),
+        None => None,
     };
-    let wait = args.wait && !args.no_wait;
-    deliver_video_job(
-        job.id,
-        wait,
-        args.timeout,
-        args.out,
-        identity_requested,
-        ctx,
+    let end_image_asset_id = match args.end_frame.as_deref() {
+        Some(end_frame) => Some(resolve_end_frame(end_frame, ctx).await?),
+        None => None,
+    };
+    let mut audio_asset_ids = Vec::with_capacity(args.audio_refs.len());
+    for audio_ref in &args.audio_refs {
+        audio_asset_ids.push(resolve_audio_reference(audio_ref, ctx).await?);
+    }
+    let body = video_request(
+        args,
+        prompt,
+        shots,
+        image_url,
+        end_image_asset_id,
+        audio_asset_ids,
+    )?;
+    let mut request = super::models::job_cost_request(nolgia_client::types::JobCostKind::Video);
+    request.video = Some(body);
+    Ok(
+        match super::models::server_quote(ctx, request, "quoting the video request").await? {
+            super::models::ServerQuote::Quoted(quote) => Ok(*quote),
+            super::models::ServerQuote::Unavailable(reason) => {
+                Err(format!("the server's quote was unavailable ({reason})"))
+            }
+        },
     )
-    .await
+}
+
+/// `gen video --cost-only`'s line for a server quote: the figure the submit
+/// holds, the length and tier the server priced, and its warnings.
+fn video_server_quote_line(quote: &nolgia_client::types::JobCostQuote, duration: u64) -> String {
+    let seconds = quote
+        .duration_seconds
+        .and_then(|s| u64::try_from(s).ok())
+        .unwrap_or(duration);
+    let tier = quote
+        .quality
+        .as_deref()
+        .map(|tier| format!(", {tier}"))
+        .unwrap_or_default();
+    format!(
+        "{} credits ({}, {seconds}s{tier}, with reference video, server quote){}",
+        quote.credits,
+        quote.model,
+        super::models::quote_warnings(quote)
+    )
+}
+
+/// The catalog's figure when the server's quote could not be had, saying so
+/// on the price line itself (a warning below it stays below it).
+fn catalog_fallback_line(quote: &str, reason: &str) -> String {
+    let (line, rest) = quote.split_once('\n').unwrap_or((quote, ""));
+    let rest = if rest.is_empty() {
+        String::new()
+    } else {
+        format!("\n{rest}")
+    };
+    format!("{line}; the catalog's figure, not the server's: {reason}{rest}")
 }
 
 /// The shared tail of every `gen video` lane: print the job id and return
@@ -1206,6 +1524,27 @@ async fn audio(args: AudioArgs, ctx: &CommandContext) -> Result<()> {
         .project_id(args.project_id)
         .try_into()
         .context("building audio request")?;
+    if args.cost_only {
+        let mut request = super::models::job_cost_request(nolgia_client::types::JobCostKind::Audio);
+        request.audio = Some(body);
+        match super::models::server_quote(ctx, request, "quoting the audio request").await? {
+            super::models::ServerQuote::Quoted(quote) => println!(
+                "{} credits ({}{}, server quote){}",
+                quote.credits,
+                quote.model,
+                quote
+                    .duration_seconds
+                    .map(|s| format!(", {s}s"))
+                    .unwrap_or_default(),
+                super::models::quote_warnings(&quote)
+            ),
+            super::models::ServerQuote::Unavailable(reason) => println!(
+                "audio credit quote unavailable: the server's quote could not be read \
+                 ({reason}). No job submitted; per-model prices: `nolgia models get <model>`."
+            ),
+        }
+        return Ok(());
+    }
     // Audio was the one modality that never went through the RFC 7807 helper,
     // so every server refusal here — including the new duplicate `409` — came
     // out as progenitor's raw `Unexpected Response` debug dump.

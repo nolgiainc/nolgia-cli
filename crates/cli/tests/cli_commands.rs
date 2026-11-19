@@ -1919,6 +1919,13 @@ async fn gen_video_cost_only_prices_quality_tier() {
     .stdout(predicate::str::contains("1556 credits"));
 }
 
+/// What `gen video --cost-only` adds to the catalog's figure when the server's
+/// quote cannot be had: these catalog tests mount no `POST /jobs/cost`, so the
+/// route answers like a server without it (404, no problem body), and the
+/// catalog arithmetic is the fallback, said on the line.
+const FALLBACK: &str =
+    "; the catalog's figure, not the server's: the server's quote was unavailable (404 Not Found)";
+
 /// Seedance 2.5 as the live catalog publishes it (2026-11-19): a request
 /// carrying reference video is priced at `video_input_credits`, per tier.
 async fn mount_video_input_models(api: &MockServer) {
@@ -1970,12 +1977,12 @@ async fn gen_video_cost_only_prices_a_reference_video_at_the_video_input_rate() 
     mount_video_input_models(&api).await;
     mount_reference_clip(&api, 5.04).await;
     let with_clip = ["--video-ref", ASSET_ID];
-    run_ok(&api, &quote_args("720p", "5", &with_clip)).stdout(predicate::str::diff(
-        "78 credits (seedance-2.5, 5s, 720p, with reference video)\n",
-    ));
-    run_ok(&api, &quote_args("1080p", "5", &with_clip)).stdout(predicate::str::diff(
-        "191 credits (seedance-2.5, 5s, 1080p, with reference video)\n",
-    ));
+    run_ok(&api, &quote_args("720p", "5", &with_clip)).stdout(predicate::str::diff(format!(
+        "78 credits (seedance-2.5, 5s, 720p, with reference video){FALLBACK}\n"
+    )));
+    run_ok(&api, &quote_args("1080p", "5", &with_clip)).stdout(predicate::str::diff(format!(
+        "191 credits (seedance-2.5, 5s, 1080p, with reference video){FALLBACK}\n"
+    )));
     run_ok(&api, &quote_args("720p", "5", &[])).stdout(predicate::str::diff(
         "66 credits (seedance-2.5, 5s, 720p)\n",
     ));
@@ -1996,9 +2003,9 @@ async fn gen_video_cost_only_prices_a_reference_video_at_the_video_input_rate() 
             "--cost-only",
         ],
     )
-    .stdout(predicate::str::diff(
-        "156 credits (seedance-2.5, 10s, with reference video)\n",
-    ));
+    .stdout(predicate::str::diff(format!(
+        "156 credits (seedance-2.5, 10s, with reference video){FALLBACK}\n"
+    )));
 }
 
 /// A reference longer than the render. On a reference run over one clip the
@@ -2012,7 +2019,9 @@ async fn gen_video_cost_only_counts_a_reference_longer_than_the_render() {
     mount_video_input_models(&api).await;
     mount_reference_clip(&api, 12.4).await;
     run_ok(&api, &quote_args("720p", "5", &["--video-ref", ASSET_ID])).stdout(
-        predicate::str::diff("78 credits (seedance-2.5, 5s, 720p, with reference video)\n"),
+        predicate::str::diff(format!(
+            "78 credits (seedance-2.5, 5s, 720p, with reference video){FALLBACK}\n"
+        )),
     );
     run_ok(
         &api,
@@ -2022,9 +2031,9 @@ async fn gen_video_cost_only_counts_a_reference_longer_than_the_render() {
             &["--video-ref", ASSET_ID, "--video-task", "extend"],
         ),
     )
-    .stdout(predicate::str::diff(
-        "188 credits at most (seedance-2.5, 5s, 720p, with 12s of reference video)\n",
-    ));
+    .stdout(predicate::str::diff(format!(
+        "188 credits at most (seedance-2.5, 5s, 720p, with 12s of reference video){FALLBACK}\n"
+    )));
     run_ok(
         &api,
         &quote_args(
@@ -2033,9 +2042,9 @@ async fn gen_video_cost_only_counts_a_reference_longer_than_the_render() {
             &["--video-ref", ASSET_ID, "--video-task", "edit"],
         ),
     )
-    .stdout(predicate::str::diff(
-        "87 credits (seedance-2.5, 12s, 480p, with reference video)\n",
-    ));
+    .stdout(predicate::str::diff(format!(
+        "87 credits (seedance-2.5, 12s, 480p, with reference video){FALLBACK}\n"
+    )));
 }
 
 /// A model that publishes no `video_input_credits` quotes a run with a clip
@@ -2064,8 +2073,408 @@ async fn gen_video_cost_only_without_a_video_input_rate_is_unchanged() {
         ],
     )
     .stdout(predicate::str::diff(format!(
-        "360 credits ({R2V_MODEL}, 5s, 1080p)\n"
+        "360 credits ({R2V_MODEL}, 5s, 1080p){FALLBACK}\n"
     )));
+}
+
+/// A `POST /jobs/cost` answer: the figure the server's submit path would hold.
+fn cost_quote(kind: &str, model: &str, credits: i64, extra: serde_json::Value) -> ResponseTemplate {
+    let mut quote = json!({
+        "kind": kind, "model": model, "credits": credits, "basis": "one_generation",
+        "settings": [], "confirmation_token": "tok", "expires_at": "2099-01-01T00:00:00Z",
+        "sufficient_credits": true
+    });
+    for (key, value) in extra.as_object().unwrap() {
+        quote[key] = value.clone();
+    }
+    ResponseTemplate::new(200).set_body_json(quote)
+}
+
+async fn mount_cost_quote(api: &MockServer, response: ResponseTemplate) {
+    Mock::given(method("POST"))
+        .and(path("/v1/jobs/cost"))
+        .respond_with(response)
+        .mount(api)
+        .await;
+}
+
+/// The bodies sent to `POST /jobs/cost`, after checking that the command
+/// only read and quoted: nothing uploaded, nothing submitted.
+async fn cost_bodies(api: &MockServer) -> Vec<serde_json::Value> {
+    let requests = api.received_requests().await.unwrap();
+    let paths: Vec<String> = requests.iter().map(|r| r.url.path().to_string()).collect();
+    assert!(
+        requests
+            .iter()
+            .all(|r| r.method == "GET" || r.url.path() == "/v1/jobs/cost"),
+        "{paths:?}"
+    );
+    requests
+        .iter()
+        .filter(|r| r.method == "POST")
+        .map(|r| serde_json::from_slice(&r.body).unwrap())
+        .collect()
+}
+
+/// A run carrying video is priced by the server's free quote, on the body the
+/// run would send. Two 5 s clips on a 5 s 720p Seedance 2.5 render: the
+/// server charges 125 (it counts the clips at a coverage the catalog does not
+/// publish), where the catalog can only say "156 at most".
+#[tokio::test]
+async fn gen_video_cost_only_with_video_prints_the_servers_quote() {
+    let api = MockServer::start().await;
+    mount_video_input_models(&api).await;
+    mount_reference_clip(&api, 5.04).await;
+    mount_cost_quote(
+        &api,
+        cost_quote(
+            "video",
+            "seedance-2.5",
+            125,
+            json!({"duration_seconds": 5, "quality": "720p"}),
+        ),
+    )
+    .await;
+    run_ok(
+        &api,
+        &quote_args(
+            "720p",
+            "5",
+            &["--video-ref", ASSET_ID, "--video-ref", ASSET_ID],
+        ),
+    )
+    .stdout(predicate::str::diff(
+        "125 credits (seedance-2.5, 5s, 720p, with reference video, server quote)\n",
+    ));
+    let bodies = cost_bodies(&api).await;
+    assert_eq!(bodies.len(), 1);
+    assert_eq!(bodies[0]["kind"], "video");
+    let video = &bodies[0]["video"];
+    assert_eq!(video["model"], "seedance-2.5");
+    assert_eq!(video["quality"], "720p");
+    assert_eq!(video["duration_seconds"], 5);
+    assert_eq!(video["video_asset_ids"], json!([ASSET_ID, ASSET_ID]));
+}
+
+/// An extend, an edit and a 4k render are the server's figure too, with the
+/// length and tier it priced and its warnings under the price.
+#[tokio::test]
+async fn gen_video_cost_only_extend_quotes_the_server_with_its_warnings() {
+    let api = MockServer::start().await;
+    mount_video_input_models(&api).await;
+    mount_reference_clip(&api, 12.4).await;
+    mount_cost_quote(
+        &api,
+        cost_quote(
+            "video",
+            "seedance-2.5",
+            156,
+            json!({"duration_seconds": 4, "quality": "720p",
+                   "warnings": ["The clip is extended from its last frame."]}),
+        ),
+    )
+    .await;
+    run_ok(
+        &api,
+        &quote_args(
+            "720p",
+            "4",
+            &["--video-ref", ASSET_ID, "--video-task", "extend"],
+        ),
+    )
+    .stdout(predicate::str::diff(
+        "156 credits (seedance-2.5, 4s, 720p, with reference video, server quote)\n\
+         warning: The clip is extended from its last frame.\n",
+    ));
+    let bodies = cost_bodies(&api).await;
+    assert_eq!(bodies[0]["video"]["video_task"], "extend");
+}
+
+/// The server refusing the request is the run's own refusal, so it is an
+/// error in the server's words rather than a catalog figure for a run that
+/// cannot happen.
+#[tokio::test]
+async fn gen_video_cost_only_surfaces_the_servers_refusal() {
+    let api = MockServer::start().await;
+    mount_video_input_models(&api).await;
+    mount_reference_clip(&api, 40.0).await;
+    mount_cost_quote(
+        &api,
+        ResponseTemplate::new(400).set_body_json(json!({
+            "title": "Bad Request", "status": 400,
+            "detail": "seedance-2.5 takes at most 30 s of reference video"
+        })),
+    )
+    .await;
+    cmd()
+        .arg("--api-url")
+        .arg(api.uri())
+        .args(quote_args("720p", "5", &["--video-ref", ASSET_ID]))
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("at most 30 s of reference video"));
+}
+
+/// When the route cannot answer (a server error here) the catalog's figure is
+/// printed, and the line says it is not the server's.
+#[tokio::test]
+async fn gen_video_cost_only_falls_back_to_the_catalog_and_says_so() {
+    let api = MockServer::start().await;
+    mount_video_input_models(&api).await;
+    mount_reference_clip(&api, 5.04).await;
+    mount_cost_quote(&api, ResponseTemplate::new(500)).await;
+    run_ok(&api, &quote_args("720p", "5", &["--video-ref", ASSET_ID])).stdout(
+        predicate::str::diff(
+            "78 credits (seedance-2.5, 5s, 720p, with reference video); the catalog's figure, \
+             not the server's: the server's quote was unavailable (500 Internal Server Error)\n",
+        ),
+    );
+    // A local file would have to be uploaded to be quoted: a quote uploads
+    // nothing, so it is the catalog's figure, saying why.
+    let api = MockServer::start().await;
+    mount_video_input_models(&api).await;
+    mount_reference_clip(&api, 5.04).await;
+    let dir = tempfile::tempdir().unwrap();
+    let start = dir.path().join("start.png");
+    std::fs::write(&start, b"png").unwrap();
+    let start = start.to_str().unwrap();
+    run_ok(
+        &api,
+        &quote_args("720p", "5", &["--video-ref", ASSET_ID, "--input", start]),
+    )
+    .stdout(predicate::str::contains(format!(
+        "78 credits (seedance-2.5, 5s, 720p, with reference video); the catalog's figure, not \
+         the server's: a quote uploads nothing, so {start} cannot be sent"
+    )));
+    assert!(cost_bodies(&api).await.is_empty());
+}
+
+/// `gen image --cost-only` is the server's quote for the request the run
+/// would send, asset UUIDs as they will be sent.
+#[tokio::test]
+async fn gen_image_cost_only_prints_the_servers_quote() {
+    let api = MockServer::start().await;
+    mount_cost_quote(
+        &api,
+        cost_quote("image", "gpt-image-2.5-flare", 21, json!({"quality": "2k"})),
+    )
+    .await;
+    run_ok(
+        &api,
+        &[
+            "gen",
+            "image",
+            "--model",
+            "gpt-image-2.5-flare",
+            "--prompt",
+            "x",
+            "--input",
+            ASSET_ID,
+            "--reference",
+            ELEMENT_ASSET_ID,
+            "--cost-only",
+        ],
+    )
+    .stdout(predicate::str::diff(
+        "21 credits (gpt-image-2.5-flare, 2k, server quote)\n",
+    ));
+    let bodies = cost_bodies(&api).await;
+    assert_eq!(bodies[0]["kind"], "image");
+    assert_eq!(bodies[0]["image"]["model"], "gpt-image-2.5-flare");
+    assert_eq!(
+        bodies[0]["image"]["reference_asset_ids"],
+        json!([ASSET_ID, ELEMENT_ASSET_ID])
+    );
+}
+
+/// `auto` is priced on the model the server picks for this request, named.
+#[tokio::test]
+async fn gen_image_cost_only_on_auto_names_the_model_it_picks() {
+    let api = MockServer::start().await;
+    mount_cost_quote(
+        &api,
+        cost_quote("image", "gpt-image-2.6-flare", 11, json!({})),
+    )
+    .await;
+    run_ok(
+        &api,
+        &["gen", "image", "--prompt", "a red apple", "--cost-only"],
+    )
+    .stdout(predicate::str::diff(
+        "11 credits (auto picks gpt-image-2.6-flare, server quote)\n",
+    ));
+    assert_eq!(cost_bodies(&api).await[0]["image"]["model"], "auto");
+}
+
+/// A local picture is not uploaded for a quote. On a named model it is counted
+/// on a stand-in URL (its content changes no price). Where its unseen shape
+/// can change the price (auto with no --aspect-ratio, an upscale decided by
+/// the shape) or it is a mask, the quote asks for its asset id instead of
+/// printing a figure that could be low.
+#[tokio::test]
+async fn gen_image_cost_only_counts_a_local_picture_unseen_or_asks_for_its_id() {
+    let dir = tempfile::tempdir().unwrap();
+    let photo = dir.path().join("photo.png");
+    std::fs::write(&photo, b"png").unwrap();
+    let photo = photo.to_str().unwrap();
+    // A mask that passes the CLI's own PNG-with-alpha check (a 1x1 RGBA IHDR).
+    let mask = dir.path().join("mask.png");
+    let mut png = b"\x89PNG\r\n\x1a\n\x00\x00\x00\x0dIHDR".to_vec();
+    png.extend([0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0]);
+    std::fs::write(&mask, png).unwrap();
+    let mask = mask.to_str().unwrap();
+
+    let api = MockServer::start().await;
+    mount_cost_quote(
+        &api,
+        cost_quote("image", "seedream-5.5", 3, json!({"quality": "2k"})),
+    )
+    .await;
+    run_ok(
+        &api,
+        &[
+            "gen",
+            "image",
+            "--model",
+            "seedream-5.5",
+            "--prompt",
+            "x",
+            "--input",
+            photo,
+            "--cost-only",
+        ],
+    )
+    .stdout(predicate::str::diff(
+        "3 credits (seedream-5.5, 2k, server quote, local files counted unseen)\n",
+    ));
+    let bodies = cost_bodies(&api).await;
+    assert!(
+        bodies[0]["image"]["image_url"]
+            .as_str()
+            .unwrap()
+            .starts_with("https://quote.nolgia.invalid/")
+    );
+    assert_eq!(
+        bodies[0]["image"]["reference_asset_ids"]
+            .as_array()
+            .map_or(0, Vec::len),
+        0
+    );
+    // With --aspect-ratio the shape is named, so auto is quoted too.
+    run_ok(
+        &api,
+        &[
+            "gen",
+            "image",
+            "--prompt",
+            "x",
+            "--input",
+            photo,
+            "--aspect-ratio",
+            "1:1",
+            "--cost-only",
+        ],
+    )
+    .stdout(predicate::str::contains(
+        "3 credits (auto picks seedream-5.5",
+    ));
+
+    for (args, refusal) in [
+        (
+            vec!["--input", photo],
+            "`auto` picks the model by the shape of the picture it edits",
+        ),
+        (
+            vec![
+                "--model",
+                "gpt-image-2.5-flare",
+                "--input",
+                ASSET_ID,
+                "--mask",
+                mask,
+            ],
+            "the API takes a mask by asset id only",
+        ),
+    ] {
+        let api = MockServer::start().await;
+        let mut command = vec!["gen", "image", "--prompt", "x", "--cost-only"];
+        command.extend(args);
+        cmd()
+            .arg("--api-url")
+            .arg(api.uri())
+            .args(&command)
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains(refusal))
+            .stderr(predicate::str::contains("nolgia assets upload"));
+        assert!(cost_bodies(&api).await.is_empty());
+    }
+
+    let api = MockServer::start().await;
+    mount_cost_quote(
+        &api,
+        cost_quote(
+            "image",
+            "gpt-image-2.5-flare",
+            8,
+            json!({"quality": "2k", "settings": [
+                {"label": "Upscale", "value": "none: already 2048 px, meets 2K"}]}),
+        ),
+    )
+    .await;
+    cmd()
+        .arg("--api-url")
+        .arg(api.uri())
+        .args([
+            "gen",
+            "image",
+            "--model",
+            "gpt-image-2.5-flare",
+            "--prompt",
+            "x",
+            "--input",
+            photo,
+            "--cost-only",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "whether this tier is an upscale or the native render depends on the shape",
+        ));
+}
+
+/// No figure is made up when the route cannot answer.
+#[tokio::test]
+async fn gen_image_cost_only_without_the_route_submits_nothing() {
+    let api = MockServer::start().await;
+    run_ok(&api, &["gen", "image", "--prompt", "x", "--cost-only"])
+        .stdout(predicate::str::contains("image credit quote unavailable"))
+        .stdout(predicate::str::contains("No job submitted"));
+    assert_eq!(cost_bodies(&api).await.len(), 1);
+}
+
+#[tokio::test]
+async fn gen_audio_cost_only_prints_the_servers_quote() {
+    let api = MockServer::start().await;
+    mount_cost_quote(&api, cost_quote("audio", "elevenlabs-v3", 4, json!({}))).await;
+    run_ok(
+        &api,
+        &[
+            "gen",
+            "audio",
+            "--model",
+            "elevenlabs-v3",
+            "--prompt",
+            "hello",
+            "--cost-only",
+        ],
+    )
+    .stdout(predicate::str::diff(
+        "4 credits (elevenlabs-v3, server quote)\n",
+    ));
+    let bodies = cost_bodies(&api).await;
+    assert_eq!(bodies[0]["kind"], "audio");
+    assert_eq!(bodies[0]["audio"]["prompt"], "hello");
 }
 
 /// Owner, 2026-11-07: Veo is no longer offered. The catalog no longer lists the
