@@ -3,7 +3,7 @@
 Release notes for the Nolgia CLI. Each `## vX.Y.Z` section becomes the body of
 the matching GitHub release.
 
-## Unreleased
+## v0.3.8
 
 - **Every `gen video --cost-only` is the server's figure, with or without
   a clip.** A request with no clip is now priced by the same free quote
