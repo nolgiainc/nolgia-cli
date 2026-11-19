@@ -3,7 +3,7 @@
 Release notes for the Nolgia CLI. Each `## vX.Y.Z` section becomes the body of
 the matching GitHub release.
 
-## Unreleased
+## v0.3.7
 
 - **`gen video --cost-only` prices a run with a reference video at the
   rate it is charged.** A request with `--video-ref` on a model that
