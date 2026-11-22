@@ -17993,6 +17993,13 @@ components:
         letterbox_16x9:
           type: boolean
           description: On a graded copy, it sits on a black 16:9 canvas.
+        trim_from_top:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+          description: >-
+            On a graded copy whose crop was placed by hand: the share of the trimmed height cut from the top (0 keeps the top edge, 1 the bottom edge). Absent when the frame's shot size placed it.
     AssetSource:
       type: object
       additionalProperties: false
