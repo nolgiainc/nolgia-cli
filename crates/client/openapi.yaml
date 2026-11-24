@@ -48,6 +48,8 @@ tags:
     description: User-owned reusable subjects (name, description, reference images) for generation.
   - name: Voices
     description: Custom voices cloned from your own recordings with ElevenLabs Instant Voice Cloning, spoken on POST /generate/audio by every model whose `audio.custom_voices` is true.
+  - name: Sounds
+    description: NOLGIA's Sound Library, its own index of recorded sounds gathered from open archives, each with its licence and the credit it needs; search it and add a sound to your Library as an audio asset.
   - name: Bridge
     description: >-
       Connect NOLGIA to desktop apps on your computer (Blender first). A NOLGIA plugin inside the app signs in and picks up commands; you or your agent send them here or through the NOLGIA MCP server (nolgia_app_status, nolgia_app_run and the other app tools). Commands are free. Only your own credentials reach your apps, so an organization API key is refused with 403 `organization_key_not_allowed`.
@@ -4236,6 +4238,146 @@ paths:
         '409':
           $ref: '#/components/responses/ProblemResponse'
         '422':
+          $ref: '#/components/responses/ProblemResponse'
+        '502':
+          $ref: '#/components/responses/ProblemResponse'
+        '503':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /sounds/library:
+    get:
+      tags: [Sounds]
+      operationId: searchSoundLibrary
+      summary: Search NOLGIA's Sound Library for a recorded sound.
+      description: |
+        Searches NOLGIA's own index of recorded sounds, gathered from open
+        archives. Every sound has a `preview_url` to hear and a licence that
+        allows use in a published commercial video; `credit_line` is the
+        credit a video that uses it owes, present only when the licence
+        needs one (`licence.credit_required`). Add a sound to the Library
+        with POST /sounds/library/{id}/save. Free and read-only.
+
+        Search with the words a sound recordist labels a file with: the
+        object, the action, the material, the place ("wooden door creak slow
+        interior"). Words in quotes match as a phrase, and a word or a quoted
+        phrase after `-` leaves out every sound that has it ("door creak
+        -metal"). When fewer than a page of sounds match every word, the
+        page holds sounds that match any of the six longest words, the most
+        words first, still without the left-out words, and `relaxed` is
+        true. A `query` made only of left-out words answers 400. No `query`
+        lists popular sounds. `library` says how many sounds the library
+        holds, in all and per source.
+
+        Answers 404 while NOLGIA has the Sound Library switched off.
+      parameters:
+        - {name: query, in: query, required: false, schema: {type: string, maxLength: 200}, description: Words to match in the sound's name, tags and description.: ''}
+        - {name: min_seconds, in: query, required: false, schema: {type: number, format: double, minimum: 0, maximum: 3600}, description: Shortest length to list, in seconds (an ambience or room tone).: ''}
+        - {name: max_seconds, in: query, required: false, schema: {type: number, format: double, minimum: 0, maximum: 3600}, description: Longest length to list, in seconds (a hit or a whoosh).: ''}
+        - {name: credit, in: query, required: false, schema: {type: string, enum: [any, none], default: any, x-enum-varnames: [SoundLibraryCreditAny, SoundLibraryCreditNone]}, description: '`none` lists only sounds that need no credit.'}
+        - {name: source, in: query, required: false, schema: {type: string, maxLength: 40}, description: 'A source id from `library.sources`, for example `freesound` or `wikimedia`.'}
+        - {name: category, in: query, required: false, schema: {type: string, maxLength: 60}}
+        - {name: sort, in: query, required: false, schema: {type: string, enum: [relevance, popular, shortest, longest], default: relevance, x-enum-varnames: [SoundLibrarySortRelevance, SoundLibrarySortPopular, SoundLibrarySortShortest, SoundLibrarySortLongest]}}
+        - {name: page, in: query, required: false, schema: {type: integer, minimum: 0, maximum: 1000, default: 0}}
+        - {name: page_size, in: query, required: false, schema: {type: integer, minimum: 1, maximum: 50, default: 20}}
+      responses:
+        '200':
+          description: One page of matching sounds.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SoundLibraryPage'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '503':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /sounds/library/{id}:
+    get:
+      tags: [Sounds]
+      operationId: getLibrarySound
+      summary: Read one sound of the Sound Library.
+      description: |
+        One sound with its whole description. Answers 404 for a sound that
+        was removed, and while NOLGIA has the Sound Library switched off.
+      parameters:
+        - $ref: '#/components/parameters/SoundLibraryId'
+      responses:
+        '200':
+          description: The sound.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SoundLibrarySound'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '503':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /sounds/library/{id}/save:
+    post:
+      tags: [Sounds]
+      operationId: saveLibrarySound
+      summary: Add a sound from the Sound Library to the Library.
+      description: |
+        Fetches the sound's file from its source and keeps it, as it is, in
+        the caller's Library as an audio asset named after the sound and tagged
+        `sound-library` and with its source id, so it can be placed on a
+        timeline like any other audio. Before the asset is ready, ffmpeg
+        lists the file's streams and decodes its audio: a file with a video
+        stream, or with no audio that decodes, is refused (502) and nothing
+        is added. The answer carries the `credit_line` the video owes, when
+        the licence needs one. Adding the same sound again answers the asset
+        it already became (201 the first time, 200 after), unless that
+        asset was deleted; two requests for the same sound at once fetch it
+        once and answer the same asset (409 if the first takes too long).
+        Free; at most 300 files fetched a UTC day per account (429 after
+        that). Each fetch counts, and deleting what was added does not give
+        one back.
+
+        Answers 404 while NOLGIA has the Sound Library switched off.
+      parameters:
+        - $ref: '#/components/parameters/SoundLibraryId'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SoundLibrarySaveRequest'
+      responses:
+        '200':
+          description: The sound was already in the Library; the asset it became.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SoundLibrarySave'
+        '201':
+          description: The sound, now an audio asset in the Library.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SoundLibrarySave'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        '422':
+          $ref: '#/components/responses/ProblemResponse'
+        '429':
           $ref: '#/components/responses/ProblemResponse'
         '502':
           $ref: '#/components/responses/ProblemResponse'
@@ -12091,6 +12233,16 @@ components:
       bearerFormat: PAT
       description: Personal Access Token (prefix `nol_`) for CLI and MCP clients.
   parameters:
+    SoundLibraryId:
+      name: id
+      in: path
+      required: true
+      description: 'A sound''s id: an opaque id, pass back exactly what search returned.'
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+        pattern: '^[A-Za-z0-9_.:-]+$'
     PlanTrialDoor:
       name: door
       in: query
@@ -18746,6 +18898,146 @@ components:
           type: boolean
         page:
           type: integer
+    SoundLibraryLicence:
+      type: object
+      additionalProperties: false
+      required: [id, name, url, credit_required]
+      description: The licence a sound is used under. Only licences that allow use in a published commercial video are in the library.
+      properties:
+        id:
+          type: string
+          description: '`cc0`, `public-domain`, `cc-by-4.0`, `cc-by-3.0` or `nolgia`.'
+        name:
+          type: string
+        url:
+          type: string
+          description: The licence's text.
+        credit_required:
+          type: boolean
+          description: A video that uses the sound must credit it with the sound's `credit_line`.
+    SoundLibrarySoundSource:
+      type: object
+      additionalProperties: false
+      required: [id, name]
+      description: Where a sound comes from.
+      properties:
+        id:
+          type: string
+          description: The source's id, as the `source` filter takes it.
+        name:
+          type: string
+        url:
+          type: string
+          description: The sound's own page at its source.
+    SoundLibrarySound:
+      type: object
+      additionalProperties: false
+      required: [id, name, description, tags, duration_seconds, preview_url, licence, source]
+      description: One recorded sound of the Sound Library.
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^[A-Za-z0-9_.:-]+$'
+          description: 'An opaque id: pass back exactly what search returned.'
+        name:
+          type: string
+        description:
+          type: string
+          description: In a search, the first 300 characters; whole on GET /sounds/library/{id}.
+        tags:
+          type: array
+          description: In a search, at most 12.
+          items:
+            type: string
+        duration_seconds:
+          type: number
+          format: double
+        format:
+          type: string
+          description: The file's format at its source, for example `wav`, `flac` or `ogg`.
+        sample_rate:
+          type: integer
+        channels:
+          type: integer
+        preview_url:
+          type: string
+          description: Where to hear the sound before using it.
+        licence:
+          $ref: '#/components/schemas/SoundLibraryLicence'
+        credit_line:
+          type: string
+          description: The credit a video that uses the sound owes, present only when the licence needs one.
+        source:
+          $ref: '#/components/schemas/SoundLibrarySoundSource'
+    SoundLibrarySourceCount:
+      type: object
+      additionalProperties: false
+      required: [id, name, sounds]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        sounds:
+          type: integer
+          format: int64
+    SoundLibrarySize:
+      type: object
+      additionalProperties: false
+      required: [sounds, sources]
+      description: How many sounds the library holds, counted at most every ten minutes.
+      properties:
+        sounds:
+          type: integer
+          format: int64
+        sources:
+          type: array
+          items:
+            $ref: '#/components/schemas/SoundLibrarySourceCount'
+    SoundLibraryPage:
+      type: object
+      additionalProperties: false
+      required: [sounds, page, has_more, relaxed, library]
+      properties:
+        sounds:
+          type: array
+          items:
+            $ref: '#/components/schemas/SoundLibrarySound'
+        page:
+          type: integer
+        has_more:
+          type: boolean
+        relaxed:
+          type: boolean
+          description: Fewer than a page of sounds matched every word, so this page holds sounds that match any word, the most words first.
+        library:
+          $ref: '#/components/schemas/SoundLibrarySize'
+    SoundLibrarySaveRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        project_id:
+          type: string
+          format: uuid
+          description: A project of the caller's to file the asset in; omitted, the asset lands in the Library.
+    SoundLibrarySave:
+      type: object
+      additionalProperties: false
+      required: [asset_id, asset, sound]
+      properties:
+        asset_id:
+          type: string
+          format: uuid
+          description: The audio asset to place on a timeline.
+        asset:
+          $ref: '#/components/schemas/Asset'
+        sound:
+          $ref: '#/components/schemas/SoundLibrarySound'
+        credit_line:
+          type: string
+          description: The credit a video that uses the sound owes; carry it into the delivery note. Absent when none is needed.
     DesignVoiceRequest:
       type: object
       additionalProperties: false
