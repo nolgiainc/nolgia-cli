@@ -20568,7 +20568,7 @@ components:
       type: object
       additionalProperties: false
       description: >-
-        The finish values the assembler gives a frame: the shape to crop to, whether the shape is shown letterboxed, the exposure, the film grade, the texture strengths, and the camera, lens and video effects of the film maker's own picks. Keys keep the assembler's order.
+        The finish values the assembler gives a frame: the shape to crop to, whether the shape is shown letterboxed, the exposure, the film grade, the texture strengths, and the camera, lens, video and colour effects of the film maker's own picks. Keys keep the assembler's order.
       properties:
         aspect:
           type: string
@@ -20655,6 +20655,24 @@ components:
           minimum: 0
           maximum: 1
           description: 2000s MiniDV video (Capture format 2000s MiniDV picked, or a body that sets it), applied after the black point, before the textures.
+        mono:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+          description: The share of the colour taken out (Capture format Black & white film or Security camera, or Color palette Black & white picked), each pixel turned toward the grey of its own luminance, so the brightness and contrast of the grade stay. Applied after the grade, the black point and the video, before the textures, so a reference's colours, a colour stock or a look cannot bring colour back; at 1 the frame has no colour at all. A frame already black and white is left byte for byte.
+        sepia:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+          description: Sepia toning (Color palette Sepia picked) at this strength. The frame is made black and white as mono 1 does, the textures go on, then every pixel takes one warm brown at its own luminance, paler toward white.
+        wash:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+          description: A single-hue wash (Color palette Single hue picked) at this strength. The colour the graded frame leans to is measured first (the peak of its colours, weighted by how strong each is), the frame is made black and white as mono 1 does, the textures go on, then every pixel takes that one colour at its own luminance. A frame with almost no colour is left as it is.
     SavedStyleList:
       type: object
       additionalProperties: false
