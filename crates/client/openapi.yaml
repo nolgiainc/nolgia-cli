@@ -20589,6 +20589,18 @@ components:
           type: string
           nullable: true
           description: The NOLGIA colour preset slug of the film grade; null for no grade.
+        black_point:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 0.25
+          description: The level (0 to 1) the frame's darkest 1% is pulled down to, after the grade and before the texture, with a toe that leaves the middle and the highlights where they are. Absent leaves the frame's blacks as generated. The assembler writes it from the look (the black level of the look's board pictures).
+        shadow_floor:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 0.25
+          description: With black_point, the level (0 to 1) the frame's darkest 5% is never pulled under, so a frame that is dark all over is not crushed. Absent sets no limit. The assembler writes it from the look (the level of the darkest 5% of the look's board pictures).
         bloom:
           type: number
           format: double
