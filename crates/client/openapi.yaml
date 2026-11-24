@@ -20568,7 +20568,7 @@ components:
       type: object
       additionalProperties: false
       description: >-
-        The finish values the assembler gives a frame: the shape to crop to, whether the shape is shown letterboxed, the exposure, the film grade and the texture strengths. Keys keep the assembler's order.
+        The finish values the assembler gives a frame: the shape to crop to, whether the shape is shown letterboxed, the exposure, the film grade, the texture strengths, and the camera, lens and video effects of the film maker's own picks. Keys keep the assembler's order.
       properties:
         aspect:
           type: string
@@ -20631,6 +20631,30 @@ components:
           format: double
           minimum: 0
           maximum: 1
+        whip:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+          description: A whip pan's smear (Camera feel Whip pan picked), applied to the frame as generated, before the grade.
+        swirl:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+          description: Swirl bokeh (Lens type Swirl or Lens family Helios 44 picked), applied to the frame as generated, before the grade.
+        tape:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+          description: 1990s camcorder tape (Capture format 1990s camcorder picked, or a body that sets it), applied after the black point, before the textures.
+        dv:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+          description: 2000s MiniDV video (Capture format 2000s MiniDV picked, or a body that sets it), applied after the black point, before the textures.
     SavedStyleList:
       type: object
       additionalProperties: false
