@@ -7291,6 +7291,8 @@ paths:
           $ref: '#/components/responses/ProblemResponse'
         '409':
           $ref: '#/components/responses/ProblemResponse'
+        '503':
+          $ref: '#/components/responses/ProblemResponse'
         default:
           $ref: '#/components/responses/ProblemResponse'
     delete:
@@ -7332,6 +7334,11 @@ paths:
         files; the content type must be one of text/html, text/css,
         application/javascript, application/json, application/xml, or any
         image/*, video/*, audio/*, or font/* type.
+
+        A write that is refused (409, 403, 404, the file limit) changes
+        nothing: the stored file stays exactly as it was. When the file
+        cannot be saved at this moment the answer is 503 with `Retry-After`:
+        the file may not have been saved; send the same request again.
       parameters:
         - name: id
           in: path
@@ -7391,6 +7398,8 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         '413':
+          $ref: '#/components/responses/ProblemResponse'
+        '503':
           $ref: '#/components/responses/ProblemResponse'
         default:
           $ref: '#/components/responses/ProblemResponse'
