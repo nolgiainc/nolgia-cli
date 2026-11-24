@@ -7330,8 +7330,8 @@ paths:
         contain `.` or `..` segments, and is at most 200 characters; the
         decoded content is at most 25 MiB; a composition holds at most 200
         files; the content type must be one of text/html, text/css,
-        application/javascript, application/json, or any image/*, video/*,
-        audio/*, or font/* type.
+        application/javascript, application/json, application/xml, or any
+        image/*, video/*, audio/*, or font/* type.
       parameters:
         - name: id
           in: path
@@ -21997,7 +21997,7 @@ components:
           type: string
           minLength: 1
           maxLength: 255
-          description: 'MIME type of the file. Allowed: text/html, text/css, application/javascript, application/json, image/*, video/*, audio/*, font/*.'
+          description: 'MIME type of the file. Allowed: text/html, text/css, application/javascript, application/json, application/xml, image/*, video/*, audio/*, font/*.'
           examples: ['text/html']
     CompositionSignedUrlsRequest:
       type: object
