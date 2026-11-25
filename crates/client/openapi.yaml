@@ -22629,7 +22629,7 @@ components:
           description: The produced asset, a video for an MP4 render and an image/png for a still, set when status is succeeded.
         warnings:
           type: array
-          description: Human-readable notes about skipped/unsupported timeline nodes and per-block narration speed-up or last-frame hold.
+          description: Human-readable notes about skipped/unsupported timeline nodes and per-block narration speed-up or last-frame hold, and one sentence for each clip whose grade asks for a look's middle (`middle_level`) the cut finish could not reach within its limits, saying how far it went.
           items:
             type: string
         framing:
