@@ -25894,6 +25894,11 @@ components:
           $ref: '#/components/schemas/FreeCreditsWaiting'
         first_video_retry:
           $ref: '#/components/schemas/FirstVideoRetry'
+        first_video_retry_offered:
+          type: boolean
+          description: >
+            `true` while the one free retry of a first video (see `first_video_retry`) is still ahead for this account: NOLGIA offers it, the account has not made a video yet, and it meets every other rule (personal space, never paid, its sign-up credits earned, not on hold). A first video made on the free plan's video model then earns the retry once it finishes. Absent otherwise, including once the retry has been granted (then `first_video_retry` says so). Set on `GET /billing/credits`.
+
         buckets:
           type: array
           items:
