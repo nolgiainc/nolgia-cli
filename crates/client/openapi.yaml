@@ -18160,7 +18160,7 @@ components:
           minimum: 0
           maximum: 1
           description: >-
-            On a graded copy whose crop was placed by hand: the share of the trimmed height cut from the top (0 keeps the top edge, 1 the bottom edge). Absent when the frame's shot size placed it.
+            On a graded copy whose crop was placed by hand: the share of the trimmed height cut from the top (0 keeps the top edge, 1 the bottom edge). Absent when the post or the frame's shot size placed it.
     AssetSource:
       type: object
       additionalProperties: false
@@ -20586,10 +20586,16 @@ components:
           type: number
           format: double
           nullable: true
-          description: The width over height to centre-crop to; null for no crop.
+          description: The width over height to crop to, around the centre unless trim_from_top places the crop; null for no crop.
         letterbox:
           type: boolean
           description: The shape is wider than the generated frame and reads as letterboxed.
+        trim_from_top:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+          description: Where the crop falls when crop_to cuts the frame's height, as the share of the cut taken from the top (0 keeps the top of the frame, 1 the bottom). The assembler writes it for people, from the shot size, so the cut keeps the head. Absent, the finish places the crop where the post the frame was made with put it, else from the frame's shot size, else around the centre; a placement in the finish request wins over it.
         exposure_gamma:
           type: number
           format: double
