@@ -2340,10 +2340,21 @@ paths:
         retrieve the asset. Output is WebM/VP9 with an alpha channel, not MP4.
         Glass and other genuinely transparent materials come back opaque.
 
-        The asset (`mime_type` `video/webm`) keeps the source's frame size,
-        frame rate and length and carries no audio track. The subject is on a
-        TRANSPARENT background, not on black or green: the alpha rides as
-        VP9's alpha side channel (`ALPHA_MODE=1`, profile 0, yuv420p), so
+        The asset (`mime_type` `video/webm`) keeps the source's frame rate
+        and length. A clip stored turned (a phone's portrait video: stored
+        1920x1080 with a display rotation) is sent to the model as an upright
+        copy when it is a `source_asset_id` of up to 1920x1080 pixels (either
+        way round) and at most a minute at 60 fps, so its cut-out is upright
+        at the size players show the clip (1080x1920). A larger clip stored
+        turned (4K, or long slow motion) is sent as it is stored and may come
+        back on its side; the job's `warnings` say so. A `source_url` is
+        passed on unread, so a turned file sent that way comes back as it is
+        stored, on its side: upload it as an asset first.
+        The asset carries the source's sound when it has any (Opus).
+
+        The subject is on a TRANSPARENT background, not on black or green:
+        the alpha rides as VP9's alpha side channel (`ALPHA_MODE=1`, profile
+        0, yuv420p), so
         decode it with libvpx (`ffmpeg -c:v libvpx-vp9 -i matte.webm ...
         -pix_fmt rgba`); ffmpeg's built-in `vp9` decoder drops the alpha.
         Colour under fully transparent pixels is the source's own background,
