@@ -21,7 +21,7 @@ uuid = { version = "1", features = ["serde", "v4"] }
 csv = "1"
 filetime = "0.2"
 fs2 = "0.4"
-md-5 = "0.10"
+md-5 = "0.11"
 quick-xml = "0.37"
 sha1 = "0.10"
 sha2 = "0.10"
