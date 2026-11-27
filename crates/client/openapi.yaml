@@ -2343,13 +2343,23 @@ paths:
         The asset (`mime_type` `video/webm`) keeps the source's frame rate
         and length. A clip stored turned (a phone's portrait video: stored
         1920x1080 with a display rotation) is sent to the model as an upright
-        copy when it is a `source_asset_id` of up to 1920x1080 pixels (either
-        way round) and at most a minute at 60 fps, so its cut-out is upright
-        at the size players show the clip (1080x1920). A larger clip stored
-        turned (4K, or long slow motion) is sent as it is stored and may come
-        back on its side; the job's `warnings` say so. A `source_url` is
-        passed on unread, so a turned file sent that way comes back as it is
-        stored, on its side: upload it as an asset first.
+        copy when it is a `source_asset_id`, so its cut-out is upright at the
+        size players show the clip (1080x1920). A clip of up to 1920x1080
+        pixels (either way round) and at most a minute at 60 fps is turned
+        while the request is answered. A larger one (4K, or slow motion) is
+        turned by a separate job first: the job answers `queued` with
+        `status_detail: "turning_upright"` while it is turned, which takes a
+        few minutes (about ten for a minute of 4K at 60 fps), and then runs as
+        usual. If the upright copy cannot be made within 15 minutes, the clip
+        is sent as it is stored and may come back on its side; the job's
+        `warnings` say so (not while the clip is being turned). A clip stored
+        under another account (an organization teammate's upload) is sent as
+        it is at once, with the same kind of warning. A job still waiting 20
+        minutes after it was accepted fails with `failure.code: "timeout"`
+        and its credits refunded. The price and the credit hold are the same
+        either way. A `source_url` is passed on unread, so a turned file sent that
+        way comes back as it is stored, on its side: upload it as an asset
+        first.
         The asset carries the source's sound when it has any (Opus).
 
         The subject is on a TRANSPARENT background, not on black or green:
@@ -17693,8 +17703,8 @@ components:
           type: string
           nullable: true
           description: >-
-            Machine-readable refinement of a non-terminal status. "provider_down" marks a queued job parked because its model provider is temporarily unavailable; the job resumes automatically when the provider recovers. "upstream_at_capacity" marks a queued job waiting for a free slot because the provider is at its ceiling for simultaneous generations; the provider is healthy and the job submits automatically as in-flight renders finish. Both are non-terminal and neither is an error: the job is still going to run, and the credit hold is not settled while it waits. "making_again" marks a queued or running job on its one automatic second run: the first run failed on NOLGIA's side or the model provider's, the account had not had a job succeed yet, and the same request is being run once more on the same job and the same credit hold. Nothing is charged for the failed run; the job is charged once, only if the second run delivers. If the second run fails too, the job fails with `failure.made_again: true`. Treat any unrecognized value as a plain queued or running job.
-          examples: ['provider_down', 'upstream_at_capacity', 'making_again']
+            Machine-readable refinement of a non-terminal status. "provider_down" marks a queued job parked because its model provider is temporarily unavailable; the job resumes automatically when the provider recovers. "upstream_at_capacity" marks a queued job waiting for a free slot because the provider is at its ceiling for simultaneous generations; the provider is healthy and the job submits automatically as in-flight renders finish. Both are non-terminal and neither is an error: the job is still going to run, and the credit hold is not settled while it waits. "turning_upright" marks a queued video background removal whose clip is stored on its side (a phone's portrait video) and too large to turn while the request is answered: a separate job is turning it upright first, which takes a few minutes, and the job then runs on the upright copy (or, after 15 minutes without one, on the clip as it is, with a `warnings` entry). The credit hold is the same as for any job and is not settled while it waits; a job still waiting 20 minutes after it was accepted fails, refunded. "making_again" marks a queued or running job on its one automatic second run: the first run failed on NOLGIA's side or the model provider's, the account had not had a job succeed yet, and the same request is being run once more on the same job and the same credit hold. Nothing is charged for the failed run; the job is charged once, only if the second run delivers. If the second run fails too, the job fails with `failure.made_again: true`. Treat any unrecognized value as a plain queued or running job.
+          examples: ['provider_down', 'upstream_at_capacity', 'turning_upright', 'making_again']
         status_message:
           type: string
           nullable: true
